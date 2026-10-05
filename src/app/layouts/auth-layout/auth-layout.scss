@@ -1,0 +1,22 @@
+.auth {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: var(--space-5);
+  min-height: 100vh;
+  padding: var(--space-5) var(--space-4);
+
+  &__brand {
+    font-family: var(--font-heading);
+    font-size: var(--text-2xl);
+    font-weight: var(--weight-bold);
+    color: var(--color-primary);
+    text-decoration: none;
+  }
+
+  &__panel {
+    width: 100%;
+    max-width: 420px;
+    box-shadow: var(--shadow-md);
+  }
+}

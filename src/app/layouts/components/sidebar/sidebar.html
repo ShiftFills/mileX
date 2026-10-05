@@ -1,0 +1,12 @@
+<nav class="sidebar" [attr.aria-label]="title() || 'Section'">
+  @if (title()) {
+    <h2 class="sidebar__title">{{ title() }}</h2>
+  }
+  <ul>
+    @for (link of links(); track link.path) {
+      <li>
+        <a [routerLink]="link.path" routerLinkActive="is-active">{{ link.label }}</a>
+      </li>
+    }
+  </ul>
+</nav>

@@ -1,0 +1,15 @@
+@use 'mixins';
+
+.account {
+  display: grid;
+  gap: var(--space-5);
+
+  @include mixins.up(md) {
+    grid-template-columns: var(--sidebar-width) 1fr;
+    align-items: start;
+  }
+
+  &__sidebar {
+    padding: var(--space-4);
+  }
+}
