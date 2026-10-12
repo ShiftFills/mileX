@@ -1,0 +1,141 @@
+<header class="store-header">
+  <div class="store-header__utility">
+    <div class="store-header__inner">
+      <span class="store-header__benefit">
+        <img src="/images/free-shipping.svg" alt="" />
+        Free Shipping on orders above ₹999
+      </span>
+      <span class="store-header__benefit">
+        <img src="/images/easy-return.svg" alt="" />
+        Easy Returns
+      </span>
+      <span class="store-header__benefit">
+        <img src="/images/secure-payments.svg" alt="" />
+        Secure Payments
+      </span>
+      <nav class="store-header__utility-nav" aria-label="Customer support">
+        <div class="store-header__support" (keydown.escape)="closeSupportMenu()">
+          <button
+            class="store-header__support-trigger"
+            type="button"
+            aria-haspopup="menu"
+            aria-controls="support-menu"
+            [attr.aria-expanded]="supportMenuOpen()"
+            (click)="toggleSupportMenu()"
+          >
+            Help &amp; Support
+            <span class="store-header__support-chevron" [class.is-open]="supportMenuOpen()" aria-hidden="true"></span>
+          </button>
+          @if (supportMenuOpen()) {
+            <div class="store-header__support-menu" id="support-menu" role="menu">
+              <a role="menuitem" [routerLink]="routes.support" (click)="closeSupportMenu()">Visit Help Center</a>
+            </div>
+          }
+        </div>
+        <a [routerLink]="routes.orders"><img src="/images/track-order.svg" alt="" />Track Order</a>
+        <a [routerLink]="routes.sell"><img src="/images/selllOnMilex.svg" alt="" />Sell on Milex</a>
+      </nav>
+    </div>
+  </div>
+
+  <div class="store-header__main">
+    <div class="store-header__inner">
+      <a class="store-header__brand" routerLink="/" aria-label="MileX home">
+        <img src="/images/Link%20-%20Brand%20Logo.svg" alt="MileX" />
+      </a>
+      <app-search-box
+        class="store-header__search"
+        name="q"
+        inputId="store-search"
+        ariaLabel="Search products"
+        placeholder="Search for products, brands and more..."
+        [value]="searchTerm()"
+        [buttonVariant]="'accent'"
+        [buttonSize]="'normal'"
+        [iconOnly]="true"
+        (changed)="searchTerm.set($event)"
+        (submitted)="search($event)"
+      />
+      <nav class="store-header__actions" aria-label="Account and shopping">
+        <div class="store-header__account" (keydown.escape)="closeAccountMenu()">
+          <button
+            class="store-header__account-trigger"
+            type="button"
+            aria-haspopup="menu"
+            aria-controls="account-menu"
+            [attr.aria-expanded]="accountMenuOpen()"
+            (click)="toggleAccountMenu()"
+          >
+            <img src="/images/login.svg" alt="" />
+            <span class="store-header__account-label">{{ auth.isAuthenticated() ? 'Account' : 'Login' }}</span>
+            <span class="store-header__account-chevron" [class.is-open]="accountMenuOpen()" aria-hidden="true"></span>
+          </button>
+          @if (accountMenuOpen()) {
+            <div class="store-header__account-menu" id="account-menu" role="menu">
+              @if (auth.isAuthenticated()) {
+                <a role="menuitem" [routerLink]="routes.account" (click)="closeAccountMenu()">My account</a>
+                <a role="menuitem" [routerLink]="routes.orders" (click)="closeAccountMenu()">My orders</a>
+                <a role="menuitem" [routerLink]="routes.wishlist" (click)="closeAccountMenu()">Wishlist</a>
+              } @else {
+                <a role="menuitem" [routerLink]="routes.login" (click)="closeAccountMenu()">Login</a>
+                <a role="menuitem" [routerLink]="routes.register" (click)="closeAccountMenu()">Register</a>
+              }
+            </div>
+          }
+        </div>
+        <a [routerLink]="routes.wishlist" aria-label="Wishlist">
+          <img class="store-header__wishlist-icon" src="/images/wishlist.svg" alt="" />
+          <span>Wishlist</span>
+        </a>
+        <a
+          class="store-header__cart-link"
+          [routerLink]="routes.cart"
+          [attr.aria-label]="'Cart, ' + cart.count() + (cart.count() === 1 ? ' item' : ' items')"
+        >
+          <span class="store-header__cart-icon">
+            <img src="/images/cart.svg" alt="" />
+            @if (cart.count()) {
+              <small>{{ cart.count() }}</small>
+            }
+          </span>
+          <span class="store-header__cart-label">Cart</span>
+        </a>
+      </nav>
+    </div>
+  </div>
+
+  <nav
+    class="store-header__categories"
+    aria-label="Shop categories"
+    (keydown.escape)="closeMoreMenu()"
+  >
+    <div class="store-header__inner" (wheel)="closeMoreMenu()" (touchmove)="closeMoreMenu()">
+      <a class="store-header__all-categories" [routerLink]="routes.products">
+        <span aria-hidden="true">☰</span> All Categories
+      </a>
+      <a routerLink="/" routerLinkActive="is-active" [routerLinkActiveOptions]="{ exact: true }">Home</a>
+      <a [routerLink]="routes.products" [queryParams]="{ category: 'fashion' }">Fashion</a>
+      <a [routerLink]="routes.products" [queryParams]="{ category: 'electronics' }">Electronics</a>
+      <a [routerLink]="routes.products" [queryParams]="{ category: 'home-living' }">Home &amp; Living</a>
+      <a [routerLink]="routes.products" [queryParams]="{ category: 'beauty' }">Beauty &amp; Personal Care</a>
+      <a [routerLink]="routes.products" [queryParams]="{ category: 'sports' }">Sports &amp; Fitness</a>
+      <a [routerLink]="routes.products" [queryParams]="{ category: 'toys-baby' }">Toys &amp; Baby</a>
+      <button
+        class="store-header__more-trigger"
+        type="button"
+        aria-haspopup="menu"
+        aria-controls="more-menu"
+        [attr.aria-expanded]="moreMenuOpen()"
+        (click)="toggleMoreMenu()"
+      >
+        More
+        <span class="store-header__support-chevron" [class.is-open]="moreMenuOpen()" aria-hidden="true"></span>
+      </button>
+    </div>
+    @if (moreMenuOpen()) {
+      <div class="store-header__account-menu store-header__more-menu" id="more-menu" role="menu">
+        <a role="menuitem" [routerLink]="routes.products" (click)="closeMoreMenu()">Browse all products</a>
+      </div>
+    }
+  </nav>
+</header>

@@ -6,16 +6,40 @@ import { AuthLayout } from '@layouts/auth-layout/auth-layout';
 import { MainLayout } from '@layouts/main-layout/main-layout';
 
 export const routes: Routes = [
+  {
+    path: '',
+    pathMatch: 'full',
+    title: 'MileX',
+    loadChildren: () => import('@features/home/home.routes').then((m) => m.HOME_ROUTES),
+  },
   // Storefront shell (header + footer)
   {
     path: '',
     component: MainLayout,
     children: [
       {
-        path: '',
-        pathMatch: 'full',
-        title: 'MileX',
-        loadChildren: () => import('@features/home/home.routes').then((m) => m.HOME_ROUTES),
+        path: 'help',
+        title: 'Help & Support',
+        loadComponent: () =>
+          import('@features/home/pages/storefront-info/storefront-info').then(
+            (m) => m.StorefrontInfo,
+          ),
+        data: {
+          heading: 'Help & Support',
+          subtitle: 'Support information and help resources will be available here soon.',
+        },
+      },
+      {
+        path: 'sell',
+        title: 'Sell on MileX',
+        loadComponent: () =>
+          import('@features/home/pages/storefront-info/storefront-info').then(
+            (m) => m.StorefrontInfo,
+          ),
+        data: {
+          heading: 'Sell on MileX',
+          subtitle: 'Seller registration and tools will be available here soon.',
+        },
       },
       {
         path: 'products',
@@ -23,12 +47,17 @@ export const routes: Routes = [
           import('@features/products/products.routes').then((m) => m.PRODUCT_ROUTES),
       },
       {
+        path: 'wishlist',
+        title: 'Wishlist',
+        loadComponent: () =>
+          import('@features/products/pages/wishlist/wishlist').then((m) => m.Wishlist),
+      },
+      {
         path: 'cart',
         loadChildren: () => import('@features/cart/cart.routes').then((m) => m.CART_ROUTES),
       },
       {
         path: 'checkout',
-        canActivate: [authGuard],
         loadChildren: () =>
           import('@features/checkout/checkout.routes').then((m) => m.CHECKOUT_ROUTES),
       },

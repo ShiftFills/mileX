@@ -1,8 +1,9 @@
-import { Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component } from '@angular/core';
 
 @Component({
-  imports: [],
-  selector: 'app-card',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'card' },
+  selector: 'app-card, [appCard]',
   styleUrl: './card.scss',
   templateUrl: './card.html',
 })

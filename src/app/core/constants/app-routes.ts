@@ -8,4 +8,7 @@ export const APP_ROUTES = {
   account: '/account',
   login: '/auth/login',
   register: '/auth/register',
+  wishlist: '/wishlist',
+  support: '/help',
+  sell: '/sell',
 } as const;

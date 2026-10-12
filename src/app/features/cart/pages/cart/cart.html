@@ -1,0 +1,58 @@
+<main class="cart-page container">
+  <div class="cart-page__heading">
+    <app-page-header
+      title="Your shopping cart"
+      [subtitle]="cart.count() + (cart.count() === 1 ? ' item in your cart' : ' items in your cart')"
+      [compact]="true"
+    />
+    <a class="btn btn--secondary" [routerLink]="routes.products">Continue shopping</a>
+  </div>
+
+  @if (cart.items().length) {
+    <div class="cart-page__layout">
+      <section appCard class="cart-page__items" aria-label="Cart items">
+        @for (item of cart.items(); track item.product.id) {
+          <article class="cart-item">
+            <a class="cart-item__image" [routerLink]="[routes.products, item.product.id]">
+              <img [src]="item.product.imageUrl" [alt]="item.product.name" />
+            </a>
+            <div class="cart-item__details">
+              <a [routerLink]="[routes.products, item.product.id]"><h2>{{ item.product.name }}</h2></a>
+              <p>{{ item.product.description }}</p>
+              <app-button
+                class="cart-item__remove"
+                variant="link"
+                (clicked)="cart.remove(item.product.id)"
+              >Remove</app-button>
+            </div>
+            <label class="cart-item__quantity">
+              <span>Qty</span>
+              <app-input
+                type="number"
+                min="1"
+                [value]="item.quantity"
+                (valueChange)="setQuantity(item.product.id, $event)"
+              />
+            </label>
+            <strong class="cart-item__price">{{ item.product.price * item.quantity | currency: 'INR' : 'symbol' : '1.0-0' }}</strong>
+          </article>
+        }
+      </section>
+
+      <aside appCard class="cart-summary">
+        <h2>Order summary</h2>
+        <p><span>Subtotal</span><strong>{{ cart.subtotal() | currency: 'INR' : 'symbol' : '1.0-0' }}</strong></p>
+        <p><span>Shipping</span><strong>{{ cart.shippingCost() | currency: 'INR' : 'symbol' : '1.0-0' }}</strong></p>
+        <p class="cart-summary__total"><span>Total</span><strong>{{ cart.total() | currency: 'INR' : 'symbol' : '1.0-0' }}</strong></p>
+        <a class="btn cart-summary__checkout" [routerLink]="routes.checkout">Proceed to checkout</a>
+        <small>Demo store: orders are not sent to a payment provider.</small>
+      </aside>
+    </div>
+  } @else {
+    <section class="cart-page__empty">
+      <h2>Your cart is empty</h2>
+      <p>Browse the catalog to find something you love.</p>
+      <a class="btn btn-sm" [routerLink]="routes.products">Browse products</a>
+    </section>
+  }
+</main>

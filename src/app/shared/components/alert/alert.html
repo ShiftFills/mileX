@@ -1,1 +1,10 @@
-<p>alert works!</p>
+<div
+  class="alert"
+  [class.alert--success]="tone() === 'success'"
+  [class.alert--warning]="tone() === 'warning'"
+  [class.alert--danger]="tone() === 'danger'"
+  [attr.role]="role()"
+  aria-live="polite"
+>
+  <ng-content />
+</div>

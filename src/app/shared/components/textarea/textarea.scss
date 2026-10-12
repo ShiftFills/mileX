@@ -1,0 +1,17 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+textarea {
+  width: 100%;
+  min-width: 0;
+  resize: vertical;
+}
+
+.form-control--compact {
+  min-height: 2rem;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}

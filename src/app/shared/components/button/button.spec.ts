@@ -18,4 +18,20 @@ describe('Button', () => {
   it('should create', () => {
     expect(component).toBeTruthy();
   });
+
+  it('forwards clicks from its native button', () => {
+    let clicked = false;
+    component.clicked.subscribe(() => (clicked = true));
+    fixture.nativeElement.querySelector('button').click();
+    expect(clicked).toBe(true);
+  });
+
+  it('applies the requested button type and disabled state', () => {
+    fixture.componentRef.setInput('type', 'submit');
+    fixture.componentRef.setInput('disabled', true);
+    fixture.detectChanges();
+    const button = fixture.nativeElement.querySelector('button') as HTMLButtonElement;
+    expect(button.type).toBe('submit');
+    expect(button.disabled).toBe(true);
+  });
 });

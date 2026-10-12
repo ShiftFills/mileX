@@ -3,6 +3,7 @@
 .account {
   display: grid;
   gap: var(--space-5);
+  padding-block: var(--space-5);
 
   @include mixins.up(md) {
     grid-template-columns: var(--sidebar-width) 1fr;

@@ -1,0 +1,32 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+input {
+  width: 100%;
+  min-width: 0;
+}
+
+:host(.search-box__input) {
+  flex: 1 1 auto;
+  width: auto;
+}
+
+:host(.search-box__input) input {
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+:host(.search-box__input) input:focus {
+  box-shadow: none;
+}
+
+.form-control--compact {
+  min-height: 2rem;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}

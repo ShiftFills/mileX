@@ -1,0 +1,16 @@
+:host {
+  display: inline-block;
+}
+
+label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: inherit;
+  cursor: pointer;
+}
+
+input {
+  margin: 0;
+  accent-color: var(--color-primary);
+}

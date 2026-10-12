@@ -1,1 +1,13 @@
-<p>select works!</p>
+<select
+  class="form-select"
+  [class.form-select--compact]="size() === 'compact'"
+  [id]="inputId()"
+  [name]="name()"
+  [value]="value()"
+  [required]="required()"
+  [disabled]="disabled()"
+  [attr.aria-label]="ariaLabel()"
+  (change)="valueChange.emit($event)"
+>
+  <ng-content />
+</select>

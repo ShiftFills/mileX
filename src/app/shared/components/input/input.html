@@ -1,1 +1,18 @@
-<p>input works!</p>
+<input
+  class="form-control"
+  [class.form-control--compact]="size() === 'compact'"
+  [id]="inputId()"
+  [name]="name()"
+  [type]="type()"
+  [placeholder]="placeholder()"
+  [value]="value()"
+  [autocomplete]="autocomplete() ?? ''"
+  [attr.min]="min()"
+  [attr.max]="max()"
+  [attr.step]="step()"
+  [required]="required()"
+  [disabled]="disabled()"
+  [attr.aria-label]="ariaLabel()"
+  (input)="valueInput.emit($event)"
+  (change)="valueChange.emit($event)"
+/>

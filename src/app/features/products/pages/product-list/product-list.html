@@ -1,0 +1,59 @@
+<section class="catalog container-fluid">
+  <div class="catalog__heading">
+    <app-page-header
+      class="catalog__page-heading"
+      title="Products"
+      [subtitle]="query().get('q') ? 'Search results for “' + query().get('q') + '”' : 'Find the right product for you'"
+      [compact]="true"
+    />
+    <a [routerLink]="routes.wishlist">Wishlist <span aria-hidden="true">♡</span></a>
+  </div>
+
+  <div class="catalog__tools">
+    <app-search-box
+      name="q"
+      inputId="catalog-search"
+      ariaLabel="Search products"
+      placeholder="Search products..."
+      [value]="query().get('q') ?? ''"
+      (submitted)="search($event)"
+    />
+    <label>
+      Category
+      <app-select [value]="query().get('category') ?? ''" (valueChange)="setCategory($event)">
+        <option value="">All categories</option>
+        <option value="fashion">Fashion</option>
+        <option value="home-living">Home &amp; Living</option>
+        <option value="electronics">Electronics</option>
+      </app-select>
+    </label>
+    <label>
+      Sort by
+      <app-select [value]="sortBy()" (valueChange)="updateSort($event)">
+        <option value="featured">Featured</option>
+        <option value="price-low">Price: low to high</option>
+        <option value="price-high">Price: high to low</option>
+        <option value="name">Name</option>
+      </app-select>
+    </label>
+  </div>
+
+  <p class="catalog__count">{{ products().length }} products <span>· Demo catalog, not connected to a store API</span></p>
+  @if (products().length) {
+    <div class="catalog__grid">
+      @for (product of products(); track product.id) {
+        <app-product-card
+          [product]="product"
+          [wishlisted]="wishlist.has(product.id)"
+          (wishlistToggle)="toggleWishlist($event)"
+        />
+      }
+    </div>
+  } @else {
+    <div class="catalog__empty">
+      <h2>No matching products</h2>
+      <p>Try a different search or category.</p>
+      <a class="btn btn-sm" [routerLink]="routes.products">Clear filters</a>
+    </div>
+  }
+</section>

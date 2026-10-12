@@ -7,4 +7,8 @@ export interface Product {
   imageUrl: string;
   category: string;
   inStock: boolean;
+  originalPrice?: number;
+  discountLabel?: string;
+  rating?: number;
+  reviewCount?: string;
 }

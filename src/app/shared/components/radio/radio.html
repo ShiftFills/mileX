@@ -1,1 +1,11 @@
-<p>radio works!</p>
+<label>
+  <input
+    type="radio"
+    [name]="name()"
+    [value]="value()"
+    [checked]="checked()"
+    [disabled]="disabled()"
+    (change)="valueChange.emit($event)"
+  />
+  <ng-content />
+</label>

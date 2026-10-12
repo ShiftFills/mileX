@@ -1,0 +1,44 @@
+@if (product(); as item) {
+  <main class="product-detail container">
+    <app-breadcrumb class="product-detail__breadcrumb" ariaLabel="Breadcrumb">
+      <a [routerLink]="routes.products">Products</a><span aria-hidden="true">/</span><span>{{ item.name }}</span>
+    </app-breadcrumb>
+    <section appCard class="product-detail__layout">
+      <div class="product-detail__image">
+        <img [src]="item.imageUrl" [alt]="item.name" />
+      </div>
+      <div class="product-detail__info">
+        <app-badge class="product-detail__availability" [tone]="item.inStock ? 'success' : 'danger'">
+          {{ item.inStock ? 'In stock' : 'Out of stock' }}
+        </app-badge>
+        <h1>{{ item.name }}</h1>
+        @if (item.rating) {
+          <p class="product-detail__rating">★ {{ item.rating }} <span>({{ item.reviewCount }} reviews)</span></p>
+        }
+        <p class="product-detail__price">{{ item.price | currency: 'INR' : 'symbol' : '1.0-0' }}</p>
+        <p class="product-detail__description">{{ item.description }}</p>
+        <div class="product-detail__quantity">
+          <label for="product-quantity">Quantity</label>
+          <app-input inputId="product-quantity" type="number" min="1" ariaLabel="Quantity" [value]="quantity()" (valueChange)="updateQuantity($event)" />
+        </div>
+        <div class="product-detail__actions">
+          <app-button [disabled]="!item.inStock" (clicked)="addToCart()">Add to cart</app-button>
+          <app-button variant="secondary" [ariaPressed]="wishlist.has(item.id)" (clicked)="toggleWishlist()">
+            {{ wishlist.has(item.id) ? '♥ Saved' : '♡ Wishlist' }}
+          </app-button>
+        </div>
+        @if (addedToCart()) {
+          <app-alert class="product-detail__success" tone="success">
+            Added to cart. <a [routerLink]="routes.cart">View cart</a>
+          </app-alert>
+        }
+        <p class="product-detail__demo">Demo product data. No live inventory or product API is connected.</p>
+      </div>
+    </section>
+  </main>
+} @else {
+  <main class="container product-detail__empty">
+    <h1>Product not found</h1>
+    <a class="btn btn-sm" [routerLink]="routes.products">Back to products</a>
+  </main>
+}

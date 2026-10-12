@@ -1,0 +1,16 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+select {
+  width: 100%;
+  min-width: 0;
+}
+
+.form-select--compact {
+  min-height: 2rem;
+  padding: 0.35rem 1.8rem 0.35rem 0.6rem;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}

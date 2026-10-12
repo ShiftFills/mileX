@@ -1,1 +1,19 @@
-<p>button works!</p>
+<button
+  class="btn"
+  [class.btn--secondary]="variant() === 'secondary'"
+  [class.btn--accent]="variant() === 'accent'"
+  [class.btn-sm]="size() === 'small'"
+  [class.btn--plain]="variant() === 'plain'"
+  [class.btn--link]="variant() === 'link'"
+  [class.btn--icon]="variant() === 'icon'"
+  [type]="type()"
+  [disabled]="disabled()"
+  [attr.aria-label]="ariaLabel()"
+  [attr.aria-pressed]="ariaPressed()"
+  [attr.aria-expanded]="ariaExpanded()"
+  [attr.aria-haspopup]="ariaHaspopup()"
+  [attr.aria-controls]="ariaControls()"
+  (click)="clicked.emit($event)"
+>
+  <ng-content />
+</button>

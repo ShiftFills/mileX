@@ -1,0 +1,53 @@
+<main class="checkout container">
+  @if (placed()) {
+    <section appCard class="checkout__confirmation" role="status">
+      <h1>Demo order complete</h1>
+      <p>Your demo checkout was recorded locally. No payment was processed and no order was sent to a server.</p>
+      <a class="btn btn-sm" [routerLink]="routes.home">Return to MileX</a>
+    </section>
+  } @else if (!cart.items().length) {
+    <section appCard class="checkout__confirmation">
+      <h1>Your cart is empty</h1>
+      <p>Add products before continuing to checkout.</p>
+      <a class="btn btn-sm" [routerLink]="routes.products">Browse products</a>
+    </section>
+  } @else {
+    <div class="checkout__heading">
+      <app-page-header title="Checkout" subtitle="Delivery details and order review" [compact]="true" />
+    </div>
+    <div class="checkout__layout">
+      <form appCard class="checkout__form" (submit)="placeDemoOrder($event)">
+        <fieldset>
+          <legend>Shipping address</legend>
+          <div class="checkout__fields">
+            <label>Full name<app-input name="name" autocomplete="name" required /></label>
+            <label>Email<app-input name="email" type="email" autocomplete="email" required /></label>
+            <label>Phone<app-input name="phone" type="tel" autocomplete="tel" required /></label>
+            <label>Address<app-input name="address" autocomplete="street-address" required /></label>
+            <label>City<app-input name="city" autocomplete="address-level2" required /></label>
+            <label>Postal code<app-input name="postalCode" autocomplete="postal-code" required /></label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Payment method</legend>
+          <app-radio class="checkout__payment" name="payment" value="cod" [checked]="true">
+            Cash on delivery (demo)
+          </app-radio>
+          <p>No real payment will be collected.</p>
+        </fieldset>
+        <app-button type="submit">Place demo order</app-button>
+      </form>
+
+      <aside appCard class="checkout__summary">
+        <h2>Order summary</h2>
+        @for (item of cart.items(); track item.product.id) {
+          <p><span>{{ item.product.name }} × {{ item.quantity }}</span><strong>{{ item.product.price * item.quantity | currency: 'INR' : 'symbol' : '1.0-0' }}</strong></p>
+        }
+        <p><span>Subtotal</span><strong>{{ cart.subtotal() | currency: 'INR' : 'symbol' : '1.0-0' }}</strong></p>
+        <p><span>Shipping</span><strong>{{ cart.shippingCost() | currency: 'INR' : 'symbol' : '1.0-0' }}</strong></p>
+        <p class="checkout__total"><span>Total</span><strong>{{ cart.total() | currency: 'INR' : 'symbol' : '1.0-0' }}</strong></p>
+        <small>Demo catalog; taxes are not calculated.</small>
+      </aside>
+    </div>
+  }
+</main>

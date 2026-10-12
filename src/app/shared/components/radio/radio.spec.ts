@@ -12,6 +12,8 @@ describe('Radio', () => {
 
     fixture = TestBed.createComponent(Radio);
     component = fixture.componentInstance;
+    fixture.componentRef.setInput('name', 'payment');
+    fixture.componentRef.setInput('value', 'cash');
     await fixture.whenStable();
   });
 
