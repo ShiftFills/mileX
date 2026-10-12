@@ -5,7 +5,6 @@
 
 .storefront {
   min-height: 100vh;
-  padding-bottom: 1.5rem;
   background: var(--color-bg);
   color: var(--color-text);
 
@@ -235,7 +234,7 @@
 @media (min-width: 992px) {
   .promo__art--fashion {
     width: auto;
-    height: 85%;
+    height: 76%;
     max-width: none;
     max-height: none;
   }

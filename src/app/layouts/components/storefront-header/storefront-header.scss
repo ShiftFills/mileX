@@ -110,9 +110,8 @@
     }
   }
 
-  &__actions &__account-trigger img {
-    width: 1.1rem;
-    height: 1.1rem;
+  &__account-icon {
+    display: contents;
   }
 
   &__account-chevron {
@@ -354,6 +353,42 @@
     &__categories .store-header__inner > a,
     &__categories .store-header__more-trigger {
       padding-block: 0.9rem 0.7rem;
+    }
+  }
+}
+
+@media (min-width: 992px) {
+  .store-header__account-trigger,
+  .store-header__wishlist-link {
+    margin-top: 0.25rem;
+  }
+
+  .store-header__account-trigger {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+
+    &:hover,
+    &:active,
+    &:focus {
+      background: transparent;
+      box-shadow: none;
+    }
+  }
+
+  .store-header__account-icon {
+    display: grid;
+    flex: 0 0 auto;
+    place-items: center;
+    padding: 0.3125rem;
+    border-radius: 50%;
+    background: var(--color-bg);
+
+    img {
+      width: 1.1rem;
+      height: 1.1rem;
+      object-fit: contain;
     }
   }
 }

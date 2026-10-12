@@ -66,7 +66,9 @@
             [attr.aria-expanded]="accountMenuOpen()"
             (click)="toggleAccountMenu()"
           >
-            <img src="/images/login.svg" alt="" />
+            <span class="store-header__account-icon" aria-hidden="true">
+              <img src="/images/login.svg" alt="" />
+            </span>
             <span class="store-header__account-label">{{ auth.isAuthenticated() ? 'Account' : 'Login' }}</span>
             <span class="store-header__account-chevron" [class.is-open]="accountMenuOpen()" aria-hidden="true"></span>
           </button>
@@ -83,7 +85,7 @@
             </div>
           }
         </div>
-        <a [routerLink]="routes.wishlist" aria-label="Wishlist">
+        <a class="store-header__wishlist-link" [routerLink]="routes.wishlist" aria-label="Wishlist">
           <img class="store-header__wishlist-icon" src="/images/wishlist.svg" alt="" />
           <span>Wishlist</span>
         </a>
