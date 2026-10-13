@@ -14,5 +14,7 @@ export class Select {
   readonly disabled = input(false, { transform: booleanAttribute });
   readonly size = input<'normal' | 'compact'>('normal');
   readonly ariaLabel = input<string | null>(null);
+  readonly ariaInvalid = input<boolean | null>(null);
+  readonly ariaDescribedBy = input<string | null>(null);
   readonly valueChange = output<Event>();
 }

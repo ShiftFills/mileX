@@ -20,15 +20,11 @@
 
       <div class="deals__items row row-cols-2 row-cols-sm-3 row-cols-lg-5 g-0">
         @for (category of categories; track category.name) {
-          <a
-            class="deal-category col"
-            [routerLink]="routes.products"
-            [queryParams]="{ category: category.query }"
-          >
-            <img [src]="category.image" [alt]="category.name" loading="lazy" decoding="async" />
-            <h2>{{ category.name }}</h2>
-            <span class="deal-category__discount">{{ category.discount }}</span>
-          </a>
+        <a class="deal-category col" [routerLink]="routes.products" [queryParams]="{ category: category.query }">
+          <img [src]="category.image" [alt]="category.name" loading="lazy" decoding="async" />
+          <h2>{{ category.name }}</h2>
+          <span class="deal-category__discount">{{ category.discount }}</span>
+        </a>
         }
       </div>
     </section>
@@ -42,7 +38,8 @@
             Explore Fashion <span aria-hidden="true">→</span>
           </a>
         </div>
-        <img class="promo__art promo__art--fashion" src="/images/trendy-style.svg" alt="" loading="lazy" decoding="async" />
+        <img class="promo__art promo__art--fashion" src="/images/trendy-style.svg" alt="" loading="lazy"
+          decoding="async" />
       </article>
 
       <article class="promo promo--gadgets">

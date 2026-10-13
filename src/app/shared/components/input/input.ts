@@ -27,6 +27,8 @@ export class Input {
   readonly required = input(false, { transform: booleanAttribute });
   readonly disabled = input(false, { transform: booleanAttribute });
   readonly ariaLabel = input<string | null>(null);
+  readonly ariaInvalid = input<boolean | null>(null);
+  readonly ariaDescribedBy = input<string | null>(null);
   readonly valueInput = output<Event>();
   readonly valueChange = output<Event>();
 }

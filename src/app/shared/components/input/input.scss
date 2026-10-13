@@ -24,9 +24,46 @@ input {
   box-shadow: none;
 }
 
+:host(.search-box__input) input::placeholder {
+  font-size: 0.9rem;
+}
+
+@media (max-width: 575.98px) {
+  :host(.search-box__input) input {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  :host(.search-box__input) input::placeholder {
+    white-space: nowrap;
+  }
+}
+
 .form-control--compact {
   min-height: 2rem;
   padding: 0.35rem 0.6rem;
   font-size: 0.8rem;
   line-height: 1.35;
+}
+
+:host(.seller-field__input) {
+  height: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+:host(.seller-field__input) input {
+  height: 100%;
+  padding: 0.35rem 0.6rem 0.35rem 1.7rem;
+  border: 0;
+  background: transparent;
+  color: #283b55;
+  font-size: 0.625rem;
+  box-shadow: none;
+}
+
+:host(.seller-field__input) input::placeholder {
+  color: #a4b3c8;
+  opacity: 1;
 }

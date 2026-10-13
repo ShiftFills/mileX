@@ -298,8 +298,8 @@
   }
 
   &__more-menu {
-    top: calc(100% + 0.25rem);
-    right: max(calc((100vw - 1240px) / 2), 1rem);
+    position: fixed;
+    right: auto;
   }
 
   &__all-categories {
@@ -317,16 +317,19 @@
   .store-header {
     &__utility {
       font-size: 0.76rem;
-    }
 
-    &__utility nav {
-      gap: 0.8rem;
-    }
+      .store-header__inner {
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 0.35rem 0.75rem;
+        padding-block: 0.35rem;
+      }
 
-    &__benefit {
-      &:nth-of-type(2),
-      &:nth-of-type(3) {
-        display: none;
+      nav {
+        flex: 0 0 100%;
+        justify-content: flex-end;
+        gap: 0.8rem;
+        margin-left: 0;
       }
     }
 
@@ -402,15 +405,7 @@
     &__utility {
       font-size: 0.7rem;
 
-      .store-header__inner {
-        flex-wrap: wrap;
-        justify-content: space-between;
-        gap: 0.15rem 0.4rem;
-        padding-block: 0.15rem;
-      }
-
       nav {
-        flex-basis: 100%;
         justify-content: space-around;
         gap: 0.35rem;
         font-size: 0.62rem;

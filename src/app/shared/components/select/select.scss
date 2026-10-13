@@ -14,3 +14,23 @@ select {
   font-size: 0.8rem;
   line-height: 1.35;
 }
+
+:host(.seller-field__input) {
+  height: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+:host(.seller-field__input) select {
+  height: 100%;
+  padding: 0.35rem 1.8rem 0.35rem 1.7rem;
+  border: 0;
+  background-color: transparent;
+  color: #283b55;
+  font-size: 0.625rem;
+  box-shadow: none;
+}
+
+:host(.seller-field__input) select:invalid {
+  color: #a4b3c8;
+}

@@ -7,6 +7,14 @@ import { MainLayout } from '@layouts/main-layout/main-layout';
 
 export const routes: Routes = [
   {
+    path: 'sell',
+    title: 'Sell on MileX',
+    loadComponent: () =>
+      import('@features/seller/pages/seller-onboarding/seller-onboarding').then(
+        (m) => m.SellerOnboarding,
+      ),
+  },
+  {
     path: '',
     pathMatch: 'full',
     title: 'MileX',
@@ -27,18 +35,6 @@ export const routes: Routes = [
         data: {
           heading: 'Help & Support',
           subtitle: 'Support information and help resources will be available here soon.',
-        },
-      },
-      {
-        path: 'sell',
-        title: 'Sell on MileX',
-        loadComponent: () =>
-          import('@features/home/pages/storefront-info/storefront-info').then(
-            (m) => m.StorefrontInfo,
-          ),
-        data: {
-          heading: 'Sell on MileX',
-          subtitle: 'Seller registration and tools will be available here soon.',
         },
       },
       {

@@ -1,15 +1,15 @@
 <header class="store-header">
   <div class="store-header__utility">
-    <div class="store-header__inner">
-      <span class="store-header__benefit">
+    <div class="store-header__inner d-flex flex-wrap">
+      <span class="store-header__benefit flex-shrink-0">
         <img src="/images/free-shipping.svg" alt="" />
         Free Shipping on orders above ₹999
       </span>
-      <span class="store-header__benefit">
+      <span class="store-header__benefit flex-shrink-0">
         <img src="/images/easy-return.svg" alt="" />
         Easy Returns
       </span>
-      <span class="store-header__benefit">
+      <span class="store-header__benefit flex-shrink-0">
         <img src="/images/secure-payments.svg" alt="" />
         Secure Payments
       </span>
@@ -123,6 +123,7 @@
       <a [routerLink]="routes.products" [queryParams]="{ category: 'sports' }">Sports &amp; Fitness</a>
       <a [routerLink]="routes.products" [queryParams]="{ category: 'toys-baby' }">Toys &amp; Baby</a>
       <button
+        #moreTrigger
         class="store-header__more-trigger"
         type="button"
         aria-haspopup="menu"
@@ -135,7 +136,13 @@
       </button>
     </div>
     @if (moreMenuOpen()) {
-      <div class="store-header__account-menu store-header__more-menu" id="more-menu" role="menu">
+      <div
+        class="store-header__account-menu store-header__more-menu"
+        id="more-menu"
+        role="menu"
+        [style.left.px]="moreMenuPosition().left"
+        [style.top.px]="moreMenuPosition().top"
+      >
         <a role="menuitem" [routerLink]="routes.products" (click)="closeMoreMenu()">Browse all products</a>
       </div>
     }

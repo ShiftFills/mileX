@@ -16,6 +16,8 @@ export class Textarea {
   readonly disabled = input(false);
   readonly size = input<'normal' | 'compact'>('normal');
   readonly ariaLabel = input<string | null>(null);
+  readonly ariaInvalid = input<boolean | null>(null);
+  readonly ariaDescribedBy = input<string | null>(null);
   readonly valueInput = output<Event>();
   readonly valueChange = output<Event>();
 }
