@@ -1,0 +1,82 @@
+<main class="admin-content products-page">
+  <header class="products-heading">
+    <div>
+      <h1>All Products</h1>
+      <p>Manage your product inventory, add new products and update details.</p>
+    </div>
+    <app-button variant="accent" size="small" (clicked)="addProduct()">Add Product</app-button>
+  </header>
+
+  <section appCard class="products-panel" aria-label="Product inventory">
+    <div class="product-tabs" role="tablist" aria-label="Filter products by status">
+      <button type="button" role="tab" [attr.aria-selected]="statusTab() === 'All'" [class.is-active]="statusTab() === 'All'" (click)="setStatus('All')">All Products <span>(128)</span></button>
+      <button type="button" role="tab" [attr.aria-selected]="statusTab() === 'Active'" [class.is-active]="statusTab() === 'Active'" (click)="setStatus('Active')">Active <span>(112)</span></button>
+      <button type="button" role="tab" [attr.aria-selected]="statusTab() === 'Inactive'" [class.is-active]="statusTab() === 'Inactive'" (click)="setStatus('Inactive')">Inactive <span>(16)</span></button>
+    </div>
+
+    <div class="products-tools">
+      <label class="products-search">
+        <img src="/images/search-icon.svg" alt="" aria-hidden="true" />
+        <app-input class="admin-list-search-control" inputId="admin-product-search" name="productSearch" placeholder="Search by product name, sku, brand..." size="compact" [value]="query()" (valueInput)="setQuery($event)" />
+        <span class="visually-hidden">Search products</span>
+      </label>
+      <div class="products-filters">
+        <label class="visually-hidden" for="admin-product-category">Filter by category</label>
+        <app-select class="admin-list-filter" inputId="admin-product-category" name="category" size="compact" [value]="category()" (valueChange)="setCategory($event)">
+          <option value="">All Categories</option>
+          <option value="Electronics">Electronics</option>
+          <option value="Fashion">Fashion</option>
+          <option value="Home &amp; Living">Home &amp; Living</option>
+        </app-select>
+        <label class="visually-hidden" for="admin-product-brand">Filter by brand</label>
+        <app-select class="admin-list-filter" inputId="admin-product-brand" name="brand" size="compact" [value]="brand()" (valueChange)="setBrand($event)">
+          <option value="">All Brands</option>
+          <option value="Samsung">Samsung</option>
+        </app-select>
+        <label class="visually-hidden" for="admin-product-status">Filter by status</label>
+        <app-select class="admin-list-filter" inputId="admin-product-status" name="status" size="compact" [value]="statusTab()" (valueChange)="statusChange($event)">
+          <option value="All">Status</option>
+          <option value="Active">Active</option>
+          <option value="Inactive">Inactive</option>
+        </app-select>
+      </div>
+    </div>
+
+    <app-table
+      class="products-table-wrap"
+      [columns]="tableColumns()"
+      [rows]="visibleRows()"
+      emptyMessage="No products match these filters."
+    />
+
+    <ng-template #selectAllHeader>
+      <app-checkbox [checked]="allVisibleSelected()" ariaLabel="Select all products on this page" (checkedChange)="toggleAllVisible($event)" />
+    </ng-template>
+    <ng-template #selectRowCell let-product>
+      <app-checkbox [checked]="selectedIds().has(product.id)" [ariaLabel]="'Select ' + product.name" (checkedChange)="toggleSelected(product.id, $event)" />
+    </ng-template>
+    <ng-template #imageCell let-product>
+      <img class="product-thumbnail" [src]="product.image" [alt]="product.name" />
+    </ng-template>
+    <ng-template #statusCell let-product>
+      <app-badge tone="success" size="compact">{{ product.status }}</app-badge>
+    </ng-template>
+    <ng-template #actionCell let-product>
+      <div class="product-row-actions">
+        <app-button variant="outline" size="compact" (clicked)="variants()">Variant</app-button>
+        <button class="more-actions" type="button" [attr.aria-label]="'More actions for ' + product.name">⋮</button>
+      </div>
+    </ng-template>
+    <footer class="products-footer">
+      <p>Showing {{ rangeStart() }}–{{ rangeEnd() }} of {{ filteredRows().length }} products</p>
+      <nav class="products-pagination" aria-label="Product pages">
+        <button type="button" aria-label="Previous page" [disabled]="page() === 1" (click)="setPage(page() - 1)">‹</button>
+        @for (pageNumber of pageNumbers(); track pageNumber) {
+          <button type="button" [class.is-active]="page() === pageNumber" [attr.aria-current]="page() === pageNumber ? 'page' : null" (click)="setPage(pageNumber)">{{ pageNumber }}</button>
+        }
+        <span aria-hidden="true">…</span>
+        <button type="button" aria-label="Next page" [disabled]="page() === pageCount()" (click)="setPage(page() + 1)">›</button>
+      </nav>
+    </footer>
+  </section>
+</main>

@@ -1,11 +1,28 @@
-<nav class="sidebar" [attr.aria-label]="title() || 'Section'">
+<nav class="sidebar" [class.sidebar--admin]="variant() === 'admin'" [attr.aria-label]="title() || 'Section'">
   @if (title()) {
     <h2 class="sidebar__title">{{ title() }}</h2>
   }
   <ul>
     @for (link of links(); track link.path) {
       <li>
-        <a [routerLink]="link.path" routerLinkActive="is-active">{{ link.label }}</a>
+        <a [routerLink]="link.path" routerLinkActive="is-active" [routerLinkActiveOptions]="{ exact: !link.children?.length }">
+          @if (link.icon) {
+            <svg class="sidebar__icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              @switch (link.icon) {
+                @case ('dashboard') { <rect x="2" y="2" width="4" height="4" rx=".7" /><rect x="10" y="2" width="4" height="4" rx=".7" /><rect x="2" y="10" width="4" height="4" rx=".7" /><rect x="10" y="10" width="4" height="4" rx=".7" /> }
+                @case ('products') { <circle cx="8" cy="8" r="5.5" /><path d="M5 8h6M8 5v6" /> }
+              }
+            </svg>
+          }
+          <span>{{ link.label }}</span>
+        </a>
+        @if (link.children?.length) {
+          <ul class="sidebar__children">
+            @for (child of link.children; track child.path) {
+              <li><a [routerLink]="child.path" routerLinkActive="is-active" [routerLinkActiveOptions]="{ exact: true }">{{ child.label }}</a></li>
+            }
+          </ul>
+        }
       </li>
     }
   </ul>

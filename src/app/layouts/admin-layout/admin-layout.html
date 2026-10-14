@@ -1,0 +1,24 @@
+<div class="admin-page">
+  <header class="admin-topbar">
+    <a class="admin-brand" routerLink="/" aria-label="MileX home"><span>milex</span></a>
+    <label class="admin-search" aria-label="Search orders, products, sellers, customers">
+      <img src="/images/search-icon.svg" alt="" aria-hidden="true" />
+      <input type="search" placeholder="Search orders, products, sellers, customers..." />
+    </label>
+    <div class="admin-user-actions">
+      <button class="admin-icon-button" type="button" aria-label="Notifications">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M12 6a4 4 0 0 0-8 0c0 4-1.5 4.5-1.5 5.5h11C13.5 10.5 12 10 12 6ZM6.5 13.5h3" /></svg>
+        <i></i>
+      </button>
+      <button class="admin-user" type="button" aria-label="Sujan Saha, Admin">
+        <span class="admin-user__avatar">SS</span>
+        <span class="admin-user__name">Sujan Saha<small>Admin</small></span>
+      </button>
+    </div>
+  </header>
+
+  <div class="admin-layout">
+    <aside class="admin-sidebar"><app-sidebar variant="admin" [links]="links" /></aside>
+    <section class="admin-route-content"><router-outlet /></section>
+  </div>
+</div>

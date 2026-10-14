@@ -8,4 +8,5 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 })
 export class Badge {
   readonly tone = input<'neutral' | 'success' | 'warning' | 'danger'>('neutral');
+  readonly size = input<'normal' | 'compact'>('normal');
 }

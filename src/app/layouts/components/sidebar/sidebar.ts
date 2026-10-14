@@ -4,6 +4,8 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
 export interface SidebarLink {
   label: string;
   path: string;
+  icon?: 'dashboard' | 'products';
+  children?: SidebarLink[];
 }
 
 @Component({
@@ -16,4 +18,5 @@ export interface SidebarLink {
 export class Sidebar {
   readonly title = input<string>('');
   readonly links = input.required<SidebarLink[]>();
+  readonly variant = input<'default' | 'admin'>('default');
 }

@@ -34,4 +34,12 @@ describe('Button', () => {
     expect(button.type).toBe('submit');
     expect(button.disabled).toBe(true);
   });
+
+  it('applies the compact size without changing the small size class', () => {
+    fixture.componentRef.setInput('size', 'compact');
+    fixture.detectChanges();
+    const button = fixture.nativeElement.querySelector('button') as HTMLButtonElement;
+    expect(button.classList).toContain('btn--compact');
+    expect(button.classList).not.toContain('btn-sm');
+  });
 });

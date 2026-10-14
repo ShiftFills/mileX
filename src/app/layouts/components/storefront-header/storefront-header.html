@@ -109,31 +109,50 @@
   <nav
     class="store-header__categories"
     aria-label="Shop categories"
-    (keydown.escape)="closeMoreMenu()"
+    (keydown.escape)="closeMobileCategories(); closeMoreMenu()"
   >
-    <div class="store-header__inner" (wheel)="closeMoreMenu()" (touchmove)="closeMoreMenu()">
-      <a class="store-header__all-categories" [routerLink]="routes.products">
-        <span aria-hidden="true">☰</span> All Categories
-      </a>
-      <a routerLink="/" routerLinkActive="is-active" [routerLinkActiveOptions]="{ exact: true }">Home</a>
-      <a [routerLink]="routes.products" [queryParams]="{ category: 'fashion' }">Fashion</a>
-      <a [routerLink]="routes.products" [queryParams]="{ category: 'electronics' }">Electronics</a>
-      <a [routerLink]="routes.products" [queryParams]="{ category: 'home-living' }">Home &amp; Living</a>
-      <a [routerLink]="routes.products" [queryParams]="{ category: 'beauty' }">Beauty &amp; Personal Care</a>
-      <a [routerLink]="routes.products" [queryParams]="{ category: 'sports' }">Sports &amp; Fitness</a>
-      <a [routerLink]="routes.products" [queryParams]="{ category: 'toys-baby' }">Toys &amp; Baby</a>
+    <div class="store-header__inner">
       <button
-        #moreTrigger
-        class="store-header__more-trigger"
+        class="store-header__mobile-toggle d-lg-none w-100 gap-2 py-2"
         type="button"
-        aria-haspopup="menu"
-        aria-controls="more-menu"
-        [attr.aria-expanded]="moreMenuOpen()"
-        (click)="toggleMoreMenu()"
+        aria-controls="mobile-category-links"
+        [attr.aria-expanded]="mobileCategoriesOpen()"
+        (click)="toggleMobileCategories()"
       >
-        More
-        <span class="store-header__support-chevron" [class.is-open]="moreMenuOpen()" aria-hidden="true"></span>
+        <span aria-hidden="true">☰</span>
+        Shop categories
+        <span class="store-header__support-chevron ms-auto" [class.is-open]="mobileCategoriesOpen()" aria-hidden="true"></span>
       </button>
+      <div
+        class="store-header__category-links gap-lg-1 gap-xl-4"
+        id="mobile-category-links"
+        [class.is-mobile-open]="mobileCategoriesOpen()"
+        (wheel)="closeMoreMenu()"
+        (touchmove)="closeMoreMenu()"
+      >
+        <a class="store-header__all-categories" [routerLink]="routes.products" (click)="closeMobileCategories()">
+          <span aria-hidden="true">☰</span> All Categories
+        </a>
+        <a routerLink="/" routerLinkActive="is-active" [routerLinkActiveOptions]="{ exact: true }" (click)="closeMobileCategories()">Home</a>
+        <a [routerLink]="routes.products" [queryParams]="{ category: 'fashion' }" (click)="closeMobileCategories()">Fashion</a>
+        <a [routerLink]="routes.products" [queryParams]="{ category: 'electronics' }" (click)="closeMobileCategories()">Electronics</a>
+        <a [routerLink]="routes.products" [queryParams]="{ category: 'home-living' }" (click)="closeMobileCategories()">Home &amp; Living</a>
+        <a [routerLink]="routes.products" [queryParams]="{ category: 'beauty' }" (click)="closeMobileCategories()">Beauty &amp; Personal Care</a>
+        <a [routerLink]="routes.products" [queryParams]="{ category: 'sports' }" (click)="closeMobileCategories()">Sports &amp; Fitness</a>
+        <a [routerLink]="routes.products" [queryParams]="{ category: 'toys-baby' }" (click)="closeMobileCategories()">Toys &amp; Baby</a>
+        <button
+          #moreTrigger
+          class="store-header__more-trigger"
+          type="button"
+          aria-haspopup="menu"
+          aria-controls="more-menu"
+          [attr.aria-expanded]="moreMenuOpen()"
+          (click)="toggleMoreMenu()"
+        >
+          More
+          <span class="store-header__support-chevron" [class.is-open]="moreMenuOpen()" aria-hidden="true"></span>
+        </button>
+      </div>
     </div>
     @if (moreMenuOpen()) {
       <div

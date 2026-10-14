@@ -7,6 +7,10 @@ import { MainLayout } from '@layouts/main-layout/main-layout';
 
 export const routes: Routes = [
   {
+    path: 'admin',
+    loadChildren: () => import('@features/admin/admin.routes').then((m) => m.ADMIN_ROUTES),
+  },
+  {
     path: 'sell',
     title: 'Sell on MileX',
     loadComponent: () =>

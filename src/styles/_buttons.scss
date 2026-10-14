@@ -36,7 +36,7 @@
   }
 
   &--outline {
-    background: transparent;
+    background: var(--color-surface);
     border-color: var(--color-border);
     color: var(--color-text);
 
@@ -61,5 +61,9 @@
     padding: 0.5rem 0.625rem;
     font-size: 0.75rem;
     line-height: 1.2;
+  }
+
+  &.btn--compact {
+    padding: 0.25rem 0.625rem;
   }
 }

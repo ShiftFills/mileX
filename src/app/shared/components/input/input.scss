@@ -47,6 +47,36 @@ input {
   line-height: 1.35;
 }
 
+.form-control--compact::placeholder {
+  color: var(--color-placeholder);
+  opacity: 1;
+}
+
+:host(.product-control) input {
+  min-height: 1.9rem;
+  height: 1.9rem;
+  padding-block: 0.25rem;
+  border-color: #e4eaf2;
+  border-radius: 0.38rem;
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.62rem;
+}
+
+:host(.admin-list-search-control) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+:host(.admin-list-search-control) input {
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 0.58rem;
+}
+
 :host(.seller-field__input) {
   height: 100%;
   flex: 1 1 auto;

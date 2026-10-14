@@ -1,6 +1,7 @@
 <select
   class="form-select"
   [class.form-select--compact]="size() === 'compact'"
+  [class.form-select--placeholder]="!value()"
   [id]="inputId()"
   [name]="name()"
   [value]="value()"

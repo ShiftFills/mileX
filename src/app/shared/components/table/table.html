@@ -1,1 +1,50 @@
-<p>table works!</p>
+<div class="table-scroll" role="region" aria-label="Data table" tabindex="0">
+  <table class="shared-table">
+    <thead>
+      <tr>
+        @for (column of columns(); track column.key) {
+          <th
+            [class.selection-column]="column.selection"
+            [style.--column-width]="column.width"
+          >
+            @if (column.headerTemplate; as headerTemplate) {
+              <ng-container
+                [ngTemplateOutlet]="headerTemplate"
+                [ngTemplateOutletContext]="{ $implicit: rows() }"
+              />
+            } @else {
+              {{ column.label }}
+            }
+          </th>
+        }
+      </tr>
+    </thead>
+    <tbody>
+      @for (row of rows(); track $index; let rowIndex = $index) {
+        <tr>
+          @for (column of columns(); track column.key) {
+            <td
+              [class.table-cell--emphasized]="column.emphasized"
+              [class.table-cell--bold]="column.bold"
+              [class.selection-column]="column.selection"
+              [style.--column-width]="column.width"
+            >
+              @if (column.cellTemplate; as cellTemplate) {
+                <ng-container
+                  [ngTemplateOutlet]="cellTemplate"
+                  [ngTemplateOutletContext]="{ $implicit: row, row, index: rowIndex }"
+                />
+              } @else {
+                {{ valueFor(row, column.key) }}
+              }
+            </td>
+          }
+        </tr>
+      } @empty {
+        <tr>
+          <td class="table-empty" [attr.colspan]="columns().length">{{ emptyMessage() }}</td>
+        </tr>
+      }
+    </tbody>
+  </table>
+</div>

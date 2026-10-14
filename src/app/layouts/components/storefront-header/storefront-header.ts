@@ -21,6 +21,7 @@ export class StorefrontHeader {
   protected readonly supportMenuOpen = signal(false);
   protected readonly accountMenuOpen = signal(false);
   protected readonly moreMenuOpen = signal(false);
+  protected readonly mobileCategoriesOpen = signal(false);
   protected readonly moreMenuPosition = signal({ left: 0, top: 0 });
   private readonly moreTrigger = viewChild.required<ElementRef<HTMLButtonElement>>('moreTrigger');
 
@@ -54,6 +55,14 @@ export class StorefrontHeader {
 
   protected closeMoreMenu(): void {
     this.moreMenuOpen.set(false);
+  }
+
+  protected toggleMobileCategories(): void {
+    this.mobileCategoriesOpen.update((isOpen) => !isOpen);
+  }
+
+  protected closeMobileCategories(): void {
+    this.mobileCategoriesOpen.set(false);
   }
 
   protected search(searchTerm: string): void {

@@ -1,1 +1,15 @@
-<p>file-upload works!</p>
+<input
+  class="visually-hidden"
+  type="file"
+  [id]="inputId()"
+  [name]="name()"
+  [accept]="accept()"
+  [multiple]="multiple()"
+  [attr.aria-describedby]="ariaDescribedBy()"
+  (change)="selectFile($event)"
+/>
+<label
+  class="file-upload__button"
+  [class.file-upload__button--accent-outline]="appearance() === 'accent-outline'"
+  [for]="inputId()"
+>{{ buttonLabel() }}</label>

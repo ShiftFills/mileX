@@ -1,7 +1,19 @@
 <app-home class="seller-onboarding__background" aria-hidden="true" inert />
 
-<main class="seller-onboarding">
-  <section appCard class="seller-dialog" aria-labelledby="seller-title">
+<main
+  class="seller-onboarding"
+  [class.seller-onboarding--documents]="activeStep() === 2"
+  [class.seller-onboarding--bank-details]="activeStep() === 3"
+  [class.seller-onboarding--review]="activeStep() === 4"
+>
+  <section
+    appCard
+    class="seller-dialog"
+    [class.seller-dialog--documents]="activeStep() === 2"
+    [class.seller-dialog--bank-details]="activeStep() === 3"
+    [class.seller-dialog--review]="activeStep() === 4"
+    aria-labelledby="seller-title"
+  >
     <header class="seller-dialog__header">
       <div class="seller-dialog__brand-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none">
@@ -22,14 +34,17 @@
 
     <nav class="seller-steps" aria-label="Seller onboarding steps">
       @for (step of steps; track step; let index = $index) {
-        <div
+        <button
+          type="button"
           class="seller-steps__item"
           [class.is-active]="activeStep() === index + 1"
           [class.is-complete]="activeStep() > index + 1"
           [attr.aria-current]="activeStep() === index + 1 ? 'step' : null"
+          [disabled]="submitted()"
+          (click)="goToStep(index + 1)"
         >
-          <span class="seller-steps__number">0{{ index + 1 }}</span><span>{{ step }}</span>
-        </div>
+          <span class="seller-steps__number">0{{ index + 1 }}</span><span class="seller-steps__label">{{ step }}</span>
+        </button>
       }
     </nav>
 
@@ -108,24 +123,58 @@
       } @else if (activeStep() === 2) {
         <div class="seller-form-heading">
           <h2>2. Seller Documents</h2>
-          <p>Upload your business verification documents</p>
+          <p>Documents and ID Proof</p>
         </div>
-        <div class="row g-3">
+        <div class="row g-2 g-md-3 seller-documents-grid">
           @for (field of documentFields; track field.name) {
-            <div class="col-12 col-md-6">
-              <ng-container
-                [ngTemplateOutlet]="sellerFieldTemplate"
-                [ngTemplateOutletContext]="{ field: field }"
-              />
+            <div class="col-12 col-sm-6 col-lg-4">
+              <article
+                appCard
+                class="seller-document-card"
+                [class.seller-document-card--invalid]="errorFor(field.name)"
+              >
+                <div class="seller-document-card__heading">
+                  <label class="seller-document-card__label" [for]="fieldId(field.name)">
+                    {{ field.label }}
+                    @if (field.required !== false) {
+                      <span aria-hidden="true">*</span>
+                    }
+                  </label>
+                  @if (documentStatusFor(field.name) === 'uploaded') {
+                    <app-badge class="seller-document-card__status" size="compact">Uploaded</app-badge>
+                  } @else if (field.required === false) {
+                    <app-badge class="seller-document-card__status" size="compact">Not uploaded (Optional)</app-badge>
+                  }
+                </div>
+                <app-file-upload
+                  class="seller-document-card__upload"
+                  [inputId]="fieldId(field.name)"
+                  [name]="field.name"
+                  [accept]="'application/pdf,image/jpeg,image/png'"
+                  [ariaDescribedBy]="errorFor(field.name) ? fieldId(field.name) + '-error' : null"
+                  (fileSelected)="updateDocument(field.name, $event)"
+                />
+                @if (documentFileNameFor(field.name); as fileName) {
+                  <div class="seller-document-card__filename" [title]="fileName">
+                    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path d="M8 11V2m0 0L5 5m3-3 3 3M3 9v4h10V9" />
+                    </svg>
+                    <span>{{ fileName }}</span>
+                  </div>
+                }
+                @if (errorFor(field.name); as message) {
+                  <span class="seller-field__error" [id]="fieldId(field.name) + '-error'">{{ message }}</span>
+                }
+              </article>
             </div>
           }
         </div>
       } @else if (activeStep() === 3) {
         <div class="seller-form-heading">
           <h2>3. Seller Bank Details</h2>
-          <p>Enter the bank account details for seller payments</p>
+          <p>Bank and Account Details</p>
         </div>
-        <div class="row g-3">
+        <div class="row g-3 seller-bank-grid">
           @for (field of bankFields; track field.name) {
             <div class="col-12 col-md-6">
               <ng-container
@@ -136,57 +185,102 @@
           }
         </div>
       } @else {
-        <div class="seller-form-heading">
+        <div class="seller-form-heading seller-review__heading">
           <h2>4. Review &amp; Submit</h2>
-          <p>Review your seller application details before submitting</p>
+          <p>Review your details before submitting your seller application</p>
         </div>
-        <dl class="seller-review row g-3">
-          @for (field of leftFields; track field.name) {
-            <div class="col-12 col-md-6 seller-review__item">
-              <dt>{{ field.label }}</dt>
-              <dd>{{ valueFor(field.name) }}</dd>
-            </div>
-          }
-          @for (field of rightTopFields; track field.name) {
-            <div class="col-12 col-md-6 seller-review__item">
-              <dt>{{ field.label }}</dt>
-              <dd>{{ valueFor(field.name) }}</dd>
-            </div>
-          }
-          @for (field of rightBottomFields; track field.name) {
-            <div class="col-12 col-md-6 seller-review__item">
-              <dt>{{ field.label }}</dt>
-              <dd>{{ valueFor(field.name) }}</dd>
-            </div>
-          }
-          <div class="col-12 col-md-6 seller-review__item">
-            <dt>State &amp; Pincode</dt>
-            <dd>{{ valueFor('state') }} · {{ valueFor('pincode') }}</dd>
+        <div class="row g-2 seller-review-grid">
+          <div class="col-12 col-sm-6 seller-review-column seller-review-column--stacked">
+            <section appCard class="seller-review-card" aria-labelledby="seller-business-review-title">
+              <header class="seller-review-card__header">
+                <h3 id="seller-business-review-title">1. Business Details</h3>
+                <app-button class="seller-review-card__edit" variant="plain" (clicked)="goToStep(1)">
+                  <ng-container [ngTemplateOutlet]="sellerEditIcon" />
+                  Edit
+                </app-button>
+              </header>
+              <dl class="seller-review-list">
+                <div><dt>Business Name</dt><dd>{{ valueFor('businessName') }}</dd></div>
+                <div><dt>Seller Type</dt><dd>{{ displayValueFor('businessType', businessTypes) }}</dd></div>
+                <div><dt>Contact Person</dt><dd>{{ valueFor('contactPersonName') }}</dd></div>
+                <div><dt>Email</dt><dd>{{ valueFor('contactEmail') }}</dd></div>
+                <div><dt>Mobile Number</dt><dd>{{ valueFor('contactPersonMobile') }}</dd></div>
+                <div class="seller-review-list__address">
+                  <dt>Business Address</dt>
+                  <dd>{{ valueFor('businessAddress') }}@if (valueFor('city')) {, {{ valueFor('city') }}}@if (valueFor('state') || valueFor('pincode')) {, {{ valueFor('state') }} {{ valueFor('pincode') }}}</dd>
+                </div>
+              </dl>
+            </section>
+            <section appCard class="seller-review-card" aria-labelledby="seller-bank-review-title">
+              <header class="seller-review-card__header">
+                <h3 id="seller-bank-review-title">3. Bank Details</h3>
+                <app-button class="seller-review-card__edit" variant="plain" (clicked)="goToStep(3)">
+                  <ng-container [ngTemplateOutlet]="sellerEditIcon" />
+                  Edit
+                </app-button>
+              </header>
+              <dl class="seller-review-list">
+                <div><dt>Account Holder Name</dt><dd>{{ valueFor('accountHolder') }}</dd></div>
+                <div><dt>Bank Name</dt><dd>{{ valueFor('bankName') }}</dd></div>
+                <div><dt>Branch Name</dt><dd>{{ valueFor('branchName') }}</dd></div>
+                <div><dt>Account Number</dt><dd>{{ maskedAccountNumber() }}</dd></div>
+                <div><dt>Account Type</dt><dd>{{ displayValueFor('accountType', accountTypes) }}</dd></div>
+              </dl>
+            </section>
           </div>
-          @for (field of documentFields; track field.name) {
-            <div class="col-12 col-md-6 seller-review__item">
-              <dt>{{ field.label }}</dt>
-              <dd>{{ valueFor(field.name).split('\\').at(-1) || 'Uploaded' }}</dd>
-            </div>
-          }
-          @for (field of bankFields; track field.name) {
-            <div class="col-12 col-md-6 seller-review__item">
-              <dt>{{ field.label }}</dt>
-              <dd>{{ valueFor(field.name) }}</dd>
-            </div>
-          }
-        </dl>
+          <div class="col-12 col-sm-6 seller-review-column seller-review-column--documents">
+            <section appCard class="seller-review-card" aria-labelledby="seller-documents-review-title">
+              <header class="seller-review-card__header">
+                <h3 id="seller-documents-review-title">2. Seller Documents</h3>
+                <app-button class="seller-review-card__edit" variant="plain" (clicked)="goToStep(2)">
+                  <ng-container [ngTemplateOutlet]="sellerEditIcon" />
+                  Edit
+                </app-button>
+              </header>
+              <ul class="seller-review-documents">
+                @for (field of documentFields; track field.name) {
+                  <li [class.is-empty]="!documentFileNameFor(field.name)">
+                    @if (documentFileNameFor(field.name)) {
+                      <span class="seller-review-documents__status is-uploaded" aria-hidden="true">✓</span>
+                    }
+                    <span
+                      class="seller-review-documents__label"
+                      [class.seller-review-documents__label--no-status]="!documentFileNameFor(field.name)"
+                    >{{ field.label }}</span>
+                    <span class="seller-review-documents__filename">
+                      {{ documentFileNameFor(field.name) || (field.required === false ? 'Not uploaded (Optional)' : 'Not uploaded') }}
+                    </span>
+                  </li>
+                }
+              </ul>
+            </section>
+          </div>
+        </div>
+
+        <app-checkbox
+          class="seller-review-confirmation"
+          [checked]="accuracyConfirmed()"
+          (checkedChange)="accuracyConfirmed.set($event)"
+        >
+          I confirm that the information provided is accurate and complete.
+        </app-checkbox>
       }
     </div>
 
     <footer class="seller-dialog__footer">
       @if (activeStep() > 1) {
-        <app-button variant="outline" size="small" (clicked)="goBack()">Back</app-button>
+        <app-button variant="outline" [size]="activeStep() === 2 ? 'compact' : 'small'" (clicked)="goBack()">
+          <span aria-hidden="true">←</span>
+          Back
+        </app-button>
       } @else {
-        <app-button variant="outline" size="small" (clicked)="cancel()">Cancel</app-button>
+        <app-button class="seller-dialog__cancel" variant="outline" size="small" (clicked)="cancel()">Cancel</app-button>
       }
       @if (!submitted()) {
-        <app-button variant="accent" size="small" (clicked)="continue()">
+        @if (activeStep() > 1) {
+          <app-button class="seller-dialog__cancel" variant="outline" size="small" (clicked)="cancel()">Cancel</app-button>
+        }
+        <app-button class="seller-dialog__next" variant="accent" size="small" (clicked)="continue()">
           {{ activeStep() === 4 ? 'Submit Application' : 'Next' }}
           @if (activeStep() < 4) { <span aria-hidden="true">→</span> }
         </app-button>
@@ -194,6 +288,12 @@
     </footer>
   </section>
 </main>
+
+<ng-template #sellerEditIcon>
+  <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path d="m10.8 2.8 2.4 2.4M2 14l3.2-.7 8.5-8.5a1.7 1.7 0 0 0-2.4-2.4L2.8 10.9 2 14Z" />
+  </svg>
+</ng-template>
 
 <ng-template #sellerFieldTemplate let-field="field">
   <div class="seller-field" [class.seller-field--invalid]="errorFor(field.name)">
@@ -247,6 +347,7 @@
             [ariaInvalid]="!!errorFor(field.name)"
             [ariaDescribedBy]="errorFor(field.name) ? fieldId(field.name) + '-error' : null"
             (valueChange)="updateValue(field.name, $event)"
+            (focusout)="markTouched(field.name)"
           >
             <option value="" disabled>{{ field.placeholder }}</option>
             @for (option of field.options; track option.value) {
@@ -267,6 +368,7 @@
             [ariaInvalid]="!!errorFor(field.name)"
             [ariaDescribedBy]="errorFor(field.name) ? fieldId(field.name) + '-error' : null"
             (valueInput)="updateValue(field.name, $event)"
+            (focusout)="markTouched(field.name)"
           />
         }
         @default {
@@ -282,6 +384,8 @@
             [ariaInvalid]="!!errorFor(field.name)"
             [ariaDescribedBy]="errorFor(field.name) ? fieldId(field.name) + '-error' : null"
             (valueInput)="updateValue(field.name, $event)"
+            (valueChange)="updateValue(field.name, $event)"
+            (focusout)="markTouched(field.name)"
           />
         }
       }

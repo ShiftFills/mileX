@@ -13,9 +13,14 @@
   line-height: var(--leading-tight);
 }
 
+.badge--compact {
+  padding: var(--badge-compact-padding, 0.12rem 0.36rem);
+  font-size: 0.46rem;
+}
+
 .badge--success {
-  background: color-mix(in srgb, var(--color-success) 12%, var(--color-surface));
-  color: var(--color-success);
+  background: var(--badge-success-background, var(--color-success-subtle));
+  color: var(--badge-success-color, var(--color-success));
 }
 
 .badge--warning {
@@ -24,6 +29,6 @@
 }
 
 .badge--danger {
-  background: color-mix(in srgb, var(--color-danger) 12%, var(--color-surface));
-  color: var(--color-danger);
+  background: var(--badge-danger-background, color-mix(in srgb, var(--color-danger) 12%, var(--color-surface)));
+  color: var(--badge-danger-color, var(--color-danger));
 }

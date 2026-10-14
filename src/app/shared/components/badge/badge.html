@@ -1,3 +1,9 @@
-<span class="badge" [class.badge--success]="tone() === 'success'" [class.badge--warning]="tone() === 'warning'" [class.badge--danger]="tone() === 'danger'">
+<span
+  class="badge"
+  [class.badge--success]="tone() === 'success'"
+  [class.badge--warning]="tone() === 'warning'"
+  [class.badge--danger]="tone() === 'danger'"
+  [class.badge--compact]="size() === 'compact'"
+>
   <ng-content />
 </span>
