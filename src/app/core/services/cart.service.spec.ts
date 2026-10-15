@@ -15,6 +15,8 @@ describe('CartService', () => {
 
   beforeEach(() => {
     localStorage.removeItem(STORAGE_KEYS.cart);
+    localStorage.removeItem(STORAGE_KEYS.cartDemoSeeded);
+    localStorage.removeItem(STORAGE_KEYS.cartDemoSeedVersion);
     TestBed.configureTestingModule({});
     cart = TestBed.inject(CartService);
     catalog = TestBed.inject(ProductCatalogService);
@@ -22,6 +24,8 @@ describe('CartService', () => {
 
   afterEach(() => {
     localStorage.removeItem(STORAGE_KEYS.cart);
+    localStorage.removeItem(STORAGE_KEYS.cartDemoSeeded);
+    localStorage.removeItem(STORAGE_KEYS.cartDemoSeedVersion);
   });
 
   it('keeps cart state and derived totals synchronized after add, quantity update, and remove', () => {
@@ -30,8 +34,8 @@ describe('CartService', () => {
     cart.add(product, 2);
     expect(cart.count()).toBe(2);
     expect(cart.subtotal()).toBe(998);
-    expect(cart.shippingCost()).toBe(99);
-    expect(cart.total()).toBe(1097);
+    expect(cart.shippingCost()).toBe(50);
+    expect(cart.total()).toBe(1048);
 
     cart.add(product);
     expect(cart.items()).toHaveLength(1);
@@ -72,5 +76,38 @@ describe('CartService', () => {
 
     expect(cart.items()).toEqual([]);
     expect(localStorage.getItem(STORAGE_KEYS.cart)).toBe('[]');
+  });
+
+  it('seeds demo items only once for an initially empty cart', () => {
+    cart.seedDemoItems(['mens-cotton-t-shirt-1', 'smart-watch-1']);
+    expect(cart.items()).toHaveLength(2);
+    expect(cart.subtotal()).toBe(1499);
+
+    cart.remove('mens-cotton-t-shirt-1');
+    cart.seedDemoItems(['mens-cotton-t-shirt-1', 'smart-watch-1']);
+    expect(cart.items()).toHaveLength(1);
+    expect(cart.items()[0]?.product.id).toBe('smart-watch-1');
+  });
+
+  it('restores a partially removed legacy demo cart once without undoing later removals', () => {
+    const demoIds = [
+      'women-printed-maxi-dress-1', 'mens-cotton-t-shirt-1', 'smart-watch-1',
+      'soft-chair-1', 'classic-watch-1', 'wireless-headphones-1',
+    ];
+    cart.add(productById(catalog, 'smart-watch-1'));
+    localStorage.setItem(STORAGE_KEYS.cartDemoSeeded, 'true');
+
+    cart.seedDemoItems(demoIds);
+    expect(cart.items()).toHaveLength(demoIds.length);
+
+    cart.remove('smart-watch-1');
+    cart.seedDemoItems(demoIds);
+    expect(cart.items()).toHaveLength(demoIds.length - 1);
+  });
+
+  it('waives shipping above the free shipping threshold', () => {
+    cart.add(productById(catalog, 'portable-laptop-1'));
+    expect(cart.shippingCost()).toBe(0);
+    expect(cart.total()).toBe(32999);
   });
 });

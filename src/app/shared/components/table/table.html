@@ -1,11 +1,12 @@
-<div class="table-scroll" role="region" aria-label="Data table" tabindex="0">
-  <table class="shared-table">
+<div class="table-scroll" role="region" [attr.aria-label]="ariaLabel()" tabindex="0">
+  <table class="shared-table" [class.shared-table--nowrap-cells]="nowrapCells()">
     <thead>
       <tr>
         @for (column of columns(); track column.key) {
           <th
             [class.selection-column]="column.selection"
             [style.--column-width]="column.width"
+            [style.text-align]="column.align ?? null"
           >
             @if (column.headerTemplate; as headerTemplate) {
               <ng-container
@@ -27,7 +28,9 @@
               [class.table-cell--emphasized]="column.emphasized"
               [class.table-cell--bold]="column.bold"
               [class.selection-column]="column.selection"
+              [class.table-cell--overflow-visible]="column.overflowVisible"
               [style.--column-width]="column.width"
+              [style.text-align]="column.align ?? null"
             >
               @if (column.cellTemplate; as cellTemplate) {
                 <ng-container

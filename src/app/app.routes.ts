@@ -2,6 +2,7 @@ import { Routes } from '@angular/router';
 import { authGuard } from '@core/guards/auth.guard';
 import { guestGuard } from '@core/guards/guest.guard';
 import { AccountLayout } from '@layouts/account-layout/account-layout';
+import { AdminLayout } from '@layouts/admin-layout/admin-layout';
 import { AuthLayout } from '@layouts/auth-layout/auth-layout';
 import { MainLayout } from '@layouts/main-layout/main-layout';
 
@@ -11,6 +12,28 @@ export const routes: Routes = [
     loadChildren: () => import('@features/admin/admin.routes').then((m) => m.ADMIN_ROUTES),
   },
   {
+    path: 'cart',
+    component: AdminLayout,
+    children: [
+      {
+        path: '',
+        title: 'Shopping Cart',
+        loadComponent: () => import('@features/cart/pages/cart/cart').then((m) => m.Cart),
+      },
+    ],
+  },
+  {
+    path: 'checkout',
+    component: AdminLayout,
+    children: [
+      {
+        path: '',
+        title: 'Place Order',
+        loadComponent: () => import('@features/checkout/pages/checkout/checkout').then((m) => m.Checkout),
+      },
+    ],
+  },
+  {
     path: 'sell',
     title: 'Sell on MileX',
     loadComponent: () =>
@@ -18,6 +41,7 @@ export const routes: Routes = [
         (m) => m.SellerOnboarding,
       ),
   },
+  { path: 'register', pathMatch: 'full', redirectTo: 'auth/register' },
   {
     path: '',
     pathMatch: 'full',
@@ -51,15 +75,6 @@ export const routes: Routes = [
         title: 'Wishlist',
         loadComponent: () =>
           import('@features/products/pages/wishlist/wishlist').then((m) => m.Wishlist),
-      },
-      {
-        path: 'cart',
-        loadChildren: () => import('@features/cart/cart.routes').then((m) => m.CART_ROUTES),
-      },
-      {
-        path: 'checkout',
-        loadChildren: () =>
-          import('@features/checkout/checkout.routes').then((m) => m.CHECKOUT_ROUTES),
       },
       // Signed-in area with sidebar (account + orders)
       {

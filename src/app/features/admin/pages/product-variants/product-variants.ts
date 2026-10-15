@@ -13,6 +13,8 @@ interface Variant {
   barcode: string;
   color: string;
   material: string;
+  size: string;
+  weight: string;
   stock: number;
   price: number;
 }
@@ -26,7 +28,7 @@ interface Variant {
 })
 export class ProductVariants {
   protected readonly variants = signal<Variant[]>(Array.from({ length: 6 }, (_, i) => ({
-    id: i + 1, name: 'Black - Regular', sku: 'MLEX-001', barcode: '8901234567890', color: 'Black', material: 'Plastic', stock: 120, price: 2500,
+    id: i + 1, name: 'Black - Regular', sku: 'MLEX-001', barcode: '8901234567890', color: 'Black', material: 'Plastic', size: 'M', weight: '', stock: 120, price: 2500,
   })));
   protected readonly page = signal(1);
   protected readonly dialog = signal<'add' | 'edit' | 'delete' | null>(null);
@@ -43,7 +45,7 @@ export class ProductVariants {
   }
   protected openEdit(row: Variant): void {
     this.selected.set(row);
-    this.form.set({ name: row.name, sku: row.sku, barcode: row.barcode, size: 'M', color: row.color, material: row.material, weight: '', price: String(row.price), stock: String(row.stock) });
+    this.form.set({ name: row.name, sku: row.sku, barcode: row.barcode, size: row.size, color: row.color, material: row.material, weight: row.weight, price: String(row.price), stock: String(row.stock) });
     this.error.set(false);
     this.dialog.set('edit');
     this.menu.set(null);
@@ -57,7 +59,7 @@ export class ProductVariants {
   protected save(): void {
     const v = this.form();
     if (!v.name.trim() || !v.sku.trim() || !v.color || !v.price.trim() || !v.stock.trim()) { this.error.set(true); return; }
-    const row: Variant = { id: this.selected()?.id ?? Date.now(), name: v.name, sku: v.sku, barcode: v.barcode || '—', color: v.color, material: v.material || '—', stock: Number(v.stock), price: Number(v.price) };
+    const row: Variant = { id: this.selected()?.id ?? Date.now(), name: v.name, sku: v.sku, barcode: v.barcode || '—', color: v.color, material: v.material || '—', size: v.size, weight: v.weight, stock: Number(v.stock), price: Number(v.price) };
     this.variants.update((rows) => this.dialog() === 'edit' ? rows.map((x) => x.id === row.id ? row : x) : [row, ...rows]);
     this.close();
   }

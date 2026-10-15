@@ -7,7 +7,7 @@ export const APP_ROUTES = {
   orders: '/orders',
   account: '/account',
   login: '/auth/login',
-  register: '/auth/register',
+  register: '/register',
   wishlist: '/wishlist',
   support: '/help',
   sell: '/sell',

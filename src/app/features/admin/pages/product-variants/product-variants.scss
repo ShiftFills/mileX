@@ -11,7 +11,7 @@
 .product-summary span { color:var(--color-text-muted); font-size:.58rem; line-height:1.35; }
 .product-summary button { display:grid; width:1.5rem; height:1.5rem; flex:0 0 1.5rem; place-items:center; margin-left:auto; padding:0; border:0; background:transparent; color:var(--color-text-muted); }
 .product-summary button svg { display:block; width:.75rem; height:.75rem; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
-.variants-table { min-width:0; padding:var(--space-3); --table-font-size:.56rem; --table-header-font-size:var(--text-xs); --table-cell-padding:.38rem .3rem; --table-border-color:#edf0f4; --table-row-height:1.6rem; --table-responsive-min-width:56rem; }
+.variants-table { min-width:0; margin-top:var(--space-4); padding:var(--space-3); --table-font-size:.56rem; --table-header-font-size:var(--text-xs); --table-cell-padding:.38rem .3rem; --table-border-color:#edf0f4; --table-row-height:1.6rem; --table-responsive-min-width:56rem; }
 .variants-table .table-responsive { overflow-x:auto; }
 .variants-table table { width:100%; min-width:56rem; table-layout:fixed; border-collapse:collapse; color:var(--color-text-muted); font-size:var(--table-font-size); text-align:left; }
 .variants-table th { padding:var(--table-cell-padding); border-bottom:1px solid var(--color-border-subtle); color:var(--color-text); font-size:var(--table-header-font-size); font-weight:var(--weight-medium); line-height:1.25; white-space:nowrap; }

@@ -47,8 +47,16 @@
     text-overflow: ellipsis;
   }
 
+  &--nowrap-cells td {
+    white-space: nowrap;
+  }
+
   .selection-column {
     text-align: center;
+  }
+
+  .table-cell--overflow-visible {
+    overflow: visible;
   }
 
   .table-cell--emphasized {

@@ -11,6 +11,7 @@ export class FileUpload {
   readonly name = input.required<string>();
   readonly accept = input('application/pdf,image/jpeg,image/png');
   readonly multiple = input(false, { transform: booleanAttribute });
+  readonly required = input(false, { transform: booleanAttribute });
   readonly ariaDescribedBy = input<string | null>(null);
   readonly buttonLabel = input('Choose Files');
   readonly appearance = input<'default' | 'accent-outline'>('default');

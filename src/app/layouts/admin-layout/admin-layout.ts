@@ -22,5 +22,6 @@ export class AdminLayout {
         { label: 'Variants', path: '/admin/products/variants' },
       ],
     },
+    { label: 'Shopping Cart', path: '/cart', icon: 'cart' },
   ];
 }

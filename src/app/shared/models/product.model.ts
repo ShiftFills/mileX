@@ -11,4 +11,5 @@ export interface Product {
   discountLabel?: string;
   rating?: number;
   reviewCount?: string;
+  variantDetails?: string;
 }

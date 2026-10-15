@@ -6,18 +6,10 @@
 }
 
 .admin-page {
-  --admin-sidebar-width: 12.5rem;
+  --admin-sidebar-width: 14.5rem;
 
   min-height: 100vh;
   background: #f4f6fa;
-}
-
-.admin-page:has(app-product-variants) .admin-topbar {
-  height: 2.7rem;
-}
-
-.admin-page:has(app-product-variants) .admin-layout {
-  min-height: calc(100vh - 2.7rem);
 }
 
 .admin-topbar {
@@ -25,18 +17,18 @@
   z-index: 5;
   top: 0;
   display: flex;
-  height: 3rem;
+  height: 2.7rem;
   align-items: center;
   justify-content: space-between;
-  padding: 0 var(--space-4);
+  padding: 0 2rem;
   border-bottom: 1px solid #e9edf3;
   background: var(--color-surface);
 }
 
 .admin-brand {
   display: grid;
-  width: 2rem;
-  height: 2rem;
+  width: 2.7rem;
+  height: 2.7rem;
   place-items: center;
   border-radius: 50%;
   background: var(--color-accent);
@@ -48,7 +40,7 @@
 
 .admin-search {
   display: flex;
-  width: min(40vw, 25rem);
+  width: min(40vw, 32rem);
   height: 1.8rem;
   align-items: center;
   gap: var(--space-2);
@@ -154,12 +146,12 @@
 
 .admin-layout {
   display: grid;
-  min-height: calc(100vh - 3rem);
+  min-height: calc(100vh - 2.7rem);
   grid-template-columns: var(--admin-sidebar-width) minmax(0, 1fr);
 }
 
 .admin-sidebar {
-  padding: var(--space-3) var(--space-2);
+  padding: 1.5rem var(--space-2) var(--space-3);
   background: var(--color-surface);
 }
 
@@ -168,6 +160,12 @@
 }
 
 @media (max-width: 767.98px) {
+  .admin-page { --admin-sidebar-width: 100%; }
+
+  .admin-topbar { height: 3rem; }
+
+  .admin-layout { min-height: calc(100vh - 3rem); }
+
   .admin-layout {
     grid-template-columns: minmax(0, 1fr);
     align-content: start;
@@ -203,6 +201,8 @@
   .admin-topbar {
     padding-inline: var(--space-2);
   }
+
+  .admin-brand { width: 2rem; height: 2rem; }
 
   .admin-search {
     width: min(48vw, 15rem);

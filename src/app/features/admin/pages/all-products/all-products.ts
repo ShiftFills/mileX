@@ -4,6 +4,7 @@ import { Badge } from '@shared/components/badge/badge';
 import { Button } from '@shared/components/button/button';
 import { Card } from '@shared/components/card/card';
 import { Checkbox } from '@shared/components/checkbox/checkbox';
+import { Dialog } from '@shared/components/dialog/dialog';
 import { Input } from '@shared/components/input/input';
 import { Select } from '@shared/components/select/select';
 import { Table, TableCellContext, TableColumn, TableHeaderContext } from '@shared/components/table/table';
@@ -18,6 +19,16 @@ interface AdminProductRow {
   stock: number;
   status: 'Active' | 'Inactive';
   image: string;
+}
+
+interface ProductEditForm {
+  name: string;
+  sku: string;
+  category: string;
+  brand: string;
+  price: string;
+  stock: string;
+  status: AdminProductRow['status'];
 }
 
 const PAGE_SIZE = 6;
@@ -35,19 +46,24 @@ const PRODUCT_FIXTURE: AdminProductRow[] = Array.from({ length: 128 }, (_, index
 
 @Component({
   selector: 'app-admin-all-products',
-  imports: [Badge, Button, Card, Checkbox, Input, Select, Table],
+  imports: [Badge, Button, Card, Checkbox, Dialog, Input, Select, Table],
   templateUrl: './all-products.html',
   styleUrl: './all-products.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AllProducts {
   private readonly router = inject(Router);
+  protected readonly products = signal(PRODUCT_FIXTURE);
   protected readonly query = signal('');
   protected readonly category = signal('');
   protected readonly brand = signal('');
   protected readonly statusTab = signal<'All' | 'Active' | 'Inactive'>('All');
   protected readonly page = signal(1);
   protected readonly selectedIds = signal<ReadonlySet<number>>(new Set());
+  protected readonly openActionMenuId = signal<number | null>(null);
+  protected readonly editingProduct = signal<AdminProductRow | null>(null);
+  protected readonly editForm = signal<ProductEditForm | null>(null);
+  protected readonly editError = signal('');
   private readonly selectAllHeader = viewChild<TemplateRef<TableHeaderContext<AdminProductRow>>>('selectAllHeader');
   private readonly selectRowCell = viewChild<TemplateRef<TableCellContext<AdminProductRow>>>('selectRowCell');
   private readonly imageCell = viewChild<TemplateRef<TableCellContext<AdminProductRow>>>('imageCell');
@@ -74,6 +90,7 @@ export class AllProducts {
     },
     {
       key: 'actions', label: 'Action', width: '8%', tabletWidth: '20%', hideOnSmall: true,
+      overflowVisible: true,
       cellTemplate: this.actionCell(),
     },
   ]);
@@ -89,7 +106,7 @@ export class AllProducts {
   });
   protected readonly filteredRows = computed(() => {
     const query = this.query().trim().toLowerCase();
-    return PRODUCT_FIXTURE.filter((row) => {
+    return this.products().filter((row) => {
       const matchesQuery = !query || `${row.name} ${row.sku} ${row.category} ${row.brand}`.toLowerCase().includes(query);
       const matchesCategory = !this.category() || row.category === this.category();
       const matchesBrand = !this.brand() || row.brand === this.brand();
@@ -176,5 +193,66 @@ export class AllProducts {
 
   protected variants(): void {
     void this.router.navigateByUrl('/admin/products/variants');
+  }
+
+  protected toggleActionMenu(productId: number): void {
+    this.openActionMenuId.update((openId) => openId === productId ? null : productId);
+  }
+
+  protected openEdit(product: AdminProductRow): void {
+    this.editingProduct.set(product);
+    this.editForm.set({
+      name: product.name,
+      sku: product.sku,
+      category: product.category,
+      brand: product.brand,
+      price: product.price.replace(/[^\d.]/g, ''),
+      stock: String(product.stock),
+      status: product.status,
+    });
+    this.editError.set('');
+    this.openActionMenuId.set(null);
+  }
+
+  protected setEditField(key: keyof ProductEditForm, event: Event): void {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
+    this.editForm.update((form) => form ? { ...form, [key]: target.value } : form);
+    this.editError.set('');
+  }
+
+  protected saveEdit(): void {
+    const selected = this.editingProduct();
+    const form = this.editForm();
+    if (!selected || !form) return;
+
+    const price = Number(form.price);
+    const stock = Number(form.stock);
+    if (
+      !form.name.trim() || !form.sku.trim() || !form.category || !form.brand ||
+      !Number.isFinite(price) || price <= 0 ||
+      !Number.isInteger(stock) || stock < 0
+    ) {
+      this.editError.set('Enter a name, SKU, category, brand, valid price, and whole stock quantity of 0 or more.');
+      return;
+    }
+
+    this.products.update((rows) => rows.map((row) => row.id === selected.id ? {
+      ...row,
+      name: form.name.trim(),
+      sku: form.sku.trim(),
+      category: form.category,
+      brand: form.brand,
+      price: `₹${price.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
+      stock,
+      status: form.status,
+    } : row));
+    this.closeEdit();
+  }
+
+  protected closeEdit(): void {
+    this.editingProduct.set(null);
+    this.editForm.set(null);
+    this.editError.set('');
   }
 }

@@ -4,7 +4,7 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
 export interface SidebarLink {
   label: string;
   path: string;
-  icon?: 'dashboard' | 'products';
+  icon?: 'dashboard' | 'products' | 'cart';
   children?: SidebarLink[];
 }
 

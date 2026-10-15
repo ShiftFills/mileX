@@ -150,6 +150,7 @@
                   class="seller-document-card__upload"
                   [inputId]="fieldId(field.name)"
                   [name]="field.name"
+                  [required]="field.required !== false"
                   [accept]="'application/pdf,image/jpeg,image/png'"
                   [ariaDescribedBy]="errorFor(field.name) ? fieldId(field.name) + '-error' : null"
                   (fileSelected)="updateDocument(field.name, $event)"

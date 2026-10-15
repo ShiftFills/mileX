@@ -7,6 +7,7 @@ export class ProductCatalogService {
     {
       id: 'women-printed-maxi-dress-1',
       name: 'Women Printed Maxi Dress',
+      variantDetails: 'Blue · M',
       description: 'A comfortable printed maxi dress for everyday and occasion wear.',
       price: 999,
       originalPrice: 1249,
@@ -21,6 +22,7 @@ export class ProductCatalogService {
     {
       id: 'mens-cotton-t-shirt-1',
       name: 'T-shirts with multiple colors, for men',
+      variantDetails: 'Black · Regular',
       description: 'Soft cotton polo T-shirt available in multiple colors.',
       price: 499,
       currency: 'INR',
@@ -51,6 +53,7 @@ export class ProductCatalogService {
     {
       id: 'smart-watch-1',
       name: 'Smart watch',
+      variantDetails: 'Black · Standard',
       description: 'Smart watch with everyday health and activity tracking.',
       price: 1000,
       currency: 'INR',
@@ -61,6 +64,7 @@ export class ProductCatalogService {
     {
       id: 'soft-chair-1',
       name: 'Soft chair',
+      variantDetails: 'Beige · Standard',
       description: 'Comfortable upholstered chair for your home.',
       price: 2000,
       currency: 'INR',
@@ -81,6 +85,7 @@ export class ProductCatalogService {
     {
       id: 'wireless-headphones-1',
       name: 'Wireless headphones',
+      variantDetails: 'Black · Over-ear',
       description: 'Comfortable wireless headphones for music and calls.',
       price: 2499,
       currency: 'INR',
@@ -91,6 +96,7 @@ export class ProductCatalogService {
     {
       id: 'classic-watch-1',
       name: 'Classic wristwatch',
+      variantDetails: 'Black · 42 mm',
       description: 'A classic everyday wristwatch with a clean design.',
       price: 1799,
       currency: 'INR',
