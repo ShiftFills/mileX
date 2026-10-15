@@ -29,6 +29,27 @@ select {
   color: var(--color-text);
 }
 
+.form-select--dense {
+  min-height: 1.3rem;
+  height: 1.3rem;
+  padding: 0.15rem 1.35rem 0.15rem 0.45rem;
+  border-color: var(--color-border);
+  border-radius: var(--radius-sm);
+  background-position: right 0.45rem center;
+  background-size: 0.5rem 0.5rem;
+  font-size: 0.55rem;
+  line-height: 1.2;
+}
+
+:host-context(.variant-dialog) .form-select--dense {
+  min-height: 1.4rem;
+  height: 1.4rem;
+  padding: 0.16rem 1.45rem 0.16rem 0.5rem;
+  background-position: right 0.5rem center;
+  background-size: 0.55rem 0.55rem;
+  font-size: 0.6rem;
+}
+
 :host(.product-control) select {
   min-height: 1.9rem;
   height: 1.9rem;

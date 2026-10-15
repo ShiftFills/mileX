@@ -7,8 +7,8 @@ import { ChangeDetectionStrategy, Component, input, output } from '@angular/core
   templateUrl: './button.html',
 })
 export class Button {
-  readonly variant = input<'primary' | 'secondary' | 'accent' | 'outline' | 'plain' | 'link' | 'icon'>('primary');
-  readonly size = input<'normal' | 'small' | 'compact'>('normal');
+  readonly variant = input<'primary' | 'secondary' | 'accent' | 'danger' | 'outline' | 'plain' | 'link' | 'icon'>('primary');
+  readonly size = input<'normal' | 'small' | 'compact' | 'dense'>('normal');
   readonly type = input<'button' | 'submit' | 'reset'>('button');
   readonly disabled = input(false);
   readonly loading = input(false);

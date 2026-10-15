@@ -7,6 +7,13 @@ button {
   font: inherit;
 }
 
+:host(.dialog-action) .btn--dense {
+  min-height: 1rem;
+  padding: 7px 0.44rem;
+  font-size: 0.54rem;
+  line-height: 1.2;
+}
+
 .btn__spinner {
   width: 0.9em;
   height: 0.9em;

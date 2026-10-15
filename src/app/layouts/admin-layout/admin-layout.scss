@@ -12,6 +12,14 @@
   background: #f4f6fa;
 }
 
+.admin-page:has(app-product-variants) .admin-topbar {
+  height: 2.7rem;
+}
+
+.admin-page:has(app-product-variants) .admin-layout {
+  min-height: calc(100vh - 2.7rem);
+}
+
 .admin-topbar {
   position: sticky;
   z-index: 5;
@@ -162,6 +170,7 @@
 @media (max-width: 767.98px) {
   .admin-layout {
     grid-template-columns: minmax(0, 1fr);
+    align-content: start;
   }
 
   .admin-sidebar {
@@ -174,6 +183,20 @@
     display: block;
     min-width: max-content;
   }
+}
+
+@media (min-width: 576px) and (max-width: 767.98px) {
+  .admin-page:has(app-product-variants) .admin-layout {
+    grid-template-columns: 7.2rem minmax(0, 1fr);
+    align-content: start;
+  }
+
+  .admin-page:has(app-product-variants) .admin-sidebar {
+    overflow: visible;
+    padding: var(--space-3) var(--space-1);
+    border: 0;
+  }
+
 }
 
 @media (max-width: 575.98px) {

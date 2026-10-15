@@ -18,4 +18,14 @@ describe('Dialog', () => {
   it('should create', () => {
     expect(component).toBeTruthy();
   });
+
+  it('emits closed when the backdrop is clicked', () => {
+    let wasClosed = false;
+    component.closed.subscribe(() => (wasClosed = true));
+    fixture.detectChanges();
+
+    fixture.nativeElement.querySelector('.dialog-backdrop').click();
+
+    expect(wasClosed).toBe(true);
+  });
 });

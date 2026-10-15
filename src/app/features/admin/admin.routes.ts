@@ -20,7 +20,11 @@ export const ADMIN_ROUTES: Routes = [
         title: 'Add Product',
         loadComponent: () => import('./pages/add-product/add-product').then((m) => m.AddProduct),
       },
-      { path: 'products/variants', title: 'Variants', component: AdminSection, data: { heading: 'Variants' } },
+      {
+        path: 'products/variants',
+        title: 'Variants',
+        loadComponent: () => import('./pages/product-variants/product-variants').then((m) => m.ProductVariants),
+      },
     ],
   },
 ];

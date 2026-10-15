@@ -57,6 +57,16 @@
     }
   }
 
+  &--danger {
+    background: #dc2626;
+    color: var(--color-primary-contrast);
+
+    &:hover {
+      background: #b91c1c;
+      color: var(--color-primary-contrast);
+    }
+  }
+
   &.btn-sm {
     padding: 0.5rem 0.625rem;
     font-size: 0.75rem;
@@ -65,5 +75,12 @@
 
   &.btn--compact {
     padding: 0.25rem 0.625rem;
+  }
+
+  &.btn--dense {
+    padding: 0.25rem 0.5rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.6rem;
+    line-height: 1.2;
   }
 }

@@ -12,7 +12,7 @@ export class Select {
   readonly value = input('');
   readonly required = input(false, { transform: booleanAttribute });
   readonly disabled = input(false, { transform: booleanAttribute });
-  readonly size = input<'normal' | 'compact'>('normal');
+  readonly size = input<'normal' | 'compact' | 'dense'>('normal');
   readonly ariaLabel = input<string | null>(null);
   readonly ariaInvalid = input<boolean | null>(null);
   readonly ariaDescribedBy = input<string | null>(null);

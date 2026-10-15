@@ -1,9 +1,11 @@
-import { Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, output } from '@angular/core';
 
 @Component({
-  imports: [],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'app-dialog',
   styleUrl: './dialog.scss',
   templateUrl: './dialog.html',
 })
-export class Dialog {}
+export class Dialog {
+  readonly closed = output<void>();
+}

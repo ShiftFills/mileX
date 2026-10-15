@@ -42,4 +42,11 @@ describe('Button', () => {
     expect(button.classList).toContain('btn--compact');
     expect(button.classList).not.toContain('btn-sm');
   });
+
+  it('applies the danger variant', () => {
+    fixture.componentRef.setInput('variant', 'danger');
+    fixture.detectChanges();
+    const button = fixture.nativeElement.querySelector('button') as HTMLButtonElement;
+    expect(button.classList).toContain('btn--danger');
+  });
 });

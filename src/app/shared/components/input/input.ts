@@ -23,7 +23,7 @@ export class Input {
   readonly min = input<number | null>(null, { transform: numberAttribute });
   readonly max = input<number | null>(null, { transform: numberAttribute });
   readonly step = input<number | null>(null, { transform: numberAttribute });
-  readonly size = input<'normal' | 'compact'>('normal');
+  readonly size = input<'normal' | 'compact' | 'dense'>('normal');
   readonly required = input(false, { transform: booleanAttribute });
   readonly disabled = input(false, { transform: booleanAttribute });
   readonly ariaLabel = input<string | null>(null);
