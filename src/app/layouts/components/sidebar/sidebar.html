@@ -1,0 +1,37 @@
+<nav class="sidebar" [class.sidebar--admin]="variant() === 'admin'" [attr.aria-label]="title() || 'Section'">
+  @if (title()) {
+    <h2 class="sidebar__title">{{ title() }}</h2>
+  }
+  <ul>
+    @for (link of links(); track link.path) {
+      <li>
+        <a [routerLink]="link.path" routerLinkActive="is-active" [routerLinkActiveOptions]="{ exact: !link.children?.length }">
+          @if (link.icon) {
+            @if (link.icon === 'my-orders') {
+              <img class="sidebar__icon" src="/images/myOrders.svg" alt="" aria-hidden="true" />
+            } @else {
+              <svg class="sidebar__icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                @switch (link.icon) {
+                  @case ('dashboard') { <rect x="2" y="2" width="4" height="4" rx=".7" /><rect x="10" y="2" width="4" height="4" rx=".7" /><rect x="2" y="10" width="4" height="4" rx=".7" /><rect x="10" y="10" width="4" height="4" rx=".7" /> }
+                  @case ('products') { <circle cx="8" cy="8" r="5.5" /><path d="M5 8h6M8 5v6" /> }
+                  @case ('cart') { <path d="M1.5 2h2l1.4 8.1a1.5 1.5 0 0 0 1.5 1.2h6.1a1.5 1.5 0 0 0 1.5-1.2L15 5H4M6.5 14a.7.7 0 1 0 0 .1M12 14a.7.7 0 1 0 0 .1" /> }
+                  @case ('orders') { <path d="M2.5 3.5h11v3h-11zM3.5 6.5v6h9v-6M6.5 9h3" /> }
+                  @case ('returns') { <path d="M8 1.8 13.5 4.6v6.8L8 14.2 2.5 11.4V4.6zM2.5 4.6 8 7.4l5.5-2.8M8 7.4v6.8" /> }
+                  @case ('sellers') { <circle cx="8" cy="5.2" r="2.4" /><path d="M3 13.5c0-2.4 2.2-3.8 5-3.8s5 1.4 5 3.8z" /> }
+                }
+              </svg>
+            }
+          }
+          <span>{{ link.label }}</span>
+        </a>
+        @if (link.children?.length) {
+          <ul class="sidebar__children">
+            @for (child of link.children; track child.path) {
+              <li><a [routerLink]="child.path" routerLinkActive="is-active" [routerLinkActiveOptions]="{ exact: true }">{{ child.label }}</a></li>
+            }
+          </ul>
+        }
+      </li>
+    }
+  </ul>
+</nav>

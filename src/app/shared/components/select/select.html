@@ -1,0 +1,17 @@
+<select
+  class="form-select"
+  [class.form-select--compact]="size() === 'compact'"
+  [class.form-select--dense]="size() === 'dense'"
+  [class.form-select--placeholder]="!value()"
+  [id]="inputId()"
+  [name]="name()"
+  [value]="value()"
+  [required]="required()"
+  [disabled]="disabled()"
+  [attr.aria-label]="ariaLabel()"
+  [attr.aria-invalid]="ariaInvalid() === null ? null : ariaInvalid() ? 'true' : 'false'"
+  [attr.aria-describedby]="ariaDescribedBy()"
+  (change)="valueChange.emit($event)"
+>
+  <ng-content />
+</select>

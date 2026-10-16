@@ -1,0 +1,145 @@
+<main class="checkout-page">
+  @if (placed()) {
+    <section appCard class="checkout-confirmation" role="status">
+      <h1>Demo order complete</h1>
+      <p>Your demo checkout was recorded locally. No payment was processed and no order was sent to a server.</p>
+      <a class="checkout-action" [routerLink]="routes.home">Return to MileX</a>
+    </section>
+  } @else if (!cart.items().length) {
+    <section appCard class="checkout-confirmation">
+      <h1>Your cart is empty</h1>
+      <p>Add products before continuing to checkout.</p>
+      <a class="checkout-action" [routerLink]="routes.products">Browse products</a>
+    </section>
+  } @else {
+    <header class="checkout-heading">
+      <a class="checkout-back" [routerLink]="routes.cart" aria-label="Back to shopping cart"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5M5 8h9" /></svg></a>
+      <div><h1>Place Order</h1><p>Review your details and complete the payment to place your order.</p></div>
+    </header>
+    <form class="row g-3 checkout-layout" (submit)="placeDemoOrder($event)">
+      <div class="col-12 col-lg-8 checkout-details">
+        <section appCard class="checkout-card checkout-customer">
+          <header class="checkout-card-heading">
+            <h2><span class="section-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><circle cx="8" cy="5" r="2.5" /><path d="M3 14a5 5 0 0 1 10 0" /></svg></span>Customer Details</h2>
+            @if (editingCard() !== 'customer') { <app-button class="checkout-card-edit" variant="plain" [disabled]="editingCard() !== null" (clicked)="beginEdit('customer')">Edit</app-button> }
+          </header>
+          @if (editingCard() === 'customer' && customerDraft(); as draft) {
+            <div class="checkout-fields checkout-fields--customer checkout-edit-fields">
+              <label><span class="visually-hidden">Full Name</span><app-input name="name" size="dense" autocomplete="name" ariaLabel="Full name" [value]="draft.name" [required]="true" (valueInput)="updateCustomerField('name', $event)" /></label>
+              <label><span class="visually-hidden">Email</span><app-input name="email" size="dense" type="email" autocomplete="email" ariaLabel="Email" [value]="draft.email" [required]="true" (valueInput)="updateCustomerField('email', $event)" /></label>
+              <label><span class="visually-hidden">Phone</span><app-input name="phone" size="dense" type="tel" autocomplete="tel" ariaLabel="Phone" [value]="draft.phone" [required]="true" (valueInput)="updateCustomerField('phone', $event)" /></label>
+            </div>
+            <div class="checkout-edit-actions"><app-button variant="outline" size="small" (clicked)="cancelEdit()">Cancel</app-button><app-button variant="accent" size="small" (clicked)="saveEdit('customer')">Save</app-button></div>
+            @if (editError()) { <p class="checkout-edit-error" role="alert">{{ editError() }}</p> }
+          } @else {
+            <div class="checkout-card-content checkout-contact-summary">
+              <strong>{{ customer().name }}</strong><span>{{ customer().email }}</span><span>{{ customer().phone }}</span>
+            </div>
+          }
+        </section>
+
+        <section appCard class="checkout-card checkout-address-card">
+          <header class="checkout-card-heading">
+            <h2><span class="section-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M8 14s5-4.5 5-8a5 5 0 0 0-10 0c0 3.5 5 8 5 8Z" /><circle cx="8" cy="6" r="1.5" /></svg></span>Delivery Address</h2>
+            @if (editingCard() !== 'delivery') { <app-button class="checkout-card-edit" variant="plain" [disabled]="editingCard() !== null" (clicked)="beginEdit('delivery')">Edit</app-button> }
+          </header>
+          @if (editingCard() === 'delivery' && deliveryDraft(); as draft) {
+            <div class="checkout-address-fields checkout-edit-fields">
+              <label><span class="visually-hidden">Address</span><app-input name="address" size="dense" autocomplete="street-address" ariaLabel="Street address" [value]="draft.street" [required]="true" (valueInput)="updateDeliveryField('street', $event)" /></label>
+              <div class="checkout-address-meta">
+                <label><span class="visually-hidden">City</span><app-input name="city" size="dense" autocomplete="address-level2" ariaLabel="City" [value]="draft.city" [required]="true" (valueInput)="updateDeliveryField('city', $event)" /></label>
+                <label><span class="visually-hidden">State</span><app-input name="state" size="dense" autocomplete="address-level1" ariaLabel="State" [value]="draft.state" [required]="true" (valueInput)="updateDeliveryField('state', $event)" /></label>
+                <label><span class="visually-hidden">Postal Code</span><app-input name="postalCode" size="dense" autocomplete="postal-code" ariaLabel="Postal code" [value]="draft.postalCode" [required]="true" (valueInput)="updateDeliveryField('postalCode', $event)" /></label>
+                <label><span class="visually-hidden">Country</span><app-input name="country" size="dense" autocomplete="country-name" ariaLabel="Country" [value]="draft.country" [required]="true" (valueInput)="updateDeliveryField('country', $event)" /></label>
+              </div>
+            </div>
+            <div class="checkout-edit-actions"><app-button variant="outline" size="small" (clicked)="cancelEdit()">Cancel</app-button><app-button variant="accent" size="small" (clicked)="saveEdit('delivery')">Save</app-button></div>
+            @if (editError()) { <p class="checkout-edit-error" role="alert">{{ editError() }}</p> }
+          } @else {
+            <div class="checkout-card-content checkout-address-summary">
+              <span>{{ deliveryAddress().street }}</span>
+              <span>{{ deliveryAddress().city }}, {{ deliveryAddress().state }} - {{ deliveryAddress().postalCode }}</span>
+              <span>{{ deliveryAddress().country }}</span>
+            </div>
+          }
+        </section>
+
+        <section appCard class="checkout-card checkout-address-card">
+          <header class="checkout-card-heading">
+            <h2><span class="section-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><rect x="1.5" y="3" width="13" height="10" rx="1.5" /><path d="M2 6h12M4 10h3" /></svg></span>Billing Address</h2>
+            @if (editingCard() !== 'billing') { <app-button class="checkout-card-edit" variant="plain" [disabled]="editingCard() !== null" (clicked)="beginEdit('billing')">Edit</app-button> }
+          </header>
+          @if (editingCard() === 'billing' && billingDraft(); as draft) {
+            <label class="billing-same"><input type="checkbox" [checked]="billingSameDraft()" (change)="setBillingSameAsDelivery($event)" /> Same as delivery address</label>
+            @if (!billingSameDraft()) {
+              <div class="checkout-address-fields checkout-edit-fields">
+                <label><span class="visually-hidden">Billing street address</span><app-input name="billingAddress" size="dense" autocomplete="street-address" ariaLabel="Billing street address" [value]="draft.street" [required]="true" (valueInput)="updateBillingField('street', $event)" /></label>
+                <div class="checkout-address-meta">
+                  <label><span class="visually-hidden">Billing city</span><app-input name="billingCity" size="dense" autocomplete="address-level2" ariaLabel="Billing city" [value]="draft.city" [required]="true" (valueInput)="updateBillingField('city', $event)" /></label>
+                  <label><span class="visually-hidden">Billing state</span><app-input name="billingState" size="dense" autocomplete="address-level1" ariaLabel="Billing state" [value]="draft.state" [required]="true" (valueInput)="updateBillingField('state', $event)" /></label>
+                  <label><span class="visually-hidden">Billing postal code</span><app-input name="billingPostalCode" size="dense" autocomplete="postal-code" ariaLabel="Billing postal code" [value]="draft.postalCode" [required]="true" (valueInput)="updateBillingField('postalCode', $event)" /></label>
+                  <label><span class="visually-hidden">Billing country</span><app-input name="billingCountry" size="dense" autocomplete="country-name" ariaLabel="Billing country" [value]="draft.country" [required]="true" (valueInput)="updateBillingField('country', $event)" /></label>
+                </div>
+              </div>
+            }
+            <div class="checkout-edit-actions"><app-button variant="outline" size="small" (clicked)="cancelEdit()">Cancel</app-button><app-button variant="accent" size="small" (clicked)="saveEdit('billing')">Save</app-button></div>
+            @if (editError()) { <p class="checkout-edit-error" role="alert">{{ editError() }}</p> }
+          } @else {
+            <div class="checkout-card-content checkout-address-summary">
+              <span>{{ displayedBillingAddress().street }}</span>
+              <span>{{ displayedBillingAddress().city }}, {{ displayedBillingAddress().state }} - {{ displayedBillingAddress().postalCode }}</span>
+              <span>{{ displayedBillingAddress().country }}</span>
+            </div>
+          }
+        </section>
+
+        <section appCard class="checkout-card checkout-products">
+          <header class="checkout-card-heading">
+            <h2><span class="section-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M1.5 2h2l1.4 8.1a1.5 1.5 0 0 0 1.5 1.2h6.1a1.5 1.5 0 0 0 1.5-1.2L15 5H4" /></svg></span>Products</h2>
+            <app-button class="checkout-card-edit" variant="plain" [disabled]="editingCard() !== null" (clicked)="editProducts()">Edit</app-button>
+          </header>
+          <div class="checkout-table-scroll">
+            <table>
+              <thead><tr><th>Product</th><th>Variant</th><th>Quantity</th><th>Unit Price</th><th>Discount</th><th>Tax</th><th>Total Amount</th></tr></thead>
+              <tbody>
+                @for (item of cart.items(); track item.product.id) {
+                  <tr>
+                    <td><div class="checkout-product"><img [src]="item.product.imageUrl" [alt]="item.product.name" /></div></td>
+                    <td>{{ item.product.variantDetails?.split(' · ')?.[0] ?? '—' }}</td><td>{{ item.quantity }}</td>
+                    <td>{{ item.product.price | currency: 'INR' : 'symbol' : '1.0-0' }}</td><td>{{ discountFor(item) ? (discountFor(item) | currency: 'INR' : 'symbol' : '1.0-0') : '—' }}</td><td>Included</td>
+                    <td><strong>{{ item.product.price * item.quantity | currency: 'INR' : 'symbol' : '1.0-0' }}</strong></td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+          <footer class="checkout-products-footer"><span>Showing 1-{{ cart.items().length }} of {{ cart.items().length }} products</span></footer>
+        </section>
+      </div>
+
+      <aside class="col-12 col-lg-4 checkout-side">
+        <section appCard class="checkout-card checkout-summary">
+          <h2>Order Summary</h2>
+          <div class="summary-lines">
+            <p><span>Subtotal ({{ cart.count() }} items)</span><strong>{{ cart.subtotal() | currency: 'INR' : 'symbol' : '1.0-0' }}</strong></p>
+            <p class="summary-discount"><span>Discount</span><strong>&#8722;{{ discountTotal() | currency: 'INR' : 'symbol' : '1.0-0' }}</strong></p>
+            <p><span>Tax (included)</span><strong>Included</strong></p>
+            <p><span>Shipping Charges</span><strong>{{ cart.shippingCost() | currency: 'INR' : 'symbol' : '1.0-0' }}</strong></p>
+          </div>
+          <p class="summary-total"><span>Total Amount</span><strong>{{ cart.total() | currency: 'INR' : 'symbol' : '1.0-0' }}</strong></p>
+          <div class="shipping-note"><strong>Free shipping</strong> on orders above &#8377;15,000<br /><span>Add &#8377;{{ (15000 - cart.subtotal()) > 0 ? (15000 - cart.subtotal()) : 0 }} more to get free shipping</span></div>
+        </section>
+
+        <section appCard class="checkout-card checkout-payment">
+          <h2>Payment Method</h2>
+          <app-radio class="checkout-payment-option" [class.is-selected]="paymentMethod() === 'upi'" name="payment" value="upi" [checked]="paymentMethod() === 'upi'" (valueChange)="selectPaymentMethod($event)"><strong>UPI</strong> (Google Pay / PhonePe / Paytm / etc.)<small class="checkout-payment-brands"><span class="checkout-brand checkout-brand--gpay">GPay</span><span class="checkout-brand checkout-brand--phonepe">P</span><span class="checkout-brand checkout-brand--paytm">Paytm</span><span class="checkout-payment-more">+ more</span></small></app-radio>
+          <app-radio class="checkout-payment-option" [class.is-selected]="paymentMethod() === 'card'" name="payment" value="card" [checked]="paymentMethod() === 'card'" (valueChange)="selectPaymentMethod($event)">Credit / Debit Card</app-radio>
+          <app-radio class="checkout-payment-option" [class.is-selected]="paymentMethod() === 'bank'" name="payment" value="bank" [checked]="paymentMethod() === 'bank'" (valueChange)="selectPaymentMethod($event)">Net Banking</app-radio>
+          <app-radio class="checkout-payment-option" [class.is-selected]="paymentMethod() === 'cod'" name="payment" value="cod" [checked]="paymentMethod() === 'cod'" (valueChange)="selectPaymentMethod($event)">Cash on Delivery (COD)</app-radio>
+          <p class="checkout-terms"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 13 3.4v3.8c0 3.1-2.1 5.6-5 7.3-2.9-1.7-5-4.2-5-7.3V3.4L8 1.5Z" /><path d="m5.6 7.7 1.5 1.5 3.4-3.5" /></svg><span>By placing this order, you agree to our<br /><a href="#terms">Terms &amp; Conditions</a> and <a href="#privacy">Privacy Policy</a>.</span></p>
+          <app-button class="place-order-button" variant="accent" type="submit" [disabled]="editingCard() !== null">Place Order</app-button>
+        </section>
+      </aside>
+    </form>
+  }
+</main>

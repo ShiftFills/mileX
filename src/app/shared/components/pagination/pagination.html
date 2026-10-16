@@ -1,0 +1,13 @@
+<footer class="pagination">
+  <p class="pagination__summary">Showing <strong>{{ rangeStart() }}&#8211;{{ rangeEnd() }}</strong> of <strong>{{ total() }}</strong> {{ itemLabel() }}</p>
+  <nav class="pagination__nav" [attr.aria-label]="ariaLabel()">
+    <button type="button" aria-label="Previous page" [disabled]="page() === 1" (click)="go(page() - 1)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m10 3-5 5 5 5" /></svg></button>
+    @for (pageNumber of pageNumbers(); track pageNumber) {
+      <button type="button" [class.is-active]="page() === pageNumber" [attr.aria-current]="page() === pageNumber ? 'page' : null" (click)="go(pageNumber)">{{ pageNumber }}</button>
+    }
+    @if (hasMore()) {
+      <span aria-hidden="true">&#8230;</span>
+    }
+    <button type="button" aria-label="Next page" [disabled]="page() === pageCount()" (click)="go(page() + 1)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg></button>
+  </nav>
+</footer>

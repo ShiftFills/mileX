@@ -1,0 +1,71 @@
+<div class="storefront">
+  <app-storefront-header />
+
+  <main class="storefront__content">
+    <app-hero-banner />
+
+    <section class="deals" aria-labelledby="deals-heading">
+      <div class="deals__intro">
+        <div>
+          <h1 id="deals-heading">Deals and offers</h1>
+          <p>Hygiene equipments</p>
+        </div>
+        <div class="deals__timer" aria-label="Offer countdown">
+          <span><strong>04</strong><small>Days</small></span>
+          <span><strong>13</strong><small>Hour</small></span>
+          <span><strong>34</strong><small>Min</small></span>
+          <span><strong>56</strong><small>Sec</small></span>
+        </div>
+      </div>
+
+      <div class="deals__items row row-cols-2 row-cols-sm-3 row-cols-lg-5 g-0">
+        @for (category of categories; track category.name) {
+        <a class="deal-category col" [routerLink]="routes.products" [queryParams]="{ category: category.query }">
+          <img [src]="category.image" [alt]="category.name" loading="lazy" decoding="async" />
+          <h2>{{ category.name }}</h2>
+          <span class="deal-category__discount">{{ category.discount }}</span>
+        </a>
+        }
+      </div>
+    </section>
+
+    <section class="promos" aria-label="Featured collections">
+      <article class="promo promo--fashion">
+        <div class="promo__copy">
+          <h2>Trendy Styles<br />for Every You</h2>
+          <p>Women <span aria-hidden="true">|</span> Men <span aria-hidden="true">|</span> Kids</p>
+          <a class="btn btn-sm" [routerLink]="routes.products" [queryParams]="{ category: 'fashion' }">
+            Explore Fashion <span aria-hidden="true">→</span>
+          </a>
+        </div>
+        <img class="promo__art promo__art--fashion" src="/images/trendy-style.svg" alt="" loading="lazy"
+          decoding="async" />
+      </article>
+
+      <article class="promo promo--gadgets">
+        <div class="promo__copy">
+          <h2>Latest Gadgets<br />Best Deals</h2>
+          <p>Mobiles <span aria-hidden="true">|</span> Laptops <span aria-hidden="true">|</span> Accessories</p>
+          <a class="btn btn-sm" [routerLink]="routes.products" [queryParams]="{ category: 'electronics' }">
+            Shop Electronics <span aria-hidden="true">→</span>
+          </a>
+        </div>
+        <img class="promo__art promo__art--gadgets" src="/images/gadgets.svg" alt="" loading="lazy" decoding="async" />
+      </article>
+
+      <article class="promo promo--home">
+        <div class="promo__copy">
+          <h2>Upgrade Your<br />Home Today</h2>
+          <p>Furniture <span aria-hidden="true">|</span> Kitchen <span aria-hidden="true">|</span> Decor</p>
+          <a class="btn btn-sm" [routerLink]="routes.products" [queryParams]="{ category: 'home-living' }">
+            Shop Home &amp; Living <span aria-hidden="true">→</span>
+          </a>
+        </div>
+      </article>
+    </section>
+
+    <app-home-showcases />
+    <app-supplier-inquiry />
+  </main>
+  <app-footer />
+</div>

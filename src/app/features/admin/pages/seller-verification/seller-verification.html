@@ -1,0 +1,163 @@
+<main class="admin-content admin-list-page">
+  <app-page-heading heading="Seller Verification"
+    subtitle="Review and verify seller details, documents and approve or reject their requests.">
+    <app-date-range-filter inputId="seller-date-range" [value]="range()" (valueChange)="range.set($event)" />
+    <app-export-button (exported)="exportSellers()" />
+  </app-page-heading>
+
+  <section class="row row-cols-2 row-cols-xl-4 g-2 g-md-3 mb-3" aria-label="Seller verification summary">
+    @for (stat of stats; track stat.label) {
+    <div class="col">
+      <app-stat-card [label]="stat.label" [value]="stat.value" [trend]="stat.trend"
+        [trendDirection]="stat.trendDirection" [trendTone]="stat.trendTone" [icon]="stat.icon"
+        [iconImage]="stat.iconImage ?? null" [tone]="stat.tone" />
+    </div>
+    }
+  </section>
+
+  <section appCard class="admin-list-panel" aria-label="Sellers">
+    <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2 gap-md-3 py-2">
+      <label class="admin-list-search">
+        <img src="/images/search-icon.svg" alt="" aria-hidden="true" />
+        <app-input class="admin-list-search-control" inputId="admin-seller-search" name="sellerSearch"
+          placeholder="Search by order number, customer name, mobile......" size="compact" [value]="query()"
+          (valueInput)="setQuery($event)" />
+        <span class="visually-hidden">Search sellers</span>
+      </label>
+      <div class="admin-list-filters">
+        <label class="visually-hidden" for="admin-seller-status">Filter by verification status</label>
+        <app-select class="admin-list-filter" inputId="admin-seller-status" name="sellerStatus" size="compact"
+          [value]="status()" (valueChange)="setFilter('status', $event)">
+          <option value="">All Status</option>
+          @for (item of statusOptions; track item) { <option [value]="item">{{ item }}</option> }
+        </app-select>
+        <label class="visually-hidden" for="admin-seller-business-type">Filter by business type</label>
+        <app-select class="admin-list-filter admin-list-filter--wide" inputId="admin-seller-business-type"
+          name="businessType" size="compact" [value]="businessType()" (valueChange)="setFilter('businessType', $event)">
+          <option value="">All Business Type</option>
+          @for (item of businessTypes; track item) { <option [value]="item">{{ item }}</option> }
+        </app-select>
+      </div>
+    </div>
+
+    <app-table class="admin-list-table sellers-table" ariaLabel="Sellers" [columns]="tableColumns()"
+      [rows]="visibleRows()" emptyMessage="No sellers match these filters." />
+
+    <ng-template #selectAllHeader>
+      <app-checkbox [checked]="allVisibleSelected()" ariaLabel="Select all sellers on this page"
+        (checkedChange)="toggleAllVisible($event)" />
+    </ng-template>
+    <ng-template #selectRowCell let-seller>
+      <app-checkbox [checked]="selectedIds().has(seller.id)" [ariaLabel]="'Select ' + seller.businessName"
+        (checkedChange)="toggleSelected(seller.id, $event)" />
+    </ng-template>
+    <ng-template #actionCell let-seller>
+      <app-button variant="outline" size="dense" (clicked)="openDetails(seller)">View Details</app-button>
+    </ng-template>
+
+    <app-pagination ariaLabel="Seller pages" itemLabel="products" [page]="page()" [pageSize]="pageSize"
+      [total]="filteredRows().length" (pageChange)="page.set($event)" />
+  </section>
+</main>
+
+@if (activeSeller(); as seller) {
+<app-dialog (closed)="closeDetails()">
+  <section class="seller-dialog" role="dialog" aria-modal="true" aria-labelledby="seller-dialog-title"
+    (click)="$event.stopPropagation()">
+    <header class="seller-dialog__heading">
+      <h2 id="seller-dialog-title">Seller Details</h2>
+      <button type="button" class="seller-dialog__close" aria-label="Close" (click)="closeDetails()">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="m3.5 3.5 9 9M12.5 3.5l-9 9" />
+        </svg>
+      </button>
+    </header>
+
+    <h3 class="seller-dialog__section">Seller Information</h3>
+    <dl class="seller-info row g-0 row-cols-1 row-cols-sm-2">
+      <div class="col">
+        <dt>Seller Name</dt>
+        <dd>{{ seller.sellerName }}</dd>
+      </div>
+      <div class="col">
+        <dt>Mobile Number</dt>
+        <dd>{{ seller.mobile }}</dd>
+      </div>
+      <div class="col">
+        <dt>Business Name</dt>
+        <dd>{{ seller.businessName }}</dd>
+      </div>
+      <div class="col">
+        <dt>GST Number</dt>
+        <dd>{{ seller.gstNumber }}</dd>
+      </div>
+      <div class="col">
+        <dt>Seller Code</dt>
+        <dd>{{ seller.sellerCode }}</dd>
+      </div>
+      <div class="col">
+        <dt>PAN Number</dt>
+        <dd>{{ seller.panNumber }}</dd>
+      </div>
+      <div class="col">
+        <dt>Email</dt>
+        <dd>{{ seller.email }}</dd>
+      </div>
+    </dl>
+
+    <h3 class="seller-dialog__section seller-dialog__documents-heading">
+      <img src="/images/myOrders.svg" alt="" aria-hidden="true" />
+      Submitted Documents
+    </h3>
+    <app-table class="seller-documents" ariaLabel="Submitted documents" [columns]="documentColumns()"
+      [rows]="seller.documents" />
+
+    <div class="row g-3 mt-1">
+      <div class="col-12 col-sm-4">
+        <h3 class="seller-dialog__section">Verification Status</h3>
+        <app-badge [tone]="statusTone(seller.status)" size="compact">{{ seller.status }}</app-badge>
+      </div>
+      <div class="col-12 col-sm-8">
+        <label class="seller-dialog__section d-block" for="seller-remarks">Verification Remarks</label>
+        <app-textarea class="seller-remarks" inputId="seller-remarks" name="remarks" size="compact" [rows]="3"
+          placeholder="Add remarks about the submitted documents..." [value]="remarks()"
+          [ariaInvalid]="!!remarksError()" [ariaDescribedBy]="remarksError() ? 'seller-remarks-error' : null"
+          (valueInput)="setRemarks($event)" />
+        @if (remarksError()) { <p id="seller-remarks-error" class="seller-dialog__error" role="alert">{{ remarksError()
+          }}</p> }
+      </div>
+    </div>
+
+    <footer class="seller-dialog__actions">
+      <app-button variant="outline" size="small" (clicked)="closeDetails()">Cancel</app-button>
+      <app-button variant="outline-danger" size="small" (clicked)="reject()">Reject</app-button>
+      <app-button variant="accent" size="small" (clicked)="approve()">Approve</app-button>
+    </footer>
+  </section>
+</app-dialog>
+}
+
+<ng-template #documentNameCell let-doc>
+  <span class="seller-doc-name">
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <rect width="16" height="16" rx="3" fill="#fde8ec" />
+      <path d="M5 3.5h4l2.5 2.5v6.5h-6.5z" fill="none" stroke="#e11d48" stroke-width="1.1" stroke-linejoin="round" />
+      <path d="M9 3.5V6h2.5" fill="none" stroke="#e11d48" stroke-width="1.1" />
+    </svg>
+    {{ doc.name }}
+  </span>
+</ng-template>
+<ng-template #documentStatusCell>
+  <span class="seller-doc-status">
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <circle cx="8" cy="8" r="6.5" />
+      <path d="m5.3 8.2 1.8 1.8 3.6-3.8" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round"
+        stroke-linejoin="round" />
+    </svg>
+    Uploaded
+  </span>
+</ng-template>
+<ng-template #documentActionCell let-doc>
+  <app-button variant="outline" size="dense" [ariaLabel]="'View ' + doc.name"
+    (clicked)="viewDocument(doc)">View</app-button>
+</ng-template>

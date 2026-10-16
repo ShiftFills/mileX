@@ -1,0 +1,75 @@
+<main class="cart-page">
+  <header class="cart-heading">
+    <h1>Shopping Cart</h1>
+    <p>Review your cart items before placing the order.</p>
+  </header>
+
+  <div class="row g-3 cart-layout">
+    <section
+      appCard
+      class="col-12 col-lg-8 cart-items"
+      [class.cart-items--empty]="!cart.items().length"
+      aria-label="Cart items"
+    >
+      @if (cart.items().length) {
+        <app-table class="cart-table-wrap" [columns]="tableColumns()" [rows]="tableRows()" ariaLabel="Cart items" [nowrapCells]="true" />
+        <ng-template #selectionCell let-row>
+          <input class="cart-row-select" type="checkbox" [attr.aria-label]="'Select ' + row.item.product.name" />
+        </ng-template>
+        <ng-template #productCell let-row>
+          <div class="cart-product"><img [src]="row.item.product.imageUrl" [alt]="row.item.product.name" /></div>
+        </ng-template>
+        <ng-template #quantityCell let-row>
+          <div class="quantity-control">
+            <button type="button" [attr.aria-label]="'Decrease ' + row.item.product.name + ' quantity'" [disabled]="row.item.quantity <= 1" (click)="cart.setQuantity(row.item.product.id, row.item.quantity - 1)"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6h8" /></svg></button>
+            <span>{{ row.item.quantity }}</span>
+            <button type="button" [attr.aria-label]="'Increase ' + row.item.product.name + ' quantity'" (click)="cart.setQuantity(row.item.product.id, row.item.quantity + 1)"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 2v8M2 6h8" /></svg></button>
+          </div>
+        </ng-template>
+        <ng-template #unitPriceCell let-row>{{ row.item.product.price | currency: 'INR' : 'symbol' : '1.0-0' }}</ng-template>
+        <ng-template #discountCell let-row>{{ row.discount ? (row.discount | currency: 'INR' : 'symbol' : '1.0-0') : '\u2014' }}</ng-template>
+        <ng-template #totalCell let-row>{{ row.item.product.price * row.item.quantity | currency: 'INR' : 'symbol' : '1.0-0' }}</ng-template>
+        <ng-template #actionCell let-row>
+          <div class="cart-action-menu-wrap" (click)="$event.stopPropagation()">
+            <button class="cart-remove" type="button" aria-haspopup="menu" [attr.aria-expanded]="openActionMenuId() === row.item.product.id" [attr.aria-label]="'Actions for ' + row.item.product.name" (click)="toggleActionMenu(row.item.product.id)">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="3" r=".8" /><circle cx="8" cy="8" r=".8" /><circle cx="8" cy="13" r=".8" /></svg>
+            </button>
+            @if (openActionMenuId() === row.item.product.id) {
+              <div class="cart-action-menu" role="menu">
+                <button type="button" role="menuitem" (click)="removeActionItem(row.item.product.id)">Remove item</button>
+              </div>
+            }
+          </div>
+        </ng-template>
+        <footer class="cart-items-footer">
+          <span>Showing 1-{{ cart.items().length }} of {{ cart.items().length }} products</span>
+          <nav aria-label="Cart pages"><button type="button" class="is-active" aria-current="page">1</button><button type="button" disabled aria-label="Next page"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg></button></nav>
+        </footer>
+      } @else {
+        <div class="cart-empty-state">
+          <span class="cart-empty-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 4h2l2.1 10.2a2 2 0 0 0 2 1.6h8.6a2 2 0 0 0 2-1.6L21 8H6" /><circle cx="9.5" cy="20" r="1" /><circle cx="18" cy="20" r="1" /></svg></span>
+          <div>
+            <h2>Your cart is empty</h2>
+            <p>Browse the catalog to find something you love.</p>
+          </div>
+          <app-button class="cart-browse-action" variant="accent" size="dense" type="button" (clicked)="browseProducts()">Browse products</app-button>
+        </div>
+      }
+    </section>
+
+    <aside appCard class="col-12 col-lg-4 cart-summary" aria-label="Order summary">
+      <h2>Order Summary</h2>
+      <div class="summary-lines">
+        <p><span>Subtotal ({{ cart.count() }} items)</span><strong>{{ cart.subtotal() | currency: 'INR' : 'symbol' : '1.0-0' }}</strong></p>
+        <p class="summary-discount"><span>Discount</span><strong>&#8722;{{ discountTotal() | currency: 'INR' : 'symbol' : '1.0-0' }}</strong></p>
+        <p><span>Tax (included)</span><strong>Included</strong></p>
+        <p><span>Shipping Charges</span><strong>{{ cart.shippingCost() | currency: 'INR' : 'symbol' : '1.0-0' }}</strong></p>
+      </div>
+      <p class="summary-total"><span>Total Amount</span><strong>{{ cart.total() | currency: 'INR' : 'symbol' : '1.0-0' }}</strong></p>
+      <div class="shipping-note"><strong>Free shipping</strong> on orders above &#8377;15,000<br /><span>Add &#8377;{{ (15000 - cart.subtotal()) > 0 ? (15000 - cart.subtotal()) : 0 }} more to get free shipping</span></div>
+      <app-button class="cart-checkout-action" variant="accent" size="dense" type="button" [disabled]="!cart.items().length" (clicked)="proceedToPay()">Proceed to Checkout</app-button>
+      <small class="secure-note"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7" width="9" height="7" rx="1" /><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" /></svg> Secure &amp; Safe Checkout</small>
+      <div class="payment-methods" aria-label="Accepted payment methods"><b>VISA</b><b class="mastercard"><i></i><i></i></b><b>RuPay</b><b>UPI</b><span>more</span></div>
+    </aside>
+  </div>
+</main>

@@ -1,0 +1,73 @@
+:host {
+  display: block;
+}
+
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+
+  &__summary {
+    margin: 0;
+    color: var(--color-text-muted);
+    font-size: 0.54rem;
+
+    strong {
+      color: var(--color-text);
+      font-weight: var(--weight-medium);
+    }
+  }
+
+  &__nav {
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
+    color: var(--color-text-muted);
+    font-size: 0.58rem;
+
+    button {
+      display: grid;
+      min-width: 1.1rem;
+      height: 1.1rem;
+      place-items: center;
+      padding: 0 0.2rem;
+      border: 0;
+      border-radius: 3px;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+
+      &.is-active {
+        background: var(--color-accent);
+        color: var(--color-text);
+      }
+
+      &:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+
+      svg {
+        display: block;
+        width: 0.75rem;
+        height: 0.75rem;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.5;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+    }
+  }
+}
+
+@media (max-width: 575.98px) {
+  .pagination {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

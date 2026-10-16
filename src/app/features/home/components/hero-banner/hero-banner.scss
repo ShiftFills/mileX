@@ -1,0 +1,95 @@
+:host {
+  display: block;
+}
+
+.hero {
+  position: relative;
+  margin-top: 1.6rem;
+  overflow: hidden;
+  border-radius: 0.75rem;
+
+  &__artwork {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  &__shop-link {
+    position: absolute;
+    top: 71%;
+    left: 8%;
+    width: 10%;
+    height: 12%;
+  }
+
+  &__mobile {
+    display: none;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .hero {
+    min-height: 14rem;
+    background: linear-gradient(105deg, #ffcf08, #ff9b13);
+
+    &__artwork,
+    &__shop-link {
+      display: none;
+    }
+
+    &__mobile {
+      display: flex;
+      min-height: inherit;
+      align-items: center;
+      padding: 1rem;
+    }
+
+    &__mobile-sale {
+      position: absolute;
+      top: 1rem;
+      right: 0.8rem;
+      width: 6rem;
+      padding: 0.5rem 0.25rem;
+      transform: rotate(4deg);
+      background: #f44321;
+      box-shadow: 0 0.2rem 0 #d82d14;
+      color: #fff;
+      text-align: center;
+      text-transform: uppercase;
+
+      span,
+      strong {
+        display: block;
+      }
+
+      span {
+        font-size: 0.45rem;
+      }
+
+      strong {
+        font-size: 0.85rem;
+      }
+    }
+  }
+
+  .hero__mobile-copy {
+    position: relative;
+    z-index: 1;
+    max-width: 75%;
+    color: #073e7b;
+
+    p {
+      margin: 0 0 0.45rem;
+      font-size: 0.7rem;
+    }
+
+    h1 {
+      margin: 0 0 0.45rem;
+      font-size: clamp(1.5rem, 7vw, 2rem);
+      font-weight: 750;
+    }
+
+    p:first-child { font-weight: 700; }
+    p:last-of-type { white-space: nowrap; }
+  }
+}
