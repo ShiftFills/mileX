@@ -1,0 +1,51 @@
+<main class="admin-content admin-list-page">
+  <app-page-heading heading="My Orders" subtitle="View and track your order history" />
+
+  <section class="d-grid gap-3" aria-label="Order history">
+    @for (order of visibleOrders(); track order.id) {
+      <article class="my-order row g-0 align-items-stretch">
+        <div class="col-12 col-lg-3 my-order__summary">
+          <span class="my-order__bag" aria-hidden="true">
+            <svg viewBox="0 0 16 16" fill="none"><path d="M3 5.5h10l-.8 7.5H3.8zM5.5 5.5V4.2a2.5 2.5 0 0 1 5 0v1.3" /></svg>
+          </span>
+          <div>
+            <h2 class="my-order__id">#{{ order.id }}</h2>
+            <p class="my-order__meta">{{ order.placedOn }} <span aria-hidden="true">&bull;</span> {{ itemCount(order) }} items</p>
+            <p class="my-order__total">{{ order.total }}</p>
+            <a class="my-order__link" [routerLink]="[ordersRoute, order.id]">View Details &rarr;</a>
+          </div>
+        </div>
+
+        <div class="col-12 col-lg-5 my-order__items">
+          @for (item of order.items; track item.name) {
+            <div class="my-order__item">
+              <img [src]="item.image" [alt]="item.name" />
+              <div>
+                <strong>{{ item.name }}</strong>
+                <span>{{ item.variant }} <i aria-hidden="true">&bull;</i> Qty: {{ item.quantity }}</span>
+              </div>
+            </div>
+          }
+        </div>
+
+        <div class="col-12 col-lg-4 my-order__status">
+          <div class="my-order__status-text">
+            <app-badge [tone]="statusTone(order.status)" size="compact">{{ order.status }}</app-badge>
+            <p class="my-order__note">{{ order.statusNote }}</p>
+            @if (order.trackingNo) {
+              <p class="my-order__tracking">
+                <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M1.5 4h8v6.5h-8zM9.5 6.5h3l2 2v2h-5z" /><circle cx="4.5" cy="11.5" r="1" /><circle cx="11.5" cy="11.5" r="1" /></svg>
+                Tracking No: {{ order.trackingNo }}
+              </p>
+            }
+          </div>
+          <a class="my-order__chevron" [routerLink]="[ordersRoute, order.id]" [attr.aria-label]="'Open order ' + order.id">
+            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>
+          </a>
+        </div>
+      </article>
+    }
+  </section>
+
+  <app-pagination class="my-orders-pagination" ariaLabel="Order pages" itemLabel="orders" [page]="page()" [pageSize]="pageSize" [total]="orders().length" (pageChange)="page.set($event)" />
+</main>

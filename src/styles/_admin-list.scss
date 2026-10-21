@@ -1,0 +1,116 @@
+// Shared layout for admin list pages (Order Management, Return Request, Seller Verification, My Orders).
+// Layout grids/flex rows use Bootstrap utilities in the templates; only the repeated look lives here.
+
+.admin-list-page {
+  width: 100%;
+  max-width: 75rem;
+  min-width: 0;
+  margin-inline: auto;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+}
+
+.admin-list-panel {
+  min-width: 0;
+  padding: var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.admin-list-search {
+  display: flex;
+  width: min(50%, 22rem);
+  min-width: 12rem;
+  height: 1.65rem;
+  align-items: center;
+  gap: var(--space-2);
+  padding-inline: var(--space-2);
+  border: 1px solid #e7ebf1;
+  border-radius: var(--radius-sm);
+
+  img {
+    width: 0.65rem;
+    height: 0.65rem;
+    flex: 0 0 auto;
+    opacity: 0.65;
+  }
+}
+
+.admin-list-filters {
+  display: flex;
+  min-width: 0;
+  gap: var(--space-2);
+}
+
+.admin-list-filter {
+  width: 8.5rem;
+  min-width: 0;
+}
+
+.admin-list-filter--wide {
+  flex: 0 0 auto;
+  width: 10rem;
+}
+
+.admin-list-table {
+  width: 100%;
+  --table-font-size: 0.56rem;
+  --table-header-font-size: var(--text-xs);
+  --table-cell-padding: 0.38rem 0.3rem;
+  --table-border-color: #edf0f4;
+  --table-row-height: 1.6rem;
+}
+
+.admin-order-link {
+  color: var(--color-file-link);
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+@media (max-width: 767.98px) {
+  .admin-list-page {
+    padding: var(--space-3) var(--space-2) var(--space-4);
+  }
+
+  .admin-list-search {
+    width: 100%;
+  }
+
+  .admin-list-filters app-select {
+    flex: 1 1 0;
+    width: auto;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 991.98px) {
+  .admin-list-filters {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .admin-list-panel {
+    padding: var(--space-2);
+  }
+
+  .admin-list-filters {
+    flex-wrap: wrap;
+
+    app-select {
+      flex-basis: calc(50% - var(--space-1));
+    }
+  }
+
+  .admin-list-table {
+    --table-font-size: 0.52rem;
+    --table-cell-padding: 0.38rem 0.15rem;
+  }
+}
+
+@media (max-width: 349.98px) {
+  .admin-list-filters app-select {
+    flex-basis: 100%;
+  }
+}

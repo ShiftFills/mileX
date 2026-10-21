@@ -1,0 +1,22 @@
+<section class="hero" aria-label="Featured offer">
+  <img
+    class="hero__artwork"
+    src="/images/Section%20-%20HeroPromoBanner.svg"
+    alt="Everything you need, all in one place. Shop fashion, electronics, home, beauty and more in our limited-time mega sale."
+    fetchpriority="high"
+  />
+  <a class="hero__shop-link" [routerLink]="routes.products" aria-label="Shop the featured offer"></a>
+  <div class="hero__mobile">
+    <div class="hero__mobile-copy">
+      <p>Everything You Need</p>
+      <h1>All in One Place</h1>
+      <p>Fashion <span>•</span> Electronics <span>•</span> Home <span>•</span> More</p>
+      <a class="btn btn-sm" [routerLink]="routes.products">Shop Now <span aria-hidden="true">→</span></a>
+    </div>
+    <div class="hero__mobile-sale" aria-label="Special offer: Mega sale, limited time only">
+      <span>Special offer</span>
+      <strong>MEGA SALE</strong>
+      <span>Limited time only</span>
+    </div>
+  </div>
+</section>

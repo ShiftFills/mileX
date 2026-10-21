@@ -1,0 +1,20 @@
+<form role="search" (submit)="submit($event)">
+  <label class="visually-hidden" [for]="inputId()">{{ ariaLabel() }}</label>
+  <app-input
+    class="search-box__input"
+    [inputId]="inputId()"
+    [name]="name()"
+    type="search"
+    [placeholder]="placeholder()"
+    [value]="value()"
+    [ariaLabel]="ariaLabel()"
+    (valueInput)="updateValue($event)"
+  />
+  <app-button class="search-box__submit" [variant]="buttonVariant()" [size]="buttonSize()" type="submit" [ariaLabel]="ariaLabel()">
+    @if (iconOnly()) {
+      <img src="/images/search-icon.svg" alt="" />
+    } @else {
+      {{ submitLabel() }}
+    }
+  </app-button>
+</form>

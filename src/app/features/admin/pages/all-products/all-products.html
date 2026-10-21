@@ -1,0 +1,128 @@
+<main class="admin-content products-page">
+  <header class="products-heading">
+    <div>
+      <h1>All Products</h1>
+      <p>Manage your product inventory, add new products and update details.</p>
+    </div>
+    <app-button variant="accent" size="small" (clicked)="addProduct()">Add Product</app-button>
+  </header>
+
+  <section appCard class="products-panel" aria-label="Product inventory">
+    <div class="product-tabs" role="tablist" aria-label="Filter products by status">
+      <button type="button" role="tab" [attr.aria-selected]="statusTab() === 'All'" [class.is-active]="statusTab() === 'All'" (click)="setStatus('All')">All Products <span>(128)</span></button>
+      <button type="button" role="tab" [attr.aria-selected]="statusTab() === 'Active'" [class.is-active]="statusTab() === 'Active'" (click)="setStatus('Active')">Active <span>(112)</span></button>
+      <button type="button" role="tab" [attr.aria-selected]="statusTab() === 'Inactive'" [class.is-active]="statusTab() === 'Inactive'" (click)="setStatus('Inactive')">Inactive <span>(16)</span></button>
+    </div>
+
+    <div class="products-tools">
+      <label class="products-search">
+        <img src="/images/search-icon.svg" alt="" aria-hidden="true" />
+        <app-input class="admin-list-search-control" inputId="admin-product-search" name="productSearch" placeholder="Search by product name, sku, brand..." size="compact" [value]="query()" (valueInput)="setQuery($event)" />
+        <span class="visually-hidden">Search products</span>
+      </label>
+      <div class="products-filters">
+        <label class="visually-hidden" for="admin-product-category">Filter by category</label>
+        <app-select class="admin-list-filter" inputId="admin-product-category" name="category" size="compact" [value]="category()" (valueChange)="setCategory($event)">
+          <option value="">All Categories</option>
+          <option value="Electronics">Electronics</option>
+          <option value="Fashion">Fashion</option>
+          <option value="Home &amp; Living">Home &amp; Living</option>
+        </app-select>
+        <label class="visually-hidden" for="admin-product-brand">Filter by brand</label>
+        <app-select class="admin-list-filter" inputId="admin-product-brand" name="brand" size="compact" [value]="brand()" (valueChange)="setBrand($event)">
+          <option value="">All Brands</option>
+          <option value="Samsung">Samsung</option>
+        </app-select>
+        <label class="visually-hidden" for="admin-product-status">Filter by status</label>
+        <app-select class="admin-list-filter" inputId="admin-product-status" name="status" size="compact" [value]="statusTab()" (valueChange)="statusChange($event)">
+          <option value="All">Status</option>
+          <option value="Active">Active</option>
+          <option value="Inactive">Inactive</option>
+        </app-select>
+      </div>
+    </div>
+
+    <app-table
+      class="products-table-wrap"
+      [columns]="tableColumns()"
+      [rows]="visibleRows()"
+      emptyMessage="No products match these filters."
+    />
+
+    <ng-template #selectAllHeader>
+      <app-checkbox [checked]="allVisibleSelected()" ariaLabel="Select all products on this page" (checkedChange)="toggleAllVisible($event)" />
+    </ng-template>
+    <ng-template #selectRowCell let-product>
+      <app-checkbox [checked]="selectedIds().has(product.id)" [ariaLabel]="'Select ' + product.name" (checkedChange)="toggleSelected(product.id, $event)" />
+    </ng-template>
+    <ng-template #imageCell let-product>
+      <img class="product-thumbnail" [src]="product.image" [alt]="product.name" />
+    </ng-template>
+    <ng-template #statusCell let-product>
+      <app-badge tone="success" size="compact">{{ product.status }}</app-badge>
+    </ng-template>
+    <ng-template #actionCell let-product>
+      <div class="product-row-actions">
+        <app-button variant="outline" size="compact" (clicked)="variants()">Variant</app-button>
+        <button class="more-actions" type="button" aria-haspopup="menu" [attr.aria-expanded]="openActionMenuId() === product.id" [attr.aria-label]="'More actions for ' + product.name" (click)="toggleActionMenu(product.id)"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="3" r="1" /><circle cx="8" cy="8" r="1" /><circle cx="8" cy="13" r="1" /></svg></button>
+        @if (openActionMenuId() === product.id) {
+          <div class="product-action-menu" role="menu">
+            <button type="button" role="menuitem" (click)="editProduct(product)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"/></svg>Edit</button>
+          </div>
+        }
+      </div>
+    </ng-template>
+    <footer class="products-footer">
+      <p>Showing {{ rangeStart() }}&#8211;{{ rangeEnd() }} of {{ filteredRows().length }} products</p>
+      <nav class="products-pagination" aria-label="Product pages">
+        <button type="button" aria-label="Previous page" [disabled]="page() === 1" (click)="setPage(page() - 1)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m10 3-5 5 5 5" /></svg></button>
+        @for (pageNumber of pageNumbers(); track pageNumber) {
+          <button type="button" [class.is-active]="page() === pageNumber" [attr.aria-current]="page() === pageNumber ? 'page' : null" (click)="setPage(pageNumber)">{{ pageNumber }}</button>
+        }
+        <span aria-hidden="true">&#8230;</span>
+        <button type="button" aria-label="Next page" [disabled]="page() === pageCount()" (click)="setPage(page() + 1)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg></button>
+      </nav>
+    </footer>
+  </section>
+</main>
+
+@if (editingProduct(); as product) {
+  <app-dialog (closed)="closeEdit()">
+    <section class="product-edit-dialog" role="dialog" aria-modal="true" aria-labelledby="product-edit-title" (click)="$event.stopPropagation()">
+      <header class="product-edit-heading">
+        <div><h2 id="product-edit-title">Edit Product</h2><p>Update the details for {{ product.name }}.</p></div>
+        <button type="button" class="product-edit-close" aria-label="Close" (click)="closeEdit()">×</button>
+      </header>
+      @if (editForm(); as form) {
+        <form (submit)="$event.preventDefault(); saveEdit()">
+          <div class="product-edit-grid">
+            <label>Product Name <app-input name="productName" size="compact" [value]="form.name" (valueInput)="setEditField('name', $event)" /></label>
+            <label>Product Code / SKU <app-input name="sku" size="compact" [value]="form.sku" (valueInput)="setEditField('sku', $event)" /></label>
+            <label>Category
+              <app-select name="category" size="compact" [value]="form.category" (valueChange)="setEditField('category', $event)">
+                <option value="">Select category</option><option>Electronics</option><option>Fashion</option><option>Home &amp; Living</option><option>Beauty &amp; Personal Care</option>
+              </app-select>
+            </label>
+            <label>Brand
+              <app-select name="brand" size="compact" [value]="form.brand" (valueChange)="setEditField('brand', $event)">
+                <option value="">Select brand</option><option>MileX</option><option>Samsung</option><option>Apple</option><option>Other</option>
+              </app-select>
+            </label>
+            <label>Price (INR) <app-input name="price" type="number" min="0.01" step="0.01" size="compact" [value]="form.price" (valueInput)="setEditField('price', $event)" /></label>
+            <label>Stock Quantity <app-input name="stock" type="number" min="0" step="1" size="compact" [value]="form.stock" (valueInput)="setEditField('stock', $event)" /></label>
+            <label>Status
+              <app-select name="status" size="compact" [value]="form.status" (valueChange)="setEditField('status', $event)">
+                <option value="Active">Active</option><option value="Inactive">Inactive</option>
+              </app-select>
+            </label>
+          </div>
+          @if (editError()) { <p class="product-edit-error" role="alert">{{ editError() }}</p> }
+          <footer class="product-edit-actions">
+            <app-button variant="outline" size="small" type="button" (clicked)="closeEdit()">Cancel</app-button>
+            <app-button variant="accent" size="small" type="submit">Save Changes</app-button>
+          </footer>
+        </form>
+      }
+    </section>
+  </app-dialog>
+}

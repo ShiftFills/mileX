@@ -1,0 +1,19 @@
+<main class="wishlist container">
+  <div class="wishlist__heading">
+    <app-page-header title="Wishlist" subtitle="Your saved products" [compact]="true" />
+    <a class="btn btn--secondary" [routerLink]="routes.products">Continue shopping</a>
+  </div>
+  @if (wishlist.products().length) {
+    <div class="wishlist__grid">
+      @for (product of wishlist.products(); track product.id) {
+        <app-product-card [product]="product" [wishlisted]="true" (wishlistToggle)="remove($event)" />
+      }
+    </div>
+  } @else {
+    <section class="wishlist__empty">
+      <h2>Your wishlist is empty</h2>
+      <p>Save products with the heart icon and find them here later.</p>
+      <a class="btn btn-sm" [routerLink]="routes.products">Browse products</a>
+    </section>
+  }
+</main>

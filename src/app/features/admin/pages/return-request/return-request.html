@@ -1,0 +1,79 @@
+<main class="admin-content admin-list-page">
+  <app-page-heading heading="Return Request" subtitle="View and manage all product return requests in one place.">
+    <app-date-range-filter inputId="return-date-range" [value]="range()" (valueChange)="range.set($event)" />
+    <app-export-button (exported)="exportRequests()" />
+  </app-page-heading>
+
+  <section class="row row-cols-2 row-cols-md-3 row-cols-xl-5 g-2 g-md-3 mb-3" aria-label="Return request summary">
+    @for (stat of stats; track stat.label) {
+      <div class="col">
+        <app-stat-card
+          [label]="stat.label" [value]="stat.value" [trend]="stat.trend"
+          [trendDirection]="stat.trendDirection" [trendTone]="stat.trendTone" [icon]="stat.icon" [iconImage]="stat.iconImage ?? null" [tone]="stat.tone"
+        />
+      </div>
+    }
+  </section>
+
+  <section appCard class="admin-list-panel" aria-label="Return requests">
+    <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2 gap-md-3 py-2">
+      <label class="admin-list-search">
+        <img src="/images/search-icon.svg" alt="" aria-hidden="true" />
+        <app-input class="admin-list-search-control" inputId="admin-return-search" name="returnSearch" placeholder="Search by order number, customer name, mobile......" size="compact" [value]="query()" (valueInput)="setQuery($event)" />
+        <span class="visually-hidden">Search return requests</span>
+      </label>
+      <div class="admin-list-filters">
+        <label class="visually-hidden" for="admin-return-status">Filter by return status</label>
+        <app-select class="admin-list-filter" inputId="admin-return-status" name="returnStatus" size="compact" [value]="status()" (valueChange)="setFilter('status', $event)">
+          <option value="">All Status</option>
+          @for (item of statuses; track item) { <option [value]="item">{{ item }}</option> }
+        </app-select>
+        <label class="visually-hidden" for="admin-return-reason">Filter by return reason</label>
+        <app-select class="admin-list-filter admin-list-filter--wide" inputId="admin-return-reason" name="returnReason" size="compact" [value]="reason()" (valueChange)="setFilter('reason', $event)">
+          <option value="">All Return Reasons</option>
+          @for (item of reasons; track item) { <option [value]="item">{{ item }}</option> }
+        </app-select>
+      </div>
+    </div>
+
+    <app-table
+      class="admin-list-table returns-table"
+      ariaLabel="Return requests"
+      [columns]="tableColumns()"
+      [rows]="visibleRows()"
+      emptyMessage="No return requests match these filters."
+    />
+
+    <ng-template #selectAllHeader>
+      <app-checkbox [checked]="allVisibleSelected()" ariaLabel="Select all return requests on this page" (checkedChange)="toggleAllVisible($event)" />
+    </ng-template>
+    <ng-template #selectRowCell let-request>
+      <app-checkbox [checked]="selectedIds().has(request.id)" [ariaLabel]="'Select return for ' + request.orderNo" (checkedChange)="toggleSelected(request.id, $event)" />
+    </ng-template>
+    <ng-template #orderNoCell let-request><span class="admin-order-link">{{ request.orderNo }}</span></ng-template>
+    <ng-template #imagesCell let-request>
+      <div class="return-images">
+        @for (image of request.images.slice(0, visibleImages); track $index) {
+          <img class="return-images__item" [src]="image" [alt]="'Return photo ' + ($index + 1) + ' for ' + request.orderNo" />
+        }
+        @if (request.images.length > visibleImages) {
+          <span class="return-images__more">+{{ request.images.length - visibleImages }}</span>
+        }
+      </div>
+    </ng-template>
+    <ng-template #statusCell let-request><app-badge [tone]="statusTone(request.status)" size="compact">{{ request.status }}</app-badge></ng-template>
+    <ng-template #actionCell let-request>
+      <div class="return-actions" appClickOutside (clickedOutside)="closeActionMenu(request.id)">
+        <button class="more-actions" type="button" aria-haspopup="menu" [attr.aria-expanded]="openActionMenuId() === request.id" [attr.aria-label]="'More actions for ' + request.orderNo" (click)="toggleActionMenu(request.id)"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="3" r="1" /><circle cx="8" cy="8" r="1" /><circle cx="8" cy="13" r="1" /></svg></button>
+        @if (openActionMenuId() === request.id) {
+          <div class="return-action-menu" role="menu">
+            <button type="button" role="menuitem" [disabled]="!canReview(request)" (click)="review(request, 'Approved')">Approve</button>
+            <button type="button" role="menuitem" class="is-danger" [disabled]="!canReview(request)" (click)="review(request, 'Rejected')">Reject</button>
+          </div>
+        }
+      </div>
+    </ng-template>
+
+    <app-pagination ariaLabel="Return request pages" itemLabel="products" [page]="page()" [pageSize]="pageSize" [total]="filteredRows().length" (pageChange)="page.set($event)" />
+  </section>
+</main>

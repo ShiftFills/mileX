@@ -1,0 +1,38 @@
+@use 'mixins';
+
+.container {
+  @include mixins.container;
+}
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+}
+
+.form-control,
+.form-select {
+  border-color: var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface);
+  color: var(--color-text);
+
+  &:focus {
+    border-color: var(--color-focus-ring);
+    box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--color-focus-ring) 25%, transparent);
+  }
+}
+
+.text-muted {
+  color: var(--color-text-muted);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
