@@ -1,0 +1,37 @@
+<article appCard class="product-card" [class.product-card--aligned]="showAddToCart()">
+  <a class="product-card__link" [routerLink]="[routes.products, product().id]">
+    <div class="product-card__image">
+      <img [src]="product().imageUrl" [alt]="product().name" loading="lazy" decoding="async" />
+    </div>
+    <div class="product-card__details">
+      @if (product().originalPrice || showAddToCart()) {
+        <h2>{{ product().name }}</h2>
+        <p class="product-card__price">
+          <strong>{{ product().price | currency: 'INR' : 'symbol' : '1.0-0' }}</strong>
+          <del>{{ product().originalPrice | currency: 'INR' : 'symbol' : '1.0-0' }}</del>
+          <span>{{ product().discountLabel }}</span>
+        </p>
+        <p class="product-card__rating">
+          @if (product().rating) { <span aria-hidden="true">★</span> {{ product().rating }} <small>({{ product().reviewCount }})</small> }
+        </p>
+      } @else {
+        <strong class="product-card__simple-price">{{ product().price | currency: 'INR' : 'symbol' : '1.0-0' }}</strong>
+        <p>{{ product().name }}</p>
+      }
+    </div>
+  </a>
+  <app-button
+    class="product-card__wishlist"
+    variant="icon"
+    size="small"
+    [class.is-active]="wishlisted()"
+    [ariaLabel]="wishlisted() ? 'Remove from wishlist' : 'Add to wishlist'"
+    [ariaPressed]="wishlisted()"
+    (clicked)="toggleWishlist($event)"
+  >
+    {{ wishlisted() ? '♥' : '♡' }}
+  </app-button>
+  @if (showAddToCart()) {
+    <app-button class="product-card__add" variant="accent" size="small" [disabled]="!product().inStock" (clicked)="onAddToCart()">Add to Cart</app-button>
+  }
+</article>

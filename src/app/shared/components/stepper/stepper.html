@@ -1,0 +1,26 @@
+<ol class="stepper" [class.stepper--large]="size() === 'large'" [attr.aria-label]="ariaLabel()">
+  @for (step of steps(); track step.label; let i = $index) {
+    <li
+      class="stepper__step"
+      [class.is-done]="i < current()"
+      [class.is-current]="i === current()"
+      [attr.aria-current]="i === current() ? 'step' : null"
+    >
+      <span class="stepper__marker" aria-hidden="true">
+        @if (i < current()) {
+          <svg viewBox="0 0 16 16"><path d="m3.5 8.5 3 3 6-7" /></svg>
+        } @else if (i === current() && step.icon) {
+          <svg viewBox="0 0 24 24"><path [attr.d]="step.icon" /></svg>
+        } @else {
+          {{ i + 1 }}
+        }
+      </span>
+      <span class="stepper__text">
+        <span class="stepper__label">{{ step.label }}</span>
+        @if (step.caption) {
+          <span class="stepper__caption">{{ step.caption }}</span>
+        }
+      </span>
+    </li>
+  }
+</ol>

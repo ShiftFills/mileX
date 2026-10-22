@@ -1,0 +1,71 @@
+<div class="store-container offers">
+  <section class="offers__banner" aria-labelledby="offers-title">
+    <div class="offers__banner-text">
+      <span class="offers__chip">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8.4V3a1 1 0 0 1 1-1h5.4a1 1 0 0 1 .7.3l5 5a1 1 0 0 1 0 1.4l-5.4 5.4a1 1 0 0 1-1.4 0l-5-5A1 1 0 0 1 2 8.4Z" /><circle cx="5.2" cy="5.2" r="1.1" fill="#fff" /></svg>
+        Special for You
+      </span>
+      <h1 id="offers-title">Offers &amp; Discounts</h1>
+      <p>Grab the best deals, exclusive offers and save more on your favourite products.</p>
+    </div>
+
+    <img class="offers__badge" src="/images/mega-offer.svg" alt="Mega Offer: up to 50% off" />
+
+    <p class="offers__tagline" aria-hidden="true">More Shopping<br />More Savings</p>
+  </section>
+
+  <section class="offers__list" aria-label="Available offers">
+    @for (offer of offers; track offer.id) {
+      <article class="offer" [attr.data-theme]="offer.theme">
+        <div class="offer__promo">
+          <h2 [class.offer__code--festive20]="offer.code === 'FESTIVE20'">{{ offer.code }}</h2>
+          <p class="offer__save">Save Up To {{ offer.maxDiscount | currency: 'INR' : 'symbol' : '1.0-0' }}</p>
+          <p class="offer__tagline">{{ offer.tagline }}</p>
+          <img [src]="offer.image" alt="" />
+        </div>
+
+        <div class="offer__body">
+          <header class="offer__head">
+            <h3>{{ offer.title }}</h3>
+            <span class="offer__code">
+              <span class="offer__code-text" [class.offer__code-text--festive20]="offer.code === 'FESTIVE20'">{{ offer.code }}</span>
+              <button
+                type="button"
+                class="offer__copy"
+                [attr.aria-label]="'Copy code ' + offer.code"
+                (click)="copyCode(offer)"
+              >
+                @if (copiedId() === offer.id) {
+                  <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7" /></svg>
+                } @else {
+                  <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path d="M10.5 5.5v-1a1.5 1.5 0 0 0-1.5-1.5H4.5A1.5 1.5 0 0 0 3 4.5V9a1.5 1.5 0 0 0 1.5 1.5h1" /></svg>
+                }
+              </button>
+              <span class="visually-hidden" role="status">{{ copiedId() === offer.id ? 'Code copied' : '' }}</span>
+            </span>
+            <app-badge class="offer__status" [tone]="statusTone(offer.status)">{{ offer.status }}</app-badge>
+            <a
+              class="offer__go"
+              [routerLink]="routes.products"
+              [queryParams]="{ category: offer.categorySlug }"
+              [attr.aria-label]="'Shop ' + offer.title"
+            >
+              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>
+            </a>
+          </header>
+
+          <dl class="offer__details row row-cols-2 row-cols-md-4 gx-2 gy-2 mb-0">
+            <div class="col"><dt>Offer Type</dt><dd>{{ offer.offerType }}</dd></div>
+            <div class="col"><dt>Discount Value</dt><dd>{{ offer.discountValue | currency: 'INR' : 'symbol' : '1.0-0' }}</dd></div>
+            <div class="col"><dt>Min. Order Amount</dt><dd>{{ offer.minOrderAmount | currency: 'INR' : 'symbol' : '1.0-0' }}</dd></div>
+            <div class="col"><dt>Max. Discount</dt><dd>{{ offer.maxDiscount | currency: 'INR' : 'symbol' : '1.0-0' }}</dd></div>
+            <div class="col"><dt>Start Date</dt><dd>{{ offer.startDate | date: 'dd MMM y' }}</dd></div>
+            <div class="col"><dt>End Date</dt><dd>{{ offer.endDate | date: 'dd MMM y' }}</dd></div>
+            <div class="col"><dt>Applicable Products</dt><dd>{{ offer.products.join(', ') }}</dd></div>
+            <div class="col"><dt>Applicable Categories</dt><dd>{{ offer.categories.join(', ') }}</dd></div>
+          </dl>
+        </div>
+      </article>
+    }
+  </section>
+</div>

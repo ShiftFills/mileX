@@ -1,0 +1,46 @@
+<main class="login-page">
+  <section class="login-form-panel" aria-labelledby="login-title">
+    <a class="login-brand" routerLink="/" aria-label="MileX home">mile<span>x</span></a>
+    <div class="login-form-content">
+      <header class="login-heading">
+        <h2 id="login-title">Welcome Back</h2>
+        <p>Sign in to continue to your MileX account.</p>
+      </header>
+
+      <form class="login-form" (submit)="signIn($event)">
+        <div class="login-field">
+          <label for="login-email">Email Address <b>*</b></label>
+          <span class="login-input-wrap">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="m3 5 5 4 5-4"/></svg>
+            <app-input class="login-field__input" inputId="login-email" name="email" type="email" autocomplete="email" placeholder="Enter your email address" size="compact" [value]="email()" [required]="true" [ariaInvalid]="attemptedSubmit() && !email()" (valueInput)="updateEmail($event)" />
+          </span>
+        </div>
+
+        <div class="login-field">
+          <label for="login-password">Password <b>*</b></label>
+          <span class="login-input-wrap">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.2"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></svg>
+            <app-input class="login-field__input" inputId="login-password" name="password" [type]="passwordVisible() ? 'text' : 'password'" autocomplete="current-password" placeholder="Enter your password" size="compact" [value]="password()" [required]="true" [ariaInvalid]="attemptedSubmit() && !password()" (valueInput)="updatePassword($event)" />
+            <button class="login-password-toggle" type="button" [attr.aria-label]="passwordVisible() ? 'Hide password' : 'Show password'" (click)="togglePasswordVisibility()">
+              @if (passwordVisible()) {
+                <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2 14 14"/><path d="M6.6 6.6a2 2 0 0 0 2.8 2.8"/><path d="M5 3.5A7 7 0 0 1 8 3c3.5 0 6 3.5 6 5a7 7 0 0 1-1.5 2.4M3.5 5A7 7 0 0 0 2 8c0 1.5 2.5 5 6 5a7 7 0 0 0 3-.7"/></svg>
+              } @else {
+                <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8s2-4 6-4 6 4 6 4-2 4-6 4-6-4-6-4Z"/><circle cx="8" cy="8" r="1.7"/></svg>
+              }
+            </button>
+          </span>
+        </div>
+
+        <div class="login-form-options">
+          <label><input type="checkbox" name="remember" /> Remember me</label>
+        </div>
+
+        @if (signInMessage()) { <p class="login-message" role="status">{{ signInMessage() }}</p> }
+        <app-button class="login-submit" variant="accent" size="small" type="submit">Login</app-button>
+      </form>
+
+      <p class="login-switch">Don't have an account? <a routerLink="/register">Register</a></p>
+      <p class="login-legal">By signing in, you agree to our <a href="#terms">Terms &amp; Conditions</a> and <a href="#privacy">Privacy Policy</a>.</p>
+    </div>
+  </section>
+</main>

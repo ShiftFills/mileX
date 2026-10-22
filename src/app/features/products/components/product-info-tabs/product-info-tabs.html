@@ -1,0 +1,36 @@
+<section class="tabs">
+  <div class="tabs__list" role="tablist" aria-label="Product information">
+    @for (tab of tabs; track tab.id) {
+      <button type="button" role="tab" [id]="'tab-' + tab.id" [class.is-active]="activeTab() === tab.id" [attr.aria-selected]="activeTab() === tab.id" [attr.aria-controls]="'panel-' + tab.id" (click)="activeTab.set(tab.id)">{{ tab.label }}</button>
+    }
+  </div>
+  <div class="tabs__panel" role="tabpanel" [id]="'panel-' + activeTab()" [attr.aria-labelledby]="'tab-' + activeTab()">
+    @switch (activeTab()) {
+      @case ('details') {
+        <div class="tabs__details">
+          <div>
+            <h2>Product Description</h2>
+            <p>{{ product().description }}</p>
+          </div>
+          @if (product().highlights?.length) {
+            <ul class="tabs__highlights">
+              @for (highlight of product().highlights; track highlight) { <li>{{ highlight }}</li> }
+            </ul>
+          }
+        </div>
+      }
+      @case ('specifications') {
+        @if (product().specifications?.length) {
+          <dl class="tabs__specs">
+            @for (spec of product().specifications; track spec.label) { <dt>{{ spec.label }}</dt><dd>{{ spec.value }}</dd> }
+          </dl>
+        } @else { <p class="tabs__muted">No specifications available.</p> }
+      }
+      @case ('reviews') {
+        @if (product().rating) {
+          <p class="tabs__muted">Rated <strong>{{ product().rating }}</strong> out of 5 from {{ product().reviewCount }} reviews.</p>
+        } @else { <p class="tabs__muted">No reviews yet.</p> }
+      }
+    }
+  </div>
+</section>

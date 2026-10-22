@@ -1,0 +1,72 @@
+<footer class="store-footer">
+  <div class="store-footer__main">
+    <div class="store-footer__brand-column">
+      <a class="store-footer__brand" routerLink="/" aria-label="MileX home">
+        <img src="/images/Link%20-%20Brand%20Logo.svg" alt="MileX" loading="lazy" />
+      </a>
+      <p>Shop everything you love, easily.</p>
+      <div class="store-footer__socials" aria-label="Social media">
+        <span role="img" aria-label="Facebook"><img src="/images/social-facebook-f.svg" alt="" /></span>
+        <span role="img" aria-label="Twitter"><img src="/images/social-twitter.svg" alt="" /></span>
+        <span role="img" aria-label="LinkedIn"><img src="/images/social-linkedin-in.svg" alt="" /></span>
+        <span role="img" aria-label="Instagram"><img src="/images/social-instagram.svg" alt="" /></span>
+        <span role="img" aria-label="YouTube"><img src="/images/social-youtube.svg" alt="" /></span>
+      </div>
+    </div>
+
+    <nav class="store-footer__column" aria-label="About">
+      <h2>About</h2>
+      <a [routerLink]="routes.support">About Us</a>
+      <a [routerLink]="routes.support">Find store</a>
+      <a [routerLink]="routes.products">Categories</a>
+      <a [routerLink]="routes.support">Blogs</a>
+    </nav>
+
+    <nav class="store-footer__column" aria-label="Partnership">
+      <h2>Partnership</h2>
+      <a [routerLink]="routes.sell">About Us</a>
+      <a [routerLink]="routes.sell">Find store</a>
+      <a [routerLink]="routes.products">Categories</a>
+      <a [routerLink]="routes.sell">Blogs</a>
+    </nav>
+
+    <nav class="store-footer__column" aria-label="Information">
+      <h2>Information</h2>
+      <a [routerLink]="routes.support">Help Center</a>
+      <a [routerLink]="routes.support">Money Refund</a>
+      <a [routerLink]="routes.support">Shipping</a>
+      <a [routerLink]="routes.support">Contact us</a>
+    </nav>
+
+    <nav class="store-footer__column" aria-label="For users">
+      <h2>For users</h2>
+      <a [routerLink]="routes.login">Login</a>
+      <a [routerLink]="routes.register">Register</a>
+      <a [routerLink]="routes.account">Settings</a>
+      <a [routerLink]="routes.orders">My Orders</a>
+    </nav>
+
+    <div class="store-footer__column store-footer__apps">
+      <h2>Get app</h2>
+      <img
+        class="store-footer__app-badge"
+        src="/images/app-store-badge.svg"
+        alt="Download on the App Store"
+        width="121"
+        height="41"
+        loading="lazy"
+        decoding="async"
+      />
+      <img
+        class="store-footer__app-badge"
+        src="/images/google-play-badge.png"
+        alt="Get it on Google Play"
+        width="646"
+        height="250"
+        loading="lazy"
+        decoding="async"
+      />
+    </div>
+  </div>
+  <p class="store-footer__copyright">© {{ year }} Milex Marketplace. All rights reserved.</p>
+</footer>

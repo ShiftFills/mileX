@@ -1,0 +1,84 @@
+<div class="store-container refund-page">
+  <app-page-heading heading="Refund" subtitle="Payment Processed / Refunded" />
+
+  @if (refund(); as r) {
+    <div class="row g-2">
+      <div class="col-12 col-lg-5 refund-overview-primary">
+        <section appCard class="refund-card h-100" aria-label="Total refund">
+          <p class="refund-label">Total Refund</p>
+          <div class="refund-amount">
+            <strong>{{ r.amount | currency: 'INR' : 'symbol' : '1.2-2' }}</strong>
+            <app-badge tone="success">{{ r.status }}</app-badge>
+          </div>
+          <p class="refund-note">Credited via {{ r.creditedVia }}</p>
+          <div class="refund-reference">
+            <div class="refund-reference__main">
+              <span class="refund-label">Refund Reference</span>
+              <span class="refund-reference__code">
+                {{ r.reference }}
+                <button class="refund-copy" type="button" aria-label="Copy refund reference" (click)="copyReference(r.reference)">
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path d="M10.5 5.5v-1a1.5 1.5 0 0 0-1.5-1.5H4.5A1.5 1.5 0 0 0 3 4.5V9a1.5 1.5 0 0 0 1.5 1.5h1" /></svg>
+                </button>
+              </span>
+            </div>
+            <time class="refund-reference__date" [attr.datetime]="r.processedOn">{{ r.processedOn | date: 'dd MMM y' }}</time>
+          </div>
+          <span class="visually-hidden" role="status">{{ copied() ? 'Refund reference copied' : '' }}</span>
+        </section>
+      </div>
+
+      <div class="col-12 col-lg-7 refund-overview-details">
+        <section appCard class="refund-card h-100" aria-label="Returned items">
+          <header class="refund-card__header">
+            <h2>Returned Item(s) Details</h2>
+            <span class="refund-label">{{ r.items.length }} {{ r.items.length === 1 ? 'item' : 'items' }} returned</span>
+          </header>
+          @for (item of r.items; track item.name) {
+            <article class="refund-item">
+              <div class="refund-item__details">
+                <h3>{{ item.name }}</h3>
+                <p>{{ item.variant }} &bull; Qty: {{ item.quantity }}</p>
+                <strong>{{ item.price | currency: 'INR' : 'symbol' : '1.2-2' }}</strong>
+              </div>
+              <div class="refund-item__reason">
+                <span>Return reason</span>
+                <q>{{ item.returnReason }}</q>
+              </div>
+            </article>
+          }
+        </section>
+      </div>
+
+      <div class="col-12">
+        <section appCard class="refund-card" aria-label="Refund lifecycle">
+          <h2 class="refund-card__title">Refund Lifecycle Progress</h2>
+          <app-stepper ariaLabel="Refund lifecycle progress" [steps]="steps" [current]="r.stage" />
+        </section>
+      </div>
+
+      <div class="col-12 col-lg-5">
+        <section appCard class="refund-card" aria-label="Refund summary">
+          <h2 class="refund-card__title">Quick Tabular Summary</h2>
+          <dl class="refund-summary">
+            <div><dt>Order No.</dt><dd>{{ r.orderNo }}</dd></div>
+            <div><dt>Return No.</dt><dd>{{ r.id }}</dd></div>
+            <div><dt>Amount</dt><dd class="refund-summary__amount">{{ r.amount | currency: 'INR' : 'symbol' : '1.2-2' }}</dd></div>
+            <div><dt>Method</dt><dd>{{ r.method }}</dd></div>
+            <div><dt>Reference</dt><dd>{{ r.reference }}</dd></div>
+            <div><dt>Date</dt><dd>{{ r.processedOn | date: 'dd MMM y' }}</dd></div>
+            <div><dt>Status</dt><dd class="refund-summary__status">Processed / Refunded</dd></div>
+          </dl>
+          <div class="refund-actions">
+            <app-button variant="accent" size="small" (clicked)="downloadStatement()">Download Refund Statement</app-button>
+            <app-button variant="outline" size="small" (clicked)="contactSupport()">Contact MileX Support</app-button>
+          </div>
+        </section>
+      </div>
+    </div>
+  } @else {
+    <section appCard class="refund-empty" aria-label="Refund not found">
+      <p>We couldn't find that refund.</p>
+      <a class="btn btn-sm" [routerLink]="routes.orders">Back to my orders</a>
+    </section>
+  }
+</div>

@@ -1,0 +1,15 @@
+:host {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: block;
+  overflow: auto;
+  padding: 1rem;
+  background: rgb(31 41 55 / 38%);
+}
+
+.dialog-backdrop {
+  display: grid;
+  min-height: 100%;
+  place-items: center;
+}

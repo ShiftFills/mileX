@@ -1,0 +1,48 @@
+:host {
+  display: flex;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+
+  // Use the compact footer sizing established by the Refund screen throughout
+  // the shared storefront shell.
+  --store-footer-min-height: 0;
+  --store-footer-padding: 1rem clamp(1rem, 1.75vw, 1.5rem);
+  --store-footer-tablet-padding: 1rem 1.25rem;
+  --store-footer-mobile-padding: 1rem 0.75rem;
+  --store-footer-grid-gap: clamp(1rem, 2vw, 1.5rem);
+  --store-footer-mobile-grid-gap: 1rem 0.75rem;
+  --store-footer-badge-height: 2rem;
+}
+
+app-storefront-header {
+  flex: 0 0 auto;
+}
+
+.main {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  font-family: var(--font-body);
+}
+
+router-outlet {
+  display: none;
+}
+
+.main > :not(router-outlet):not(app-footer) {
+  flex: 1 0 auto;
+}
+
+app-footer {
+  display: block;
+  flex: 0 0 auto;
+}

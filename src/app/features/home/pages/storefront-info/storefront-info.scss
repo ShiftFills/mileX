@@ -1,0 +1,15 @@
+.storefront-info {
+  background: var(--color-bg);
+  color: var(--color-text);
+
+  &__content {
+    width: min(100% - 2rem, var(--container-max));
+    margin-inline: auto;
+    padding-block: 1.5rem;
+  }
+
+  &__card {
+    min-height: 14rem;
+    padding: clamp(1rem, 3vw, 2.25rem);
+  }
+}

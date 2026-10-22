@@ -1,0 +1,58 @@
+<section class="product-section" aria-labelledby="best-deals-heading">
+  <div class="product-section__heading">
+    <h2 id="best-deals-heading">Best Deals for You</h2>
+    <a [routerLink]="routes.products">View All <span aria-hidden="true">→</span></a>
+  </div>
+  <div class="product-grid">
+    @for (product of bestDeals; track product.id) {
+      <app-product-card
+        [product]="product"
+        [wishlisted]="wishlist.has(product.id)"
+        (wishlistToggle)="toggleWishlist($event)"
+      />
+    }
+  </div>
+</section>
+
+@for (shelf of shelves; track shelf.category) {
+  <section class="category-shelf" [attr.aria-label]="shelf.title">
+    <a
+      class="category-shelf__feature"
+      [routerLink]="routes.products"
+      [queryParams]="{ category: shelf.category }"
+      [style.background-image]="'url(' + shelf.image + ')'"
+      [attr.aria-label]="'Shop ' + shelf.title"
+    >
+      <span class="category-shelf__title">{{ shelf.title }}</span>
+      <span class="category-shelf__button">Buy now</span>
+    </a>
+    <div class="category-shelf__items">
+      @for (item of [1, 2, 3, 4, 5, 6, 7, 8]; track item) {
+        <a
+          class="category-shelf__item"
+          [routerLink]="[routes.products, shelf.category === 'electronics' ? 'smart-watch-1' : 'soft-chair-1']"
+        >
+          <strong>{{ shelf.itemName }}</strong>
+          <span>From<br />₹ {{ shelf.price }}</span>
+          <img [src]="shelf.productImage" [alt]="shelf.itemName" loading="lazy" decoding="async" />
+        </a>
+      }
+    </div>
+  </section>
+}
+
+<section class="product-section product-section--recommended" aria-labelledby="recommended-heading">
+  <div class="product-section__heading">
+    <h2 id="recommended-heading">Recommended Items</h2>
+    <a [routerLink]="routes.products">View All <span aria-hidden="true">→</span></a>
+  </div>
+  <div class="product-grid">
+    @for (product of recommended; track product.id) {
+      <app-product-card
+        [product]="product"
+        [wishlisted]="wishlist.has(product.id)"
+        (wishlistToggle)="toggleWishlist($event)"
+      />
+    }
+  </div>
+</section>

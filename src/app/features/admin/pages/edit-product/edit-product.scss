@@ -1,0 +1,347 @@
+.admin-content.edit-product {
+  padding: 1.25rem clamp(1rem, 2.5vw, 1.75rem) 2rem;
+}
+
+.edit-product {
+  .edit-heading {
+    gap: var(--space-4);
+    margin-bottom: var(--space-5);
+  }
+
+  .product-form {
+    gap: var(--space-4);
+  }
+}
+
+.edit-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+
+  .admin-page-heading {
+    margin-bottom: 0;
+  }
+
+  &__back {
+    display: grid;
+    width: 1.5rem;
+    height: 1.5rem;
+    flex: 0 0 auto;
+    margin-top: 0.1rem;
+    place-items: center;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-text);
+
+    svg {
+      width: 0.8rem;
+      height: 0.8rem;
+      stroke: currentColor;
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--color-focus-ring);
+      outline-offset: 2px;
+    }
+  }
+}
+
+.edit-column {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+
+  @media (min-width: 992px) {
+    gap: var(--space-3);
+  }
+}
+
+// ---- Gallery card ----
+.gallery-main {
+  display: grid;
+  aspect-ratio: 1;
+  place-items: center;
+  padding: var(--space-2);
+
+  img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
+
+  &__empty {
+    color: var(--color-placeholder);
+    font-size: var(--text-xs);
+  }
+}
+
+.gallery-thumbs,
+.media-thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.gallery-thumbs {
+  justify-content: space-between;
+}
+
+.gallery-thumb,
+.media-thumb {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  padding: 0.15rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+
+  img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: center;
+  }
+}
+
+.gallery-thumb {
+  width: 2.5rem;
+  height: 2.5rem;
+  cursor: pointer;
+
+  &.is-active {
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 1px var(--color-accent);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 1px;
+  }
+}
+
+.gallery-add {
+  position: relative;
+  display: grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  place-items: center;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  cursor: pointer;
+
+  input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+  }
+
+  &:focus-within {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 1px;
+  }
+}
+
+.gallery-panel .gallery-thumbs {
+  margin-top: var(--space-2);
+}
+
+@media (min-width: 768px) and (max-width: 991.98px) {
+  // The gallery column is narrow at tablet widths. Keep all four controls in
+  // one row while using a compact, fixed tile size that cannot flex-shrink.
+  .gallery-thumbs {
+    flex-wrap: nowrap;
+    gap: 0.125rem;
+  }
+
+  .gallery-thumb,
+  .gallery-panel .gallery-add {
+    width: 1.75rem;
+    height: 1.75rem;
+    flex: 0 0 1.75rem;
+  }
+}
+
+// ---- Media card ----
+.media-thumb__remove {
+  position: absolute;
+  top: -0.3rem;
+  right: -0.3rem;
+  display: grid;
+  width: 0.9rem;
+  height: 0.9rem;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--color-danger);
+  color: #fff;
+  font-size: 0.6rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.media-thumb--video {
+  background: #0f172a;
+}
+
+.media-thumb__play {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 0;
+  height: 0;
+  border-block: 0.25rem solid transparent;
+  border-left: 0.4rem solid #fff;
+}
+
+.video-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.video-actions {
+  display: grid;
+  gap: 0.125rem;
+  font-size: var(--text-xs);
+
+  &__change {
+    color: var(--color-file-link);
+    cursor: pointer;
+
+    input {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+    }
+
+    &:focus-within {
+      outline: 2px solid var(--color-focus-ring);
+      outline-offset: 2px;
+    }
+  }
+
+  &__remove {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--color-document-not-verified);
+    font-size: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+}
+
+// ---- Footer controls ----
+.edit-variants {
+  justify-self: start;
+}
+
+.variants-toggle input:checked + span {
+  background: var(--color-file-link);
+}
+
+.edit-column .product-actions {
+  justify-content: flex-end;
+}
+
+.edit-dimensions-panel .row > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.edit-dimensions-panel {
+  border-radius: var(--radius-lg);
+
+  .product-label {
+    margin-bottom: 0.2rem;
+    font-size: 0.625rem;
+  }
+}
+
+.media-panel {
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+
+  h2 {
+    margin-bottom: var(--space-2);
+  }
+
+  .product-label {
+    margin-bottom: var(--space-1);
+  }
+}
+
+.media-thumbs {
+  gap: var(--space-2);
+  padding: 0.2rem;
+}
+
+.media-thumb,
+.gallery-add--sm {
+  width: 2.25rem;
+  height: 2.875rem;
+}
+
+@media (max-width: 575.98px) {
+  .admin-content.edit-product {
+    padding: 1rem 0.25rem 1.5rem;
+  }
+
+  .edit-product {
+    .edit-heading {
+      margin-bottom: var(--space-4);
+    }
+
+    .product-form {
+      gap: var(--space-3);
+    }
+  }
+
+  .media-panel {
+    padding: var(--space-3);
+
+    .row > div {
+      width: 50%;
+    }
+  }
+
+  .media-thumbs {
+    gap: var(--space-1);
+  }
+
+  .video-row {
+    gap: var(--space-2);
+  }
+
+  .video-actions {
+    gap: 0.125rem;
+    font-size: 0.68rem;
+  }
+
+  .edit-dimensions-panel .row > div {
+    width: 25%;
+  }
+}
+
+@media (max-width: 359.98px) {
+  .media-panel .row > div {
+    width: 100%;
+  }
+}
