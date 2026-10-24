@@ -1,0 +1,36 @@
+<div class="store-container wishlist">
+  <app-page-heading heading="My Wishlist" subtitle="Your saved items, always in one place." />
+
+  <app-filter
+    class="wishlist__filter"
+    ariaLabel="Filter wishlist by category"
+    [options]="filterOptions()"
+    [value]="activeCategory()"
+    (valueChange)="selectCategory($event)"
+  />
+
+  @if (wishlist.products().length) {
+    <p class="visually-hidden" role="status" aria-live="polite">{{ notice() }}</p>
+
+    <section appCard class="wishlist__products" aria-label="Saved products">
+      <div class="wishlist__grid">
+        @for (product of products(); track product.id) {
+          <app-product-card
+            variant="wishlist"
+            [product]="product"
+            [wishlisted]="true"
+            [showAddToCart]="true"
+            (wishlistToggle)="remove($event)"
+            (addToCart)="addToCart(product)"
+          />
+        }
+      </div>
+    </section>
+  } @else {
+    <section appCard class="wishlist__empty">
+      <h2>Your wishlist is empty</h2>
+      <p>Save products with the heart icon and find them here later.</p>
+      <a class="btn btn--accent btn-sm" [routerLink]="routes.products">Browse products</a>
+    </section>
+  }
+</div>

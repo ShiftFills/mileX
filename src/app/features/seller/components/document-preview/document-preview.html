@@ -1,0 +1,89 @@
+<div class="row g-3 document-preview">
+  <div class="col-12 col-lg-7">
+    <div class="document-preview__panel">
+      <div class="document-preview__toolbar" role="toolbar" aria-label="Document preview controls">
+        <div class="document-preview__group">
+          <app-button class="document-preview__tool" variant="plain" ariaLabel="Previous page"
+            [disabled]="page() <= 1 || kind() !== 'pdf'" (clicked)="previousPage()">‹</app-button>
+          <span class="document-preview__status" aria-live="polite">Page {{ page() }} of {{ pageCount() }}</span>
+          <app-button class="document-preview__tool" variant="plain" ariaLabel="Next page"
+            [disabled]="page() >= pageCount() || kind() !== 'pdf'" (clicked)="nextPage()">›</app-button>
+        </div>
+        <div class="document-preview__group">
+          <app-button class="document-preview__tool" variant="plain" ariaLabel="Zoom out"
+            [disabled]="!canZoomOut() || kind() === 'unsupported'" (clicked)="zoomOut()">−</app-button>
+          <span class="document-preview__status">{{ zoom() }}%</span>
+          <app-button class="document-preview__tool" variant="plain" ariaLabel="Zoom in"
+            [disabled]="!canZoomIn() || kind() === 'unsupported'" (clicked)="zoomIn()">+</app-button>
+        </div>
+        <app-button class="document-preview__fullscreen" variant="plain" [disabled]="kind() === 'unsupported'"
+          (clicked)="openFullscreen()">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4" />
+          </svg>
+          Open fullscreen
+        </app-button>
+      </div>
+
+      <div #viewer class="document-preview__canvas">
+        @switch (kind()) {
+          @case ('pdf') {
+            @if (pdfSrc(); as src) {
+              <iframe class="document-preview__frame" [src]="src" [title]="title() + ' preview'"></iframe>
+            }
+          }
+          @case ('image') {
+            <div class="document-preview__scroller">
+              <img class="document-preview__image" [src]="imageSrc()" [alt]="title() + ' preview'"
+                [style.width.%]="zoom()" />
+            </div>
+          }
+          @default {
+            <p class="document-preview__empty">Preview is not available for this file type.</p>
+          }
+        }
+      </div>
+    </div>
+
+    <p class="document-preview__note">
+      <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <circle cx="8" cy="8" r="6" /><path d="M8 7.2V11M8 5v.1" />
+      </svg>
+      Preview available for PDF, JPG and PNG files.
+    </p>
+  </div>
+
+  <div class="col-12 col-lg-5">
+    <div class="document-preview__details">
+      <div class="document-preview__file-icon" aria-hidden="true">
+        <svg viewBox="0 0 16 16" fill="none"><path d="M4 1.5h5l3 3V14H4zM9 1.5V5h3" /></svg>
+        <span>{{ extension() }}</span>
+      </div>
+      <div class="document-preview__meta">
+        <h3 class="document-preview__title" [class.document-preview__title--gst]="title() === 'GST Certificate'">{{ title() }}</h3>
+        <app-badge class="document-preview__badge" tone="success" size="compact">✓ Uploaded successfully</app-badge>
+      </div>
+    </div>
+
+    <div class="document-preview__actions">
+      <input #replaceInput class="visually-hidden" type="file" [accept]="accept" tabindex="-1"
+        aria-label="Replace file" (change)="onReplace($event)" />
+      <app-button class="document-preview__replace" variant="outline" size="compact"
+        (clicked)="replaceInput.click()">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M13.5 6A5.5 5.5 0 0 0 3.2 4.7M2.5 10a5.5 5.5 0 0 0 10.3 1.3M3 2v3h3M13 14v-3h-3" />
+        </svg>
+        Replace file
+      </app-button>
+      <app-button class="document-preview__remove" variant="plain" (clicked)="removed.emit()">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M2.5 4h11M6 4V2.5h4V4M4 4l.6 9.5h6.8L12 4M6.6 7v3.8M9.4 7v3.8" />
+        </svg>
+        Remove
+      </app-button>
+    </div>
+    @if (replaceError(); as message) {
+      <span class="document-preview__error" role="alert">{{ message }}</span>
+    }
+  </div>
+</div>

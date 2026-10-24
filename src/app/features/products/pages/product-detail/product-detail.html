@@ -1,0 +1,136 @@
+@if (product(); as item) {
+  <main class="product-detail container">
+    <section appCard class="product-detail__layout">
+      <!-- Gallery -->
+      <app-product-gallery [images]="images()" [name]="item.name" [wishlisted]="wishlist.has(item.id)" (wishlistToggle)="toggleWishlist()" />
+
+      <!-- Buy box -->
+      <div class="product-detail__info">
+        <h1>{{ item.name }}</h1>
+        @if (item.rating) {
+          <p class="product-detail__rating"><span aria-hidden="true">★</span> <strong>{{ item.rating }}</strong> <small>({{ item.reviewCount }} reviews)</small></p>
+        }
+        <p class="product-detail__price">
+          <strong>{{ item.price | currency: 'INR' : 'symbol' : '1.0-0' }}</strong>
+          @if (item.originalPrice) { <del>{{ item.originalPrice | currency: 'INR' : 'symbol' : '1.0-0' }}</del> }
+          @if (discountPercent()) { <app-badge tone="success">{{ discountPercent() }}% OFF</app-badge> }
+        </p>
+        <p class="product-detail__tax">Inclusive of all taxes <span aria-hidden="true">|</span> Free Shipping on orders above ₹999</p>
+
+        @if (item.colors?.length) {
+          <div class="product-detail__group" role="radiogroup" aria-label="Color">
+            <p class="product-detail__label">Color: <strong>{{ colorName() }}</strong></p>
+            <div class="product-detail__swatches">
+              @for (color of item.colors; track color.name) {
+                <button type="button" role="radio" class="product-detail__swatch" [class.is-active]="colorName() === color.name" [attr.aria-checked]="colorName() === color.name" [attr.aria-label]="color.name" [style.background]="color.hex" (click)="selectColor(color.name)"></button>
+              }
+            </div>
+          </div>
+        }
+
+        @if (item.sizes?.length) {
+          <div class="product-detail__group" role="radiogroup" aria-label="Size">
+            <div class="product-detail__size-head">
+              <p class="product-detail__label">Size:</p>
+              <button type="button" class="product-detail__link" (click)="sizeGuideOpen.set(true)">Size Guide</button>
+            </div>
+            <div class="product-detail__sizes">
+              @for (size of item.sizes; track size) {
+                <button type="button" role="radio" class="product-detail__size" [class.is-active]="selectedSize() === size" [attr.aria-checked]="selectedSize() === size" (click)="selectSize(size)">{{ size }}</button>
+              }
+            </div>
+            @if (selectionError()) { <p class="product-detail__error" role="alert">{{ selectionError() }}</p> }
+          </div>
+        }
+
+        <div class="product-detail__quantity">
+          <label for="product-quantity">Quantity:</label>
+          <div class="product-detail__stepper">
+            <button type="button" aria-label="Decrease quantity" [disabled]="quantity() <= 1" (click)="changeQuantity(-1)">−</button>
+            <app-input inputId="product-quantity" type="number" min="1" [max]="maxQuantity()" size="compact" ariaLabel="Quantity" [value]="quantity()" (valueChange)="updateQuantity($event)" />
+            <button type="button" aria-label="Increase quantity" [disabled]="quantity() >= maxQuantity()" (click)="changeQuantity(1)">+</button>
+          </div>
+          <app-badge [tone]="item.inStock ? 'success' : 'danger'">
+            @if (!item.inStock) { Out of stock } @else if (item.stockLeft && item.stockLeft <= 5) { In stock (Only {{ item.stockLeft }} left) } @else { In stock }
+          </app-badge>
+        </div>
+
+        <div class="product-detail__actions">
+          <app-button variant="accent" [disabled]="!item.inStock" (clicked)="addToCart()">Add to Cart</app-button>
+          <app-button [disabled]="!item.inStock" (clicked)="buyNow()">Buy Now</app-button>
+        </div>
+        @if (addedToCart()) {
+          <app-alert class="product-detail__success" tone="success">Added to cart. <a [routerLink]="routes.cart">View cart</a></app-alert>
+        }
+
+        <form class="product-detail__delivery" (submit)="$event.preventDefault(); checkDelivery()" novalidate>
+          <label for="delivery-pincode">Check delivery availability</label>
+          <div class="product-detail__delivery-row">
+            <app-input inputId="delivery-pincode" name="pincode" placeholder="Enter your pincode" autocomplete="postal-code" ariaLabel="Pincode" [value]="pincode()" (valueInput)="updatePincode($event)" />
+            <app-button variant="accent" size="small" type="submit">Check</app-button>
+          </div>
+          @if (deliveryMessage(); as message) {
+            <p class="product-detail__delivery-msg" [class.is-error]="!message.ok" role="status">{{ message.text }}</p>
+          }
+        </form>
+
+        <ul class="product-detail__perks">
+          <li>
+            <svg class="product-detail__perk-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="2" /><path d="M5 1.75v2.5M11 1.75v2.5M2 6.5h12M6 10l1.4 1.4L10 8.8" /></svg>
+            <div><span>Estimated Delivery</span><strong>3 - 5 days</strong></div>
+          </li>
+          <li>
+            <svg class="product-detail__perk-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 8a5.5 5.5 0 1 0 1.8-4.07M2.5 2.5v3h3" /></svg>
+            <div><span>Easy Returns</span><strong>7 days return policy</strong></div>
+          </li>
+          <li>
+            <svg class="product-detail__perk-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 2.5 3.6v4c0 3.2 2.2 5.5 5.5 6.9 3.3-1.4 5.5-3.7 5.5-6.9v-4L8 1.5Z" fill="currentColor" fill-opacity=".45" /><path d="M8 1.5 2.5 3.6v4c0 3.2 2.2 5.5 5.5 6.9V1.5Z" fill="currentColor" /></svg>
+            <div><span>Secure Payment</span><strong>100% secure payment</strong></div>
+          </li>
+        </ul>
+
+        <app-product-info-tabs [product]="item" />
+      </div>
+    </section>
+
+    @if (related().length) {
+      <section appCard class="product-detail__related" aria-labelledby="related-title">
+        <header>
+          <h2 id="related-title">You may also like</h2>
+          <a [routerLink]="routes.products">View All
+            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 8h11.5M9 3.5 13.5 8 9 12.5" /></svg>
+          </a>
+        </header>
+        <div class="row g-3">
+          @for (other of related(); track other.id) {
+            <div class="col-6 col-lg-3">
+              <app-product-card [product]="other" [wishlisted]="wishlist.has(other.id)" [showAddToCart]="true" (wishlistToggle)="toggleWishlist($event)" (addToCart)="addRelatedToCart($event)" />
+            </div>
+          }
+        </div>
+      </section>
+    }
+  </main>
+
+  @if (sizeGuideOpen()) {
+    <app-dialog (closed)="sizeGuideOpen.set(false)">
+      <section class="product-detail__guide" role="dialog" aria-modal="true" aria-labelledby="size-guide-title" (click)="$event.stopPropagation()">
+        <header>
+          <h2 id="size-guide-title">Size Guide</h2>
+          <button type="button" aria-label="Close" (click)="sizeGuideOpen.set(false)">×</button>
+        </header>
+        <table class="table table-sm mb-0">
+          <thead><tr><th scope="col">Size</th><th scope="col">Bust (in)</th><th scope="col">Waist (in)</th></tr></thead>
+          <tbody>
+            @for (row of sizeChart; track row.size) { <tr><th scope="row">{{ row.size }}</th><td>{{ row.bust }}</td><td>{{ row.waist }}</td></tr> }
+          </tbody>
+        </table>
+      </section>
+    </app-dialog>
+  }
+} @else {
+  <main class="container product-detail__empty">
+    <h1>Product not found</h1>
+    <a class="btn btn-sm" [routerLink]="routes.products">Back to products</a>
+  </main>
+}

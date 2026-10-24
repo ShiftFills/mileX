@@ -1,0 +1,219 @@
+<main class="admin-content edit-product">
+  <header class="edit-heading">
+    <a class="edit-heading__back" routerLink="/admin/products/all" aria-label="Back to all products">
+      <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13 8H3m4.5-4.5L3 8l4.5 4.5" /></svg>
+    </a>
+    <div class="admin-page-heading">
+      <h1>Edit Product</h1>
+      <p>Edit the products, pricing and images.</p>
+    </div>
+  </header>
+
+  @if (product()) {
+    <form class="product-form" (submit)="$event.preventDefault(); saveProduct()" novalidate>
+      <div class="row g-2 g-lg-3 align-items-start">
+        <!-- Gallery -->
+        <div class="col-12 col-md-4 col-xl-3">
+          <section appCard class="product-panel gallery-panel" aria-label="Product images">
+            <div class="gallery-main">
+              @if (activeImage(); as image) { <img [src]="image.src" [alt]="image.alt" /> }
+              @else { <span class="gallery-main__empty">No images</span> }
+            </div>
+            <div class="gallery-thumbs">
+              @for (image of gallery(); track image.id) {
+                <button type="button" class="gallery-thumb" [class.is-active]="activeImage()?.id === image.id" [attr.aria-pressed]="activeImage()?.id === image.id" [attr.aria-label]="'Show image ' + ($index + 1)" (click)="selectImage(image)">
+                  <img [src]="image.src" alt="" />
+                </button>
+              }
+              @if (canAddImage()) {
+                <label class="gallery-add" aria-label="Add product image">
+                  <span aria-hidden="true">+</span>
+                  <input type="file" accept="image/png,image/jpeg,image/webp" multiple (change)="onImagesPicked($event)" />
+                </label>
+              }
+            </div>
+          </section>
+        </div>
+
+        <!-- Basic information + media -->
+        <div class="col-12 col-md-8 col-xl-5 edit-column">
+          <section appCard class="product-panel product-information">
+            <h2>Basic Information</h2>
+            <div class="row g-2">
+              <div class="col-12 col-sm-6">
+                <label class="product-label" for="product-name">Product Name <b>*</b></label>
+                <app-input class="product-control" inputId="product-name" name="productName" placeholder="Enter product name" size="compact" [value]="valueFor('productName')" [ariaInvalid]="!!fieldError('productName')" (valueInput)="updateValue('productName', $event)" />
+                @if (fieldError('productName'); as error) { <span class="product-error">{{ error }}</span> }
+              </div>
+              <div class="col-12 col-sm-6">
+                <label class="product-label" for="product-sku">Product Code / SKU <b>*</b></label>
+                <app-select class="product-control" inputId="product-sku" name="sku" size="compact" [value]="valueFor('sku')" [ariaInvalid]="!!fieldError('sku')" (valueChange)="updateValue('sku', $event)">
+                  <option value="" disabled>Select SKU</option>
+                  <option [value]="valueFor('sku')">{{ valueFor('sku') }}</option>
+                </app-select>
+                @if (fieldError('sku'); as error) { <span class="product-error">{{ error }}</span> }
+              </div>
+              <div class="col-12 col-sm-6">
+                <label class="product-label" for="product-category">Category <b>*</b></label>
+                <app-select class="product-control" inputId="product-category" name="category" size="compact" [value]="valueFor('category')" [ariaInvalid]="!!fieldError('category')" (valueChange)="updateValue('category', $event)">
+                  <option value="" disabled>Select category</option>
+                  @for (category of categories; track category) { <option [value]="category">{{ category }}</option> }
+                </app-select>
+                @if (fieldError('category'); as error) { <span class="product-error">{{ error }}</span> }
+              </div>
+              <div class="col-12 col-sm-6">
+                <label class="product-label" for="product-subcategory">Sub Category <b>*</b></label>
+                <app-select class="product-control" inputId="product-subcategory" name="subcategory" size="compact" [value]="valueFor('subcategory')" [ariaInvalid]="!!fieldError('subcategory')" (valueChange)="updateValue('subcategory', $event)">
+                  <option value="" disabled>Select sub category</option>
+                  @for (subcategory of subCategories; track subcategory) { <option [value]="subcategory">{{ subcategory }}</option> }
+                </app-select>
+                @if (fieldError('subcategory'); as error) { <span class="product-error">{{ error }}</span> }
+              </div>
+              <div class="col-12">
+                <label class="product-label" for="product-brand">Brand <b>*</b></label>
+                <app-select class="product-control" inputId="product-brand" name="brand" size="compact" [value]="valueFor('brand')" [ariaInvalid]="!!fieldError('brand')" (valueChange)="updateValue('brand', $event)">
+                  <option value="" disabled>Select brand</option>
+                  @for (brand of brands; track brand) { <option [value]="brand">{{ brand }}</option> }
+                </app-select>
+                @if (fieldError('brand'); as error) { <span class="product-error">{{ error }}</span> }
+              </div>
+              <div class="col-12">
+                <label class="product-label" for="product-description">Product Description <b>*</b></label>
+                <app-textarea class="product-control" inputId="product-description" name="description" placeholder="Enter product description" [rows]="3" [value]="valueFor('description')" [ariaInvalid]="!!fieldError('description')" (valueInput)="updateValue('description', $event)" />
+                @if (fieldError('description'); as error) { <span class="product-error">{{ error }}</span> }
+              </div>
+            </div>
+          </section>
+
+          <section appCard class="product-panel media-panel">
+            <h2>Media</h2>
+            <div class="row g-2">
+              <div class="col-12 col-sm-6">
+                <span class="product-label">Product Images <b>*</b></span>
+                <div class="media-thumbs">
+                  @for (image of gallery(); track image.id) {
+                    <span class="media-thumb">
+                      <img [src]="image.src" alt="" />
+                      <button type="button" class="media-thumb__remove" [attr.aria-label]="'Remove image ' + ($index + 1)" (click)="removeImage(image)">×</button>
+                    </span>
+                  }
+                  @if (canAddImage()) {
+                    <label class="gallery-add gallery-add--sm" aria-label="Add product image">
+                      <span aria-hidden="true">+</span>
+                      <input type="file" accept="image/png,image/jpeg,image/webp" multiple (change)="onImagesPicked($event)" />
+                    </label>
+                  }
+                </div>
+                @if (attemptedSave() && !gallery().length) { <span class="product-error">Please upload a product image.</span> }
+                @if (imageError()) { <span class="product-error">{{ imageError() }}</span> }
+              </div>
+              <div class="col-12 col-sm-6">
+                <span class="product-label">Product Video <span class="optional-label">(Optional)</span></span>
+                @if (hasVideo()) {
+                  <div class="video-row">
+                    <span class="media-thumb media-thumb--video" [title]="videoLabel()">
+                      <img [src]="product()?.image" alt="" />
+                      <span class="media-thumb__play" aria-hidden="true"></span>
+                    </span>
+                    <span class="video-actions">
+                      <label class="video-actions__change">Change video<input type="file" accept="video/mp4,video/quicktime" (change)="onVideoPicked($event)" /></label>
+                      <button type="button" class="video-actions__remove" (click)="removeVideo()">Remove</button>
+                    </span>
+                  </div>
+                } @else {
+                  <app-file-upload inputId="product-video" name="productVideo" accept="video/mp4,video/quicktime" buttonLabel="Upload Video" appearance="accent-outline" (fileSelected)="setProductVideo($event)" />
+                }
+                @if (videoError()) { <span class="product-error">{{ videoError() }}</span> }
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <!-- Pricing, dimensions, actions -->
+        <div class="col-12 col-xl-4 edit-column">
+          <section appCard class="product-panel pricing-panel">
+            <h2>Pricing &amp; Inventory</h2>
+            <div class="row g-2">
+              <div class="col-12 col-sm-6">
+                <label class="product-label" for="product-hsn">HSN Code <b>*</b></label>
+                <app-input class="product-control" inputId="product-hsn" name="hsnCode" placeholder="Enter HSN code" size="compact" [required]="true" [value]="valueFor('hsnCode')" [ariaInvalid]="!!fieldError('hsnCode')" (valueInput)="updateValue('hsnCode', $event)" />
+                @if (fieldError('hsnCode'); as error) { <span class="product-error">{{ error }}</span> }
+              </div>
+              <div class="col-12 col-sm-6">
+                <label class="product-label" for="product-tax">Tax Rate <b>*</b></label>
+                <app-select class="product-control" inputId="product-tax" name="taxRate" size="compact" [required]="true" [value]="valueFor('taxRate')" [ariaInvalid]="!!fieldError('taxRate')" (valueChange)="updateValue('taxRate', $event)">
+                  <option value="" disabled>Select tax rate</option>
+                  @for (rate of taxRates; track rate) { <option [value]="rate">{{ rate }}</option> }
+                </app-select>
+                @if (fieldError('taxRate'); as error) { <span class="product-error">{{ error }}</span> }
+              </div>
+              <div class="col-12 col-sm-6">
+                <label class="product-label" for="product-price">Selling Price <b>*</b></label>
+                <app-input class="product-control" inputId="product-price" name="sellingPrice" type="number" min="0" placeholder="Enter selling price" size="compact" [required]="true" [value]="valueFor('sellingPrice')" [ariaInvalid]="!!fieldError('sellingPrice')" (valueInput)="updateValue('sellingPrice', $event)" />
+                @if (fieldError('sellingPrice'); as error) { <span class="product-error">{{ error }}</span> }
+              </div>
+              <div class="col-12 col-sm-6">
+                <label class="product-label" for="product-mrp">MRP <b>*</b></label>
+                <app-input class="product-control" inputId="product-mrp" name="mrp" type="number" min="0" placeholder="Enter MRP" size="compact" [required]="true" [value]="valueFor('mrp')" [ariaInvalid]="!!fieldError('mrp')" (valueInput)="updateValue('mrp', $event)" />
+                @if (fieldError('mrp'); as error) { <span class="product-error">{{ error }}</span> }
+              </div>
+              <div class="col-12 col-sm-6">
+                <label class="product-label" for="product-discount">Discount (%) <b>*</b></label>
+                <app-input class="product-control" inputId="product-discount" name="discount" type="number" min="0" max="100" placeholder="Enter discount %" size="compact" [value]="valueFor('discount')" [ariaInvalid]="!!fieldError('discount')" (valueInput)="updateValue('discount', $event)" />
+                @if (fieldError('discount'); as error) { <span class="product-error">{{ error }}</span> }
+              </div>
+              <div class="col-12 col-sm-6">
+                <label class="product-label" for="product-stock">Stock Quantity <b>*</b></label>
+                <app-input class="product-control" inputId="product-stock" name="stockQuantity" type="number" min="0" placeholder="Enter stock quantity" size="compact" [required]="true" [value]="valueFor('stockQuantity')" [ariaInvalid]="!!fieldError('stockQuantity')" (valueInput)="updateValue('stockQuantity', $event)" />
+                @if (fieldError('stockQuantity'); as error) { <span class="product-error">{{ error }}</span> }
+              </div>
+              <div class="col-12 col-sm-6">
+                <label class="product-label" for="product-min-order">Minimum Order Qty <b>*</b></label>
+                <app-input class="product-control" inputId="product-min-order" name="minimumOrderQuantity" type="number" min="1" placeholder="Enter min order qty" size="compact" [required]="true" [value]="valueFor('minimumOrderQuantity')" [ariaInvalid]="!!fieldError('minimumOrderQuantity')" (valueInput)="updateValue('minimumOrderQuantity', $event)" />
+                @if (fieldError('minimumOrderQuantity'); as error) { <span class="product-error">{{ error }}</span> }
+              </div>
+              <div class="col-12 col-sm-6">
+                <label class="product-label" for="product-max-order">Maximum Order Qty <b>*</b></label>
+                <app-input class="product-control" inputId="product-max-order" name="maximumOrderQuantity" type="number" min="1" placeholder="Enter max order qty" size="compact" [required]="true" [value]="valueFor('maximumOrderQuantity')" [ariaInvalid]="!!fieldError('maximumOrderQuantity')" (valueInput)="updateValue('maximumOrderQuantity', $event)" />
+                @if (fieldError('maximumOrderQuantity'); as error) { <span class="product-error">{{ error }}</span> }
+              </div>
+            </div>
+          </section>
+
+          <section appCard class="product-panel dimensions-panel edit-dimensions-panel">
+            <h2>Product Dimensions &amp; Weight</h2>
+            <div class="row g-2">
+              @for (field of dimensionFields; track field) {
+                <div class="col-6 col-sm-3">
+                  <label class="product-label" [for]="'product-' + field">
+                    {{ field === 'weight' ? 'Weight (kg)' : (field === 'length' ? 'Length (cm)' : (field === 'width' ? 'Width (cm)' : 'Height (cm)')) }}
+                    @if (field === 'weight' || field === 'length') { <b>*</b> }
+                  </label>
+                  <app-input class="product-control" [inputId]="'product-' + field" [name]="field" type="number" min="0" size="compact" [value]="valueFor(field)" [ariaInvalid]="!!fieldError(field)" (valueInput)="updateValue(field, $event)" />
+                  @if (fieldError(field); as error) { <span class="product-error">{{ error }}</span> }
+                </div>
+              }
+            </div>
+          </section>
+
+          <label class="variants-toggle edit-variants">
+            <input type="checkbox" [checked]="hasVariants()" (change)="setVariants($event)" />
+            <span aria-hidden="true"></span>This product has variants
+          </label>
+
+          @if (saved()) { <p class="save-message" role="status">Product updated successfully.</p> }
+          <footer class="product-actions">
+            <app-button class="edit-cancel-button" variant="outline" size="small" (clicked)="cancel()">Cancel</app-button>
+            <app-button variant="accent" size="small" type="submit">Update Product</app-button>
+          </footer>
+        </div>
+      </div>
+    </form>
+  } @else {
+    <section appCard class="product-panel" role="alert">
+      <h2>Product not found</h2>
+      <p class="mb-3">We couldn't find a product with this ID.</p>
+      <a class="btn btn-sm" routerLink="/admin/products/all">Back to all products</a>
+    </section>
+  }
+</main>

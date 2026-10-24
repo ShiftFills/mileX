@@ -1,0 +1,185 @@
+<div class="store-container cart-page">
+  <app-page-heading heading="Shopping Cart" subtitle="Your favourites are almost yours. Review your bag before checkout.">
+    <app-stepper ariaLabel="Checkout progress" [steps]="steps" [current]="0" />
+  </app-page-heading>
+
+  @if (cart.items().length) {
+    <div class="row g-3">
+      <div class="col-12 col-lg-8">
+        <p class="cart-added" role="status">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" /><path d="m5.2 8.3 2 2 3.6-4" /></svg>
+          Added to your cart
+        </p>
+
+        <section class="cart-items" aria-label="Cart items">
+          @for (item of cart.items(); track item.product.id) {
+            @let product = item.product;
+            @let variant = variantOf(product);
+            <article appCard class="cart-item">
+              <img class="cart-item__image" [src]="product.imageUrl" [alt]="product.name" />
+              <div class="cart-item__details">
+                <h2 [class.cart-item__name--printed-maxi]="product.name === 'Women Printed Maxi Dress'">{{ product.name }}</h2>
+                @if (variant.color || variant.size) {
+                  <p class="cart-item__variant">
+                    @if (variant.color) {
+                      <span class="cart-item__swatch" [style.background]="variant.colorHex" aria-hidden="true"></span>
+                      {{ variant.color }}
+                    }
+                    @if (variant.size) {
+                      <strong>Size: {{ variant.size }}</strong>
+                    }
+                  </p>
+                }
+                <p class="cart-item__price">
+                  <strong>{{ product.price | currency: 'INR' : 'symbol' : '1.0-0' }}</strong>
+                  @if (product.originalPrice && product.originalPrice > product.price) {
+                    <s>{{ product.originalPrice | currency: 'INR' : 'symbol' : '1.0-0' }}</s>
+                  }
+                  @if (product.discountLabel) {
+                    <app-badge tone="success">{{ product.discountLabel }}</app-badge>
+                  }
+                </p>
+                <small class="cart-item__tax">Inclusive of all taxes</small>
+
+                <div class="cart-item__quantity">
+                  <span id="qty-{{ product.id }}">Quantity:</span>
+                  <div class="quantity-control" role="group" [attr.aria-labelledby]="'qty-' + product.id">
+                    <button type="button" [attr.aria-label]="'Decrease ' + product.name + ' quantity'" [disabled]="item.quantity <= 1" (click)="setQuantity(product, item.quantity - 1)">
+                      <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6h7" /></svg>
+                    </button>
+                    <output [attr.aria-label]="'Quantity ' + item.quantity">{{ item.quantity }}</output>
+                    <button type="button" [attr.aria-label]="'Increase ' + product.name + ' quantity'" [disabled]="item.quantity >= maxQuantity(product)" (click)="setQuantity(product, item.quantity + 1)">
+                      <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 2.5v7M2.5 6h7" /></svg>
+                    </button>
+                  </div>
+                  @if (product.inStock) {
+                    <span class="cart-item__stock">{{ stockNote(product) }}</span>
+                  }
+                </div>
+
+                <div class="cart-item__actions">
+                  <app-button variant="plain" size="small" (clicked)="saveForLater(product)">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13.5S2.5 10 2.5 6A3 3 0 0 1 8 4.7 3 3 0 0 1 13.5 6c0 4-5.5 7.5-5.5 7.5Z" /></svg>
+                    Save for later
+                  </app-button>
+                  <app-button variant="plain" size="small" (clicked)="cart.remove(product.id)">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8h5.8l.6-8M6.8 7v3.5M9.2 7v3.5" /></svg>
+                    Remove
+                  </app-button>
+                </div>
+              </div>
+            </article>
+          }
+        </section>
+
+        <section class="cart-delivery" aria-labelledby="delivery-title">
+          <h2 id="delivery-title">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 4h8v7h-8zM9.5 6.5h3l2 2V11h-5zM4.5 12.5a1 1 0 1 0 0-.01M11.5 12.5a1 1 0 1 0 0-.01" /></svg>
+            Check delivery availability
+          </h2>
+          <form class="cart-inline-form" novalidate (submit)="checkPincode($event)">
+            <div class="cart-delivery__input-wrap">
+              <svg class="cart-delivery__pin" viewBox="0 0 16 16" aria-hidden="true"><path d="M13 6.5c0 3.8-5 8-5 8s-5-4.2-5-8a5 5 0 1 1 10 0Z" /><circle cx="8" cy="6.5" r="1.6" /></svg>
+              <app-input
+                class="cart-delivery__input"
+                inputId="cart-pincode"
+                name="pincode"
+                placeholder="Enter your pincode"
+                autocomplete="postal-code"
+                ariaLabel="Delivery pincode"
+                [ariaInvalid]="pincodeState() === 'invalid'"
+                ariaDescribedBy="pincode-message"
+                [value]="pincode()"
+                (valueInput)="updatePincode($event)"
+              />
+            </div>
+            <app-button class="cart-delivery__submit" type="submit">Check</app-button>
+          </form>
+          <p id="pincode-message" class="cart-message" [class.is-error]="pincodeState() === 'invalid'" [class.is-success]="pincodeState() === 'available'" aria-live="polite">
+            @switch (pincodeState()) {
+              @case ('available') { Delivery is available at {{ pincode() }}. Estimated delivery in 3 – 5 days. }
+              @case ('invalid') { Enter a valid 6-digit pincode. }
+              @default { Estimated delivery in 3 – 5 days. Availability depends on your pincode. }
+            }
+          </p>
+        </section>
+      </div>
+
+      <aside class="col-12 col-lg-4 cart-side" aria-label="Order summary">
+        <section appCard class="cart-coupon">
+          <h2>
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3.5h12v3a1.5 1.5 0 0 0 0 3v3H2v-3a1.5 1.5 0 0 0 0-3zM6.5 5.5v5" /></svg>
+            Have a coupon?
+          </h2>
+          @if (coupon(); as applied) {
+            <p class="cart-coupon__applied">
+              <span><strong>{{ applied.code }}</strong> applied &minus;{{ applied.discount | currency: 'INR' : 'symbol' : '1.0-0' }}</span>
+              <app-button variant="link" size="small" (clicked)="removeCoupon()">Remove</app-button>
+            </p>
+          } @else {
+            <form class="cart-inline-form" novalidate (submit)="applyCoupon($event)">
+              <app-input
+                name="coupon"
+                placeholder="Enter coupon code"
+                autocomplete="off"
+                ariaLabel="Coupon code"
+                [ariaInvalid]="couponError() ? true : null"
+                ariaDescribedBy="coupon-message"
+                [value]="couponInput()"
+                (valueInput)="updateCoupon($event)"
+              />
+              <app-button type="submit" variant="outline">Apply</app-button>
+            </form>
+            <p id="coupon-message" class="cart-message is-error" aria-live="polite">{{ couponError() }}</p>
+          }
+        </section>
+
+        <section appCard class="cart-summary" aria-labelledby="summary-title">
+          <h2 id="summary-title" class="cart-summary__title">Order Summary</h2>
+          <dl class="cart-summary__lines">
+            <div><dt>Price ({{ cart.count() }} {{ cart.count() === 1 ? 'item' : 'items' }})</dt><dd>{{ listTotal() | currency: 'INR' : 'symbol' : '1.0-0' }}</dd></div>
+            @if (productDiscount() > 0) {
+              <div class="is-saving"><dt>Product discount</dt><dd>&minus; {{ productDiscount() | currency: 'INR' : 'symbol' : '1.0-0' }}</dd></div>
+            }
+            @if (coupon(); as applied) {
+              <div class="is-saving"><dt>Coupon ({{ applied.code }})</dt><dd>&minus; {{ applied.discount | currency: 'INR' : 'symbol' : '1.0-0' }}</dd></div>
+            }
+            <div><dt>Subtotal</dt><dd>{{ orderTotal() | currency: 'INR' : 'symbol' : '1.0-0' }}</dd></div>
+            <div><dt>Delivery charges</dt><dd>Calculated at checkout</dd></div>
+          </dl>
+          <p class="cart-summary__total"><span>Order total</span><strong>{{ orderTotal() | currency: 'INR' : 'symbol' : '1.0-0' }}</strong></p>
+          <small class="cart-summary__note">Inclusive of all taxes. Final delivery charges will be shown before payment.</small>
+          @if (totalSavings() > 0) {
+            <app-alert class="cart-savings-alert" tone="success">
+              <svg class="cart-inline-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" /><path d="m5.2 8.3 2 2 3.6-4" /></svg>
+              You're saving {{ totalSavings() | currency: 'INR' : 'symbol' : '1.0-0' }} on this order
+            </app-alert>
+          }
+          <app-button class="cart-checkout-action" variant="accent" (clicked)="proceedToCheckout()">Proceed to Checkout</app-button>
+          <small class="cart-summary__secure">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7" width="9" height="7" rx="1" /><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" /></svg>
+            Safe and secure checkout
+          </small>
+        </section>
+
+        <p class="cart-shipping" [class.is-unlocked]="qualifiesForFreeShipping()">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 4h8v7h-8zM9.5 6.5h3l2 2V11h-5zM4.5 12.5a1 1 0 1 0 0-.01M11.5 12.5a1 1 0 1 0 0-.01" /></svg>
+          <span>
+            <strong>Free Shipping on orders above {{ freeShippingThreshold | currency: 'INR' : 'symbol' : '1.0-0' }}</strong>
+            @if (qualifiesForFreeShipping()) {
+              Your order qualifies for free shipping.
+            } @else {
+              Your {{ orderTotal() | currency: 'INR' : 'symbol' : '1.0-0' }} subtotal does not qualify yet.
+            }
+          </span>
+        </p>
+      </aside>
+    </div>
+  } @else {
+    <section appCard class="cart-empty" aria-label="Empty cart">
+      <h2>Your cart is empty</h2>
+      <p>Browse the catalog to find something you love.</p>
+      <app-button variant="accent" (clicked)="browseProducts()">Browse products</app-button>
+    </section>
+  }
+</div>

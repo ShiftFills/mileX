@@ -1,0 +1,189 @@
+<div class="store-container address-page">
+  <app-page-heading heading="Delivery Address" subtitle="Choose where you want your order delivered.">
+    <app-stepper ariaLabel="Checkout progress" [steps]="steps" [current]="1" />
+  </app-page-heading>
+
+  @if (cart.items().length) {
+    <div class="row g-2">
+      <div class="col-12 col-lg-8">
+        <section appCard class="address-section" aria-labelledby="saved-title">
+          <h2 id="saved-title" class="address-section__title">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 6.5c0 3.8-5 8-5 8s-5-4.2-5-8a5 5 0 1 1 10 0Z" /><circle cx="8" cy="6.5" r="1.6" /></svg>
+            Saved Addresses
+          </h2>
+
+          <div class="row g-2" role="radiogroup" aria-labelledby="saved-title">
+            @for (address of addressBook.addresses(); track address.id) {
+              @let isSelected = addressBook.selected()?.id === address.id;
+              <div class="col-12 col-md-6">
+                <article class="address-card" [class.is-selected]="isSelected" (click)="selectAddress(address.id)">
+                  <label class="address-card__select">
+                    <input class="visually-hidden" type="radio" name="saved-address" [value]="address.id" [checked]="isSelected" (change)="selectAddress(address.id)" />
+                    <span class="address-card__radio" aria-hidden="true"></span>
+                    <span class="address-card__head">
+                      <app-badge [tone]="typeTone[address.type]" class="address-card__badge">{{ typeLabel(address.type) }}</app-badge>
+                    </span>
+                    <strong class="address-card__name">{{ address.fullName }}</strong>
+                    <span class="address-card__phone">{{ formatMobile(address.mobile) }}</span>
+                    <span class="address-card__text">
+                      {{ address.house }}, {{ address.street }}{{ address.landmark ? ', ' + address.landmark : '' }},<br />
+                      {{ address.city }}, {{ address.state }} - {{ address.pincode }}
+                    </span>
+                  </label>
+                  <div class="address-card__footer">
+                    <app-button variant="plain" size="small" (clicked)="$event.stopPropagation(); editAddress(address)">
+                      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m10.5 3.5 2 2M3 13l.5-2.5 7-7 2 2-7 7L3 13Z" /></svg>
+                      Edit
+                    </app-button>
+                  </div>
+                </article>
+              </div>
+            }
+          </div>
+
+          @if (selectionError()) {
+            <app-alert class="address-section__alert" tone="danger" role="alert">Select a saved address or add a new one to continue.</app-alert>
+          }
+
+          <div class="address-section__actions">
+            <app-button class="address-add" variant="outline" size="small" (clicked)="addNewAddress()">
+              <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 2.5v7M2.5 6h7" /></svg>
+              Add New Address
+            </app-button>
+          </div>
+        </section>
+
+        <section appCard class="address-section address-form" aria-labelledby="form-title">
+          <div class="address-section__head">
+            <h2 id="form-title" class="address-section__title">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 14V2.5h9V14M2.5 14h11M6 5h1M9 5h1M6 7.5h1M9 7.5h1M6.5 14v-2.5h3V14" /></svg>
+              {{ editingId() ? 'Edit Address' : 'Add New Address' }}
+            </h2>
+            @if (editingId()) {
+              <app-button variant="link" size="small" (clicked)="cancelEdit()">Cancel</app-button>
+            }
+          </div>
+
+          <form class="row address-form__grid" novalidate (submit)="$event.preventDefault(); confirmToPayment()">
+            @for (field of fields; track field.key) {
+              @let error = errorFor(field.key);
+              <div class="col-12 col-md-6">
+                <label class="address-form__label" [attr.for]="'address-' + field.key">
+                  {{ field.label }}
+                  @if (field.optional) {
+                    (optional)
+                  } @else {
+                    <span class="address-form__required" aria-hidden="true">*</span>
+                  }
+                </label>
+                @if (field.select) {
+                  <app-select
+                    inputId="address-state"
+                    name="state"
+                    [required]="true"
+                    [value]="form().state"
+                    [ariaInvalid]="error ? true : null"
+                    [ariaDescribedBy]="error ? 'address-state-error' : null"
+                    (valueChange)="updateField('state', $event); markTouched('state')"
+                  >
+                    <option value="" disabled>{{ field.placeholder }}</option>
+                    @for (state of states; track state) {
+                      <option [value]="state">{{ state }}</option>
+                    }
+                  </app-select>
+                } @else {
+                  <app-input
+                    [inputId]="'address-' + field.key"
+                    [name]="field.key"
+                    [type]="field.key === 'mobile' ? 'tel' : 'text'"
+                    [placeholder]="field.placeholder"
+                    [autocomplete]="field.autocomplete"
+                    [required]="!field.optional"
+                    [ariaInvalid]="error ? true : null"
+                    [ariaDescribedBy]="error ? 'address-' + field.key + '-error' : null"
+                    [value]="form()[field.key]"
+                    (valueInput)="updateField(field.key, $event)"
+                    (valueChange)="markTouched(field.key)"
+                  />
+                }
+                @if (error) {
+                  <p class="address-form__error" [id]="'address-' + field.key + '-error'">{{ error }}</p>
+                }
+              </div>
+            }
+
+            <div class="col-12">
+              <fieldset class="address-type">
+                <legend class="address-form__label">Address Type <span class="address-form__required" aria-hidden="true">*</span></legend>
+                <div class="address-type__options">
+                  @for (type of addressTypes; track type.value) {
+                    <app-radio name="addressType" [value]="type.value" [checked]="form().type === type.value" (valueChange)="setType(type.value)">{{ type.label }}</app-radio>
+                  }
+                </div>
+              </fieldset>
+            </div>
+
+            @if (!editingId()) {
+              <div class="col-12 address-form__save">
+                <app-checkbox [checked]="saveForLater()" (checkedChange)="setSaveForLater($event)">Save this address for future orders</app-checkbox>
+              </div>
+            }
+          </form>
+        </section>
+      </div>
+
+      <aside class="col-12 col-lg-4" aria-label="Order summary">
+        <section appCard class="order-summary" aria-labelledby="summary-title">
+          <h2 id="summary-title" class="order-summary__title">Order Summary</h2>
+
+          @for (item of cart.items(); track item.product.id) {
+            <div class="order-summary__item">
+              <img [src]="item.product.imageUrl" [alt]="item.product.name" />
+              <div class="order-summary__info">
+                <p class="order-summary__name">{{ item.product.name }}</p>
+                @if (variantOf(item.product)) {
+                  <p class="order-summary__meta">{{ variantOf(item.product) }}</p>
+                }
+                <p class="order-summary__meta">Qty: {{ item.quantity }}</p>
+              </div>
+              <strong class="order-summary__price">{{ item.product.price * item.quantity | currency: 'INR' : 'symbol' : '1.0-0' }}</strong>
+            </div>
+          }
+
+          <dl class="order-summary__lines">
+            @if (productDiscount() > 0) {
+              <div class="is-saving"><dt>Product discount</dt><dd>&minus; {{ productDiscount() | currency: 'INR' : 'symbol' : '1.0-0' }}</dd></div>
+            }
+            <div class="is-saving"><dt>Delivery charges</dt><dd>Free</dd></div>
+          </dl>
+
+          <p class="order-summary__total"><span>Order total</span><strong>{{ orderTotal() | currency: 'INR' : 'symbol' : '1.0-0' }}</strong></p>
+
+          <app-button class="order-summary__confirm" variant="accent" (clicked)="confirmToPayment()">Confirm to Payment</app-button>
+          <small class="order-summary__secure">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7" width="9" height="7" rx="1" /><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" /></svg>
+            Safe and secure checkout
+          </small>
+
+          <p class="order-summary__shipping">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 4h8v7h-8zM9.5 6.5h3l2 2V11h-5zM4.5 12.5a1 1 0 1 0 0-.01M11.5 12.5a1 1 0 1 0 0-.01" /></svg>
+            <span>
+              <strong>Free Shipping on orders above {{ freeShippingThreshold | currency: 'INR' : 'symbol' : '1.0-0' }}</strong>
+              @if (qualifiesForFreeShipping()) {
+                Your order qualifies for free shipping.
+              } @else {
+                Your {{ orderTotal() | currency: 'INR' : 'symbol' : '1.0-0' }} subtotal does not qualify yet.
+              }
+            </span>
+          </p>
+        </section>
+      </aside>
+    </div>
+  } @else {
+    <section appCard class="address-empty" aria-label="Empty cart">
+      <h2>Your cart is empty</h2>
+      <p>Add something to your cart before choosing a delivery address.</p>
+      <a class="btn btn--accent btn-sm" [routerLink]="routes.products">Browse products</a>
+    </section>
+  }
+</div>

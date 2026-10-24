@@ -1,0 +1,161 @@
+<div class="store-container tracking">
+  <app-page-heading heading="Shipment Tracking" subtitle="Monitor status, location and delivery progress." />
+
+  @if (shipment(); as s) {
+    @if (notice()) {
+      <app-alert class="tracking__notice" tone="warning" role="alert">{{ notice() }}</app-alert>
+    }
+
+    <div class="row g-3 g-lg-3">
+      <!-- Order + carrier -->
+      <div class="col-12 col-lg-5">
+        <section appCard class="tracking-card tracking-order" aria-labelledby="order-title">
+          <h2 id="order-title" class="tracking-order__label">Order Details</h2>
+          <p class="tracking-order__id">
+            <strong>{{ s.orderId }}</strong>
+            <span>{{ s.placedOn | date: 'd MMM y' }}</span>
+          </p>
+          <div class="tracking-carrier d-flex flex-wrap align-items-center gap-3">
+            <span class="tracking-carrier__logo d-flex align-items-center justify-content-center" [style.background]="s.carrier.color" aria-hidden="true">{{ s.carrier.code }}</span>
+            <div class="tracking-carrier__info">
+              <p class="tracking-carrier__name">Carrier: <strong>{{ s.carrier.name }}</strong></p>
+              <p class="tracking-carrier__no d-flex align-items-center gap-2">
+                {{ s.carrier.trackingNo }}
+                <button type="button" class="tracking-carrier__copy d-inline-flex" [attr.aria-label]="copied() ? 'Tracking number copied' : 'Copy tracking number'" (click)="copyTrackingNo()">
+                  @if (copied()) {
+                    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7" /></svg>
+                  } @else {
+                    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path d="M10.5 5.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2" /></svg>
+                  }
+                </button>
+              </p>
+            </div>
+            <a class="btn btn--outline tracking-carrier__visit" [href]="s.carrier.siteUrl" target="_blank" rel="noopener noreferrer">
+              Visit Site
+              <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M9 3h4v4M13 3 7.5 8.5M11.5 9v3.5a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1H7" /></svg>
+            </a>
+          </div>
+        </section>
+      </div>
+
+      <!-- Live status -->
+      <div class="col-12 col-lg-7">
+        <section appCard class="tracking-card tracking-status d-flex flex-column flex-md-row align-items-start align-items-md-center" aria-label="Delivery status">
+          <div class="tracking-status__main">
+            <p class="tracking-status__flags d-flex align-items-center gap-2">
+              <span class="tracking-status__live d-inline-flex align-items-center gap-1">
+                <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M1.5 4h8v7h-8zM9.5 6.5h3l2 2V11h-5zM4.5 12.5a1 1 0 1 0 0-.01M11.5 12.5a1 1 0 1 0 0-.01" /></svg>
+                Live Status
+              </span>
+              <span class="tracking-status__schedule" [class.is-late]="!s.onSchedule">{{ s.scheduleStatus }}</span>
+            </p>
+            <p class="tracking-status__caption">Estimated Delivery Date</p>
+            <p class="tracking-status__date">{{ s.estimatedDelivery | date: 'EEEE, MMM d, y' }}</p>
+          </div>
+          <div class="tracking-status__side d-flex flex-column align-items-center gap-3">
+            <app-button class="tracking-map-button" variant="accent" (clicked)="showMap()">
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="m1.5 3.5 4-1.5 5 1.5 4-1.5v10l-4 1.5-5-1.5-4 1.5zM5.5 2v10.5M10.5 3.5V14" /></svg>
+              Live Map View
+            </app-button>
+            <p class="tracking-status__where d-flex align-items-center gap-2">
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M13 6.5c0 3.8-5 8-5 8s-5-4.2-5-8a5 5 0 1 1 10 0Z" /><circle cx="8" cy="6.5" r="1.6" /></svg>
+              Package currently at <strong>{{ s.currentLocation }}</strong>
+            </p>
+          </div>
+        </section>
+      </div>
+
+      <!-- Timeline -->
+      <div class="col-12">
+        <section appCard class="tracking-card tracking-timeline" aria-labelledby="timeline-title">
+          <h2 id="timeline-title" class="tracking-card__title d-flex align-items-center gap-2">Shipment Timeline Progress</h2>
+          <app-stepper size="large" [mobileFit]="true" ariaLabel="Shipment progress" [steps]="steps()" [current]="s.currentStep" />
+        </section>
+      </div>
+
+      <!-- Map -->
+      <div class="col-12 col-lg-6">
+        <app-shipment-map id="shipment-map" tabindex="-1" [shipment]="s" />
+      </div>
+
+      <!-- Package / address / payment -->
+      <div class="col-12 col-lg-6">
+        <div class="tracking-stack d-grid gap-3">
+          <section appCard class="tracking-card" aria-labelledby="package-title">
+            <header class="tracking-card__head d-flex align-items-center justify-content-between gap-3">
+              <h2 id="package-title" class="tracking-card__title d-flex align-items-center gap-2">Package Content <span>( {{ itemCount() }} items )</span></h2>
+              <span class="tracking-pill">Verified Packed</span>
+            </header>
+            <ul class="tracking-items">
+              @for (item of s.items; track item.sku) {
+                <li class="d-flex gap-3">
+                  <span class="tracking-items__icon d-flex align-items-center justify-content-center" [class.is-accent]="item.tone === 'accent'" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><path [attr.d]="item.icon" /></svg>
+                  </span>
+                  <div>
+                    <p class="tracking-items__name">{{ item.name }}</p>
+                    <p class="tracking-items__meta">SKU: {{ item.sku }} &bull; Qty: {{ item.quantity }}</p>
+                    <p class="tracking-items__price">{{ item.price | currency: 'INR' : 'symbol' : '1.2-2' }}</p>
+                  </div>
+                </li>
+              }
+            </ul>
+            <p class="tracking-subtotal d-flex align-items-center justify-content-between"><span>Sub total Amount</span><strong>{{ subtotal() | currency: 'INR' : 'symbol' : '1.2-2' }}</strong></p>
+          </section>
+
+          <section appCard class="tracking-card" aria-labelledby="address-title">
+            <header class="tracking-card__head d-flex align-items-center justify-content-between gap-3"><h2 id="address-title" class="tracking-card__title d-flex align-items-center gap-2">Delivery Address</h2></header>
+            <address class="tracking-address">
+              <strong>{{ s.address.name }}</strong>
+              @for (line of s.address.lines; track line) {
+                <span>{{ line }}</span>
+              }
+              <span class="tracking-address__phone d-flex align-items-center gap-2">
+                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3 2.5h2.5l1 3-1.5 1a8 8 0 0 0 4 4l1-1.5 3 1v2.5a1 1 0 0 1-1 1A10.5 10.5 0 0 1 2 3.5a1 1 0 0 1 1-1Z" /></svg>
+                {{ s.address.phone }}
+              </span>
+            </address>
+          </section>
+
+          <section appCard class="tracking-card" aria-labelledby="payment-title">
+            <header class="tracking-card__head d-flex align-items-center justify-content-between gap-3">
+              <h2 id="payment-title" class="tracking-card__title d-flex align-items-center gap-2">
+                <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><rect x="1.5" y="3.5" width="13" height="9" rx="1.5" /><path d="M1.5 6.5h13M4 10h2" /></svg>
+                Payment &amp; Billing
+              </h2>
+              <span class="tracking-pill">{{ s.payment.status }}</span>
+            </header>
+            <div class="tracking-payment d-flex flex-wrap align-items-center gap-3">
+              <span class="tracking-payment__badge" aria-hidden="true">{{ s.payment.badge }}</span>
+              <p>
+                <strong>{{ s.payment.method }}</strong>
+                <span>Authorized {{ s.payment.authorizedOn | date: 'MMM d, y' }}</span>
+              </p>
+              <app-button class="tracking-invoice" variant="outline" size="small" (clicked)="downloadInvoice()">
+                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 1.5h5.5L13 5v9.5H4zM9.5 1.5V5H13M6 8h5M6 10.5h5" /></svg>
+                Invoice PDF
+              </app-button>
+            </div>
+          </section>
+
+          <div class="row g-2">
+            <div class="col-12 col-sm-6"><a class="btn btn--outline w-100" [routerLink]="routes.support">
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5" /><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3" /></svg>
+              Reschedule
+            </a></div>
+            <div class="col-12 col-sm-6"><a class="btn btn--outline-danger w-100" [routerLink]="routes.refund">
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="8" cy="8" r="6" /><path d="m3.8 3.8 8.4 8.4" /></svg>
+              Cancel / Return
+            </a></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  } @else {
+    <section appCard class="tracking-empty" aria-label="Order not found">
+      <h2>We couldn't find that shipment</h2>
+      <p>Check the order number and try again from your orders.</p>
+      <a class="btn btn--accent btn-sm" [routerLink]="routes.orders">Go to my orders</a>
+    </section>
+  }
+</div>

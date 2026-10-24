@@ -1,0 +1,42 @@
+<article appCard class="product-card" [class.product-card--aligned]="showAddToCart()"
+  [class.product-card--wishlist]="variant() === 'wishlist'">
+  <a class="product-card__link" [routerLink]="[routes.products, product().id]">
+    <div class="product-card__image">
+      <img [src]="product().imageUrl" [alt]="product().name" loading="lazy" decoding="async" />
+    </div>
+    <div class="product-card__details">
+      @if (product().originalPrice || showAddToCart()) {
+      <h2>{{ product().name }}</h2>
+      <p class="product-card__price">
+        <strong>{{ product().price | currency: 'INR' : 'symbol' : '1.0-0' }}</strong>
+        <del>{{ product().originalPrice | currency: 'INR' : 'symbol' : '1.0-0' }}</del>
+        <span>{{ product().discountLabel }}</span>
+      </p>
+      <p class="product-card__rating">
+        @if (product().rating) { <span aria-hidden="true">★</span> {{ product().rating }} <small>({{
+          product().reviewCount }})</small> }
+      </p>
+      } @else {
+      <strong class="product-card__simple-price">{{ product().price | currency: 'INR' : 'symbol' : '1.0-0' }}</strong>
+      <p>{{ product().name }}</p>
+      }
+    </div>
+  </a>
+  <app-button class="product-card__wishlist" variant="icon" size="small" [class.is-active]="wishlisted()"
+    [class.product-card__wishlist--framed]="variant() === 'wishlist'"
+    [ariaLabel]="wishlisted() ? 'Remove from wishlist' : 'Add to wishlist'" [ariaPressed]="wishlisted()"
+    (clicked)="toggleWishlist($event)">
+    @if (variant() === 'wishlist') {
+    <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+      <path d="M8 13.5S2.5 10 2.5 6A3 3 0 0 1 8 4.7 3 3 0 0 1 13.5 6c0 4-5.5 7.5-5.5 7.5Z" fill="none"
+        stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" />
+    </svg>
+    } @else {
+    {{ wishlisted() ? '♥' : '♡' }}
+    }
+  </app-button>
+  @if (showAddToCart()) {
+  <app-button class="product-card__add" variant="accent" [size]="variant() === 'wishlist' ? 'normal' : 'small'"
+    [disabled]="!product().inStock" (clicked)="onAddToCart()">Add to Cart</app-button>
+  }
+</article>

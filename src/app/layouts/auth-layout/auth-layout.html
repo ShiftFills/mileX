@@ -1,0 +1,6 @@
+<div class="auth" [class.auth--login]="isLogin()" [class.auth--register]="isRegister()">
+  <a class="auth__brand" routerLink="/">MileX</a>
+  <section appCard class="auth__panel" [class.auth__panel--login]="isLogin()" [class.auth__panel--register]="isRegister()">
+    <router-outlet (activate)="onActivate()" />
+  </section>
+</div>

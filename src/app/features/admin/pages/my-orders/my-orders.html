@@ -1,0 +1,11 @@
+<main class="admin-content admin-list-page">
+  <app-page-heading heading="My Orders" subtitle="View and track your order history" />
+
+  <section class="d-grid gap-3" aria-label="Order history">
+    @for (order of visibleOrders(); track order.id) {
+      <app-order-card [order]="order" />
+    }
+  </section>
+
+  <app-pagination class="my-orders-pagination" ariaLabel="Order pages" itemLabel="orders" [page]="page()" [pageSize]="pageSize" [total]="orders().length" (pageChange)="page.set($event)" />
+</main>

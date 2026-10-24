@@ -1,0 +1,22 @@
+<div class="store-container order-list">
+  <app-page-heading heading="My Orders" subtitle="View and track your order history" />
+
+  @if (orders.length) {
+    <section class="row g-2" aria-label="Order history">
+      @for (order of visibleOrders(); track order.id) {
+        <div class="col-12 col-xl-6">
+          <app-order-card [order]="order" />
+        </div>
+      }
+    </section>
+
+    @if (orders.length > pageSize) {
+      <app-pagination ariaLabel="Order pages" itemLabel="orders" [page]="page()" [pageSize]="pageSize" [total]="orders.length" (pageChange)="page.set($event)" />
+    }
+  } @else {
+    <section class="order-list__empty" aria-label="No orders">
+      <p>You haven't placed any orders yet.</p>
+      <a class="btn btn-sm" [routerLink]="routes.products">Start shopping</a>
+    </section>
+  }
+</div>

@@ -1,0 +1,163 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-text-muted);
+  font-size: var(--stepper-font-size, var(--text-xs));
+}
+
+.stepper__step {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+
+  // Connector to the previous step; coloured once that step has been reached.
+  & + &::before {
+    content: '';
+    width: var(--stepper-line, 2.5rem);
+    height: var(--stepper-line-height, 2px);
+    margin-inline: var(--stepper-line-gap-start, var(--space-2)) var(--stepper-line-gap-end, var(--space-2));
+    background: var(--stepper-line-color, var(--color-border));
+  }
+
+  &.is-done::before,
+  &.is-current::before {
+    background: var(--stepper-line-color, var(--color-success));
+  }
+
+  &.is-current {
+    color: var(--color-text);
+    font-weight: var(--stepper-current-font-weight, var(--weight-bold));
+  }
+}
+
+.stepper__marker {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: var(--stepper-marker, 1.4rem);
+  height: var(--stepper-marker, 1.4rem);
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--color-surface);
+  font-size: var(--stepper-marker-font-size, var(--text-xs));
+  line-height: 1;
+
+  svg {
+    width: 55%;
+    height: 55%;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .is-done & {
+    border-color: var(--stepper-done-color, var(--color-success));
+    background: var(--stepper-done-color, var(--color-success));
+    color: var(--color-primary-contrast);
+  }
+
+  .is-current & {
+    border-color: var(--stepper-current-color, var(--color-accent));
+    background: var(--stepper-current-color, var(--color-accent));
+    color: var(--color-accent-contrast);
+  }
+}
+
+.stepper__text {
+  display: grid;
+  min-width: 0;
+}
+
+.stepper__caption {
+  color: var(--color-placeholder);
+  font-size: 0.68rem;
+  font-weight: var(--weight-regular);
+}
+
+// ---- Large: equal columns, marker above the label, line through the marker centres ----
+.stepper--large {
+  --stepper-marker: 2.25rem;
+  align-items: flex-start;
+
+  .stepper__step {
+    flex: 1 1 0;
+    min-width: 0;
+    flex-direction: column;
+    gap: var(--space-2);
+    text-align: center;
+  }
+
+  .stepper__step + .stepper__step::before {
+    position: absolute;
+    top: calc(var(--stepper-marker) / 2 - var(--stepper-line-height, 2px) / 2);
+    right: 50%;
+    width: 100%;
+    margin: 0;
+  }
+
+  .stepper__label {
+    color: var(--color-text);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-bold);
+  }
+
+  .is-current .stepper__caption {
+    color: var(--color-warning);
+  }
+}
+
+@media (max-width: 575.98px) {
+  .stepper:not(.stepper--large) {
+    --stepper-line: 1rem;
+
+    .stepper__step:not(.is-current) .stepper__text {
+      display: none;
+    }
+  }
+
+  // Five columns do not fit on a phone: let the lifecycle scroll sideways instead of squashing.
+  .stepper--large {
+    min-width: 30rem;
+  }
+
+  // Opt-in compact layout for pages that need all five stages visible on a phone.
+  .stepper--large.stepper--mobile-fit {
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+
+    .stepper__step {
+      width: 100%;
+      align-items: center;
+
+      .stepper__text {
+        width: 100%;
+      }
+
+      .stepper__label,
+      .stepper__caption {
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        text-align: center;
+      }
+    }
+  }
+
+  :host {
+    overflow-x: auto;
+  }
+}
