@@ -1,0 +1,29 @@
+<div class="donut">
+  <svg viewBox="0 0 120 120" aria-hidden="true" focusable="false">
+    @for (segment of segments(); track $index) {
+      <circle
+        class="donut__segment"
+        cx="60" cy="60"
+        [attr.r]="radius"
+        [attr.stroke]="segment.color"
+        [attr.stroke-width]="stroke"
+        [attr.stroke-dasharray]="segment.dash"
+        [attr.stroke-dashoffset]="segment.offset"
+      />
+    }
+  </svg>
+  <div class="donut__center">
+    <span class="donut__caption">{{ caption() }}</span>
+    <strong class="donut__value">{{ value() }}</strong>
+  </div>
+</div>
+
+<ul class="donut-legend">
+  @for (slice of slices(); track slice.label) {
+    <li>
+      <i [style.background]="slice.color"></i>
+      <span>{{ slice.label }}</span>
+      <strong>{{ slice.percent }}%</strong>
+    </li>
+  }
+</ul>

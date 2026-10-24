@@ -1,0 +1,105 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+.gallery {
+  &__main {
+    position: relative;
+    display: grid;
+    aspect-ratio: 1 / 1.05;
+    place-items: center;
+    padding: var(--space-4);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-lg);
+
+    > img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+  }
+
+  &__wish {
+    position: absolute;
+    top: var(--space-3);
+    right: var(--space-3);
+  }
+
+  &__arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+
+    &--prev {
+      left: var(--space-3);
+    }
+    &--next {
+      right: var(--space-3);
+    }
+  }
+
+  &__thumbs {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+  }
+
+  &__thumb {
+    display: grid;
+    aspect-ratio: 1;
+    place-items: center;
+    padding: var(--space-1);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    cursor: pointer;
+
+    img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+
+    &.is-active {
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 1px var(--color-accent);
+    }
+    &:focus-visible {
+      outline: 2px solid var(--color-focus-ring);
+      outline-offset: 2px;
+    }
+  }
+}
+
+@media (max-width: 767.98px) {
+  .gallery {
+    &__main {
+      aspect-ratio: 1 / 1;
+      padding: 0.75rem;
+    }
+
+    &__wish,
+    &__arrow {
+      width: 2.5rem;
+      height: 2.5rem;
+    }
+
+    &__wish {
+      top: 0.5rem;
+      right: 0.5rem;
+    }
+    &__arrow--prev {
+      left: 0.5rem;
+    }
+    &__arrow--next {
+      right: 0.5rem;
+    }
+
+    &__thumbs {
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+    }
+  }
+}

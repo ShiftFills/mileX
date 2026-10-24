@@ -1,0 +1,67 @@
+<main class="login-page">
+  <section class="login-story" aria-label="Welcome back to MileX">
+    <a class="login-brand" routerLink="/" aria-label="MileX home">
+      <strong>mile<span>x</span></strong>
+      <small>SHOP EASY</small>
+    </a>
+    <div class="login-story-copy">
+      <h1>Welcome back to<br /><span>Milex!</span></h1>
+      <p>Create your account and manage your store, track orders and grow your business — all in one place.</p>
+    </div>
+    <img class="login-illustration" src="/images/welcomeToMilex.svg" alt="" />
+    <ul class="login-benefits" aria-label="MileX benefits">
+      <li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 6 5-4 5 4v6H3z"/><path d="M6 12V8h4v4"/></svg>Easy to Sell</li>
+      <li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2 13 4v4c0 3-2.2 5-5 6-2.8-1-5-3-5-6V4z"/><path d="m5.5 7.5 1.6 1.6 3.4-3.5"/></svg>Secure &amp; Reliable</li>
+      <li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 12 6 8l2.5 2.5L14 5"/><path d="M10 5h4v4"/></svg>Grow Together</li>
+    </ul>
+  </section>
+
+  <section class="login-form-panel" aria-labelledby="login-title">
+    <div class="login-register-link">
+      <span>Don't have an account?</span>
+      <a routerLink="/register">Sign Up</a>
+    </div>
+
+    <div class="login-form-content">
+      <header class="login-heading">
+        <h2 id="login-title">Login to Your Account</h2>
+        <p>Enter your registered credentials to manage orders &amp; track shipments.</p>
+      </header>
+
+      <form class="login-form" (submit)="signIn($event)">
+        <div class="login-field">
+          <label for="login-email">Email Address or Mobile Number <b>*</b></label>
+          <span class="login-input-wrap">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="m3 5 5 4 5-4"/></svg>
+            <app-input class="login-field__input" inputId="login-email" name="email" type="email" autocomplete="email" placeholder="Enter your email address / Mobile Number" size="compact" [value]="email()" [required]="true" [ariaInvalid]="attemptedSubmit() && !email()" (valueInput)="updateEmail($event)" />
+          </span>
+        </div>
+
+        <div class="login-field">
+          <label for="login-password">Password <b>*</b></label>
+          <span class="login-input-wrap">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.2"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></svg>
+            <app-input class="login-field__input" inputId="login-password" name="password" [type]="passwordVisible() ? 'text' : 'password'" autocomplete="current-password" placeholder="Enter your password" size="compact" [value]="password()" [required]="true" [ariaInvalid]="attemptedSubmit() && !password()" (valueInput)="updatePassword($event)" />
+            <button class="login-password-toggle" type="button" [attr.aria-label]="passwordVisible() ? 'Hide password' : 'Show password'" (click)="togglePasswordVisibility()">
+              @if (passwordVisible()) {
+                <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2 14 14"/><path d="M6.6 6.6a2 2 0 0 0 2.8 2.8"/><path d="M5 3.5A7 7 0 0 1 8 3c3.5 0 6 3.5 6 5a7 7 0 0 1-1.5 2.4M3.5 5A7 7 0 0 0 2 8c0 1.5 2.5 5 6 5a7 7 0 0 0 3-.7"/></svg>
+              } @else {
+                <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8s2-4 6-4 6 4 6 4-2 4-6 4-6-4-6-4Z"/><circle cx="8" cy="8" r="1.7"/></svg>
+              }
+            </button>
+          </span>
+        </div>
+
+        <div class="login-form-options">
+          <label><input type="checkbox" name="remember" /> Remember me on this device</label>
+          <a href="#forgot-password">Forgot Password?</a>
+        </div>
+
+        @if (signInMessage()) { <p class="login-message" role="status">{{ signInMessage() }}</p> }
+        <app-button class="login-submit" variant="accent" size="small" type="submit">Login</app-button>
+      </form>
+
+      <p class="login-legal">By logging in, you agree to our <a href="#terms">Terms &amp; Conditions</a> and <a href="#privacy">Privacy Policy</a>.</p>
+    </div>
+  </section>
+</main>

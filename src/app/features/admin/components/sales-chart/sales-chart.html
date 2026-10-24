@@ -1,0 +1,53 @@
+<div class="sales-chart">
+  <ul class="sales-chart__axis" aria-hidden="true">
+    @for (tick of axis(); track tick) {
+      <li>{{ tick }}</li>
+    }
+  </ul>
+
+  <div class="sales-chart__plot" role="group" aria-label="Sales performance by month" (mouseleave)="setHovered(null)">
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+      <defs>
+        <linearGradient id="sales-chart-fill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#ffd60a" stop-opacity="0.2" />
+          <stop offset="1" stop-color="#ffd60a" stop-opacity="0" />
+        </linearGradient>
+      </defs>
+      <path class="sales-chart__area" [attr.d]="areaPath()" fill="url(#sales-chart-fill)" />
+      <path class="sales-chart__line" [attr.d]="linePath()" />
+    </svg>
+
+    <span class="sales-chart__rule" [style.left.%]="active().coord.x" [style.top.%]="active().coord.y"></span>
+    <span class="sales-chart__dot" [style.left.%]="active().coord.x" [style.top.%]="active().coord.y"></span>
+    <div
+      class="sales-chart__tip"
+      [class.sales-chart__tip--start]="active().coord.x < 35"
+      [style.left.%]="active().coord.x"
+      [style.top.%]="active().coord.y"
+    >
+      <span class="sales-chart__tip-period">{{ active().point.label }}, {{ year() }}</span>
+      <span class="sales-chart__tip-row">
+        <strong>{{ active().point.amount }}</strong>
+        <em [class.is-negative]="active().point.change.startsWith('-')">{{ active().point.change }}</em>
+      </span>
+    </div>
+
+    @for (point of points(); track point.label; let i = $index) {
+      <button
+        type="button"
+        class="sales-chart__hit"
+        [style.left.%]="coords()[i].x"
+        [attr.aria-label]="point.label + ' ' + year() + ': ' + point.amount + ', ' + point.change"
+        (mouseenter)="setHovered(i)"
+        (focus)="setHovered(i)"
+        (blur)="setHovered(null)"
+      ></button>
+    }
+  </div>
+
+  <div class="sales-chart__months" aria-hidden="true">
+    @for (point of points(); track point.label; let i = $index) {
+      <span [class.is-active]="i === activeIndex()" [style.left.%]="coords()[i].x">{{ point.label }}</span>
+    }
+  </div>
+</div>

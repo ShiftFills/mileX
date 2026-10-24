@@ -1,0 +1,15 @@
+<svg class="radar" viewBox="0 0 200 172" role="img" [attr.aria-label]="ariaLabel()">
+  @for (ring of rings(); track $index) {
+    <polygon class="radar__ring" [attr.points]="ring" />
+  }
+  @for (axis of axes(); track $index) {
+    <line class="radar__axis" [attr.x1]="center.x" [attr.y1]="center.y" [attr.x2]="axis.x" [attr.y2]="axis.y" />
+  }
+  <polygon class="radar__area" [attr.points]="area()" />
+  @for (v of vertices(); track $index) {
+    <circle class="radar__dot" [attr.cx]="v.x" [attr.cy]="v.y" r="2" />
+  }
+  @for (label of labels(); track label.text) {
+    <text class="radar__label" [attr.x]="label.x" [attr.y]="label.y" text-anchor="middle" dominant-baseline="central">{{ label.text }}</text>
+  }
+</svg>

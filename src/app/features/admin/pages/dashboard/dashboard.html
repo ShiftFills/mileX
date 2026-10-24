@@ -1,0 +1,85 @@
+<main class="admin-content dashboard">
+  <app-page-heading class="dashboard__heading" [heading]="'Welcome Back, ' + adminName" subtitle="Here what's happening with your marketplace today.">
+    <app-date-range-filter inputId="dashboard-date-range" [value]="range()" (valueChange)="range.set($event)" />
+  </app-page-heading>
+
+  <section class="row row-cols-2 row-cols-xl-4 g-3 g-xl-4 dashboard__stats" aria-label="Marketplace summary">
+    @for (stat of stats; track stat.label) {
+      <div class="col">
+        <app-stat-card
+          class="dashboard__stat"
+          [label]="stat.label" [value]="stat.value" [prefix]="stat.prefix ?? ''" [trend]="stat.trend"
+          [trendDirection]="stat.trendDirection" [trendTone]="stat.trendTone" [icon]="stat.icon" [tone]="stat.tone"
+        />
+      </div>
+    }
+  </section>
+
+  <div class="row g-3 g-xl-4 dashboard__charts">
+    <section class="col-12 col-xl-6" aria-labelledby="dashboard-sales-title">
+      <div appCard class="dashboard-card">
+        <header class="dashboard-card__head">
+          <h2 id="dashboard-sales-title">Sales Performance</h2>
+          <label class="visually-hidden" for="dashboard-sales-period">Sales period</label>
+          <app-select class="chart-filter" inputId="dashboard-sales-period" name="salesPeriod" size="dense" [value]="salesPeriod()" (valueChange)="setPeriod('sales', $event)">
+            @for (period of periods; track period.value) { <option [value]="period.value">{{ period.label }}</option> }
+          </app-select>
+        </header>
+        <app-sales-chart class="dashboard__sales" [points]="salesPoints" [axis]="salesAxis" [defaultIndex]="activeSalesIndex" />
+      </div>
+    </section>
+
+    <section class="col-12 col-md-6 col-xl-3" aria-labelledby="dashboard-orders-title">
+      <div appCard class="dashboard-card">
+        <header class="dashboard-card__head">
+          <h2 id="dashboard-orders-title">Orders</h2>
+          <label class="visually-hidden" for="dashboard-orders-period">Orders period</label>
+          <app-select class="chart-filter" inputId="dashboard-orders-period" name="ordersPeriod" size="dense" [value]="ordersPeriod()" (valueChange)="setPeriod('orders', $event)">
+            @for (period of periods; track period.value) { <option [value]="period.value">{{ period.label }}</option> }
+          </app-select>
+        </header>
+        <app-radar-chart class="dashboard__radar" [points]="ordersByDay" ariaLabel="Orders by day of the week" />
+      </div>
+    </section>
+
+    <section class="col-12 col-md-6 col-xl-3" aria-labelledby="dashboard-status-title">
+      <div appCard class="dashboard-card">
+        <header class="dashboard-card__head">
+          <h2 id="dashboard-status-title">Order Status</h2>
+          <button type="button" class="dashboard-card__more" aria-label="More options for order status"><span></span></button>
+        </header>
+        <app-donut-chart class="dashboard__donut" [slices]="orderStatus" caption="Total" [value]="orderStatusTotal" />
+      </div>
+    </section>
+  </div>
+
+  <div class="row g-3 g-xl-4 dashboard__tables">
+    <section class="col-12 col-xl-6" aria-labelledby="dashboard-recent-title">
+      <div appCard class="dashboard-card">
+        <header class="dashboard-card__head">
+          <h2 id="dashboard-recent-title">Recent Orders</h2>
+          <a class="dashboard-card__link" routerLink="/admin/orders">
+            View all
+            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m6 3.5 4.5 4.5L6 12.5" /></svg>
+          </a>
+        </header>
+        <app-table class="dashboard-table" ariaLabel="Recent orders" [columns]="orderColumns()" [rows]="recentOrders" />
+      </div>
+    </section>
+
+    <section class="col-12 col-xl-6" aria-labelledby="dashboard-sellers-title">
+      <div appCard class="dashboard-card">
+        <header class="dashboard-card__head">
+          <h2 id="dashboard-sellers-title">Top Sellers</h2>
+          <button type="button" class="dashboard-card__more" aria-label="More options for top sellers"><span></span></button>
+        </header>
+        <app-table class="dashboard-table dashboard-table--sellers" ariaLabel="Top sellers" [columns]="sellerColumns()" [rows]="topSellers" />
+      </div>
+    </section>
+  </div>
+
+  <ng-template #orderIdCell let-order><span class="dashboard-order-link">{{ order.id }}</span></ng-template>
+  <ng-template #orderAmountCell let-order><span class="dashboard-amount">{{ order.amount }}</span></ng-template>
+  <ng-template #orderStatusCell let-order><app-badge [tone]="statusTone(order.status)">{{ order.status }}</app-badge></ng-template>
+  <ng-template #sellerSalesCell let-seller><span class="dashboard-amount">{{ seller.totalSales }}</span></ng-template>
+</main>

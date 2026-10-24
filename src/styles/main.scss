@@ -1,0 +1,8 @@
+// Global stylesheet entry point (referenced from src/styles.scss).
+// Order matters: tokens -> reset -> base elements -> shared classes.
+@use 'tokens';
+@use 'reset';
+@use 'typography';
+@use 'buttons';
+@use 'utilities';
+@use 'admin-list';

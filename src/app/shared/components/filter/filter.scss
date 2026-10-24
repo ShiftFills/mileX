@@ -1,0 +1,57 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+.filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  background: var(--filter-background, transparent);
+
+  &__chip {
+    padding: var(--filter-chip-padding, 0.42rem 0.95rem);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-pill);
+    background: var(--filter-chip-background, var(--color-surface));
+    color: var(--color-text);
+    font: inherit;
+    font-size: var(--filter-chip-font-size, var(--text-xs));
+    line-height: 1.2;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      background-color var(--transition-fast),
+      color var(--transition-fast),
+      border-color var(--transition-fast);
+
+    &:hover {
+      border-color: var(--filter-active-background, var(--color-text));
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--color-focus-ring);
+      outline-offset: 2px;
+    }
+
+    &.is-active {
+      border-color: var(--filter-active-background, var(--color-text));
+    background: var(
+      --filter-active-chip-background,
+      var(--filter-active-background, var(--color-text))
+    );
+      color: var(--color-primary-contrast);
+      font-weight: var(--weight-bold);
+    }
+  }
+}
+
+// Phones: a single scrollable row instead of wrapping onto several lines.
+@media (max-width: 575.98px) {
+  .filter {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: var(--space-1);
+    scrollbar-width: none;
+  }
+}

@@ -1,0 +1,226 @@
+.dashboard {
+  width: 100%;
+  max-width: 76rem;
+  min-width: 0;
+  margin-inline: auto;
+  padding: 0.5rem 1.5rem 1.5rem;
+
+  &__heading {
+    --page-heading-title-size: 1.5rem;
+    --page-heading-subtitle-size: 0.75rem;
+    --page-heading-subtitle-gap: 0.25rem;
+    --page-heading-subtitle-color: #94a3b8;
+
+    display: block;
+    margin-bottom: 0.9rem;
+
+    app-date-range-filter {
+      --date-range-width: 8.1rem;
+      --date-range-height: 2.2rem;
+      --date-range-font-size: 0.72rem;
+      --date-range-icon-size: 0.85rem;
+      --date-range-icon-left: 0.8rem;
+      --date-range-padding-left: 2.3rem;
+      --date-range-border: #eef1f6;
+      --date-range-radius: 0.6rem;
+    }
+  }
+
+  &__charts,
+  &__tables {
+    margin-top: 0;
+  }
+
+  &__stat {
+    --stat-card-padding: 0.9rem 0.85rem 0.75rem;
+    --stat-card-radius: 0.75rem;
+    --stat-card-label-size: 0.78rem;
+    --stat-card-label-leading: 1.3;
+    --stat-card-icon-size: 2.1rem;
+    --stat-card-icon-glyph: 1rem;
+    --stat-card-icon-radius: 0.75rem;
+    --stat-card-icon-overhang: -1.25rem;
+    --stat-card-value-gap: 0.55rem;
+    --stat-card-value-size: 1.35rem;
+    --stat-card-prefix-size: 0.9rem;
+    --stat-card-trend-gap: 0.28rem;
+    --stat-card-trend-size: 0.76rem;
+    --stat-card-trend-icon: 0.8rem;
+    --stat-card-shadow: 0 1px 3px rgb(28 39 56 / 5%);
+
+    min-height: 6.25rem;
+  }
+}
+
+.dashboard-card {
+  height: 100%;
+  min-width: 0;
+  min-height: 15.5rem;
+  padding: 1rem;
+  border: 0;
+  border-radius: 0.75rem;
+  background: var(--color-surface);
+  box-shadow: 0 1px 3px rgb(28 39 56 / 5%);
+
+  &__head {
+    display: flex;
+    min-height: 1.4rem;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin-bottom: 0.65rem;
+
+    h2 {
+      margin: 0;
+      color: var(--color-text);
+      font-family: var(--font-body);
+      font-size: 0.9rem;
+      font-weight: var(--weight-bold);
+      letter-spacing: 0;
+      line-height: var(--leading-tight);
+    }
+  }
+
+  &__more,
+  &__link {
+    display: inline-flex;
+    height: 1.3rem;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #eef1f6;
+    border-radius: 0.4rem;
+    background: var(--color-surface);
+    color: var(--color-text-muted);
+    font-size: 0.6rem;
+    text-decoration: none;
+  }
+
+  &__more {
+    width: 1.15rem;
+    height: 1rem;
+    padding: 0;
+
+    span {
+      width: 2px;
+      height: 2px;
+      border-radius: 50%;
+      background: var(--color-placeholder);
+      box-shadow: -4px 0 var(--color-placeholder), 4px 0 var(--color-placeholder);
+    }
+  }
+
+  &__link {
+    gap: 0.25rem;
+    padding: 0 0.6rem;
+
+    svg {
+      width: 0.6rem;
+      height: 0.6rem;
+      stroke: currentColor;
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    &:hover {
+      color: var(--color-text);
+    }
+  }
+}
+
+.chart-filter {
+  flex: 0 0 auto;
+  width: 5.2rem;
+}
+
+.dashboard__radar {
+  max-width: 11.5rem;
+  margin: 1rem auto 0;
+}
+
+.dashboard__sales {
+  --sales-plot-height: 8.5rem;
+
+  margin-top: 0.9rem;
+}
+
+.dashboard__donut {
+  --donut-size: 6.5rem;
+  --donut-legend-margin: 0.8rem;
+  --donut-legend-gap: 0.25rem;
+  --donut-legend-font-size: 0.7rem;
+  --donut-legend-item-gap: 0.45rem;
+}
+
+.dashboard__tables .dashboard-card__head {
+  margin-bottom: 0.3rem;
+}
+
+.dashboard-table {
+  --table-responsive-min-width: 26rem;
+  --table-font-size: 0.75rem;
+  --table-header-font-size: 0.7rem;
+  --table-header-color: var(--color-text);
+  --table-text-color: var(--color-text-muted);
+  --table-cell-padding: 0.5rem 0;
+  --table-border-color: #f1f3f7;
+  --table-header-border-color: #edf0f4;
+  --table-row-height: 2.45rem;
+  --badge-font-size: 0.6rem;
+  --badge-padding: 0.28rem 0.7rem;
+  --badge-success-color: #059669;
+  --badge-success-background: #ecfdf5;
+  --badge-warning-color: #d97706;
+  --badge-warning-background: #fffbeb;
+
+  &--sellers {
+    --table-cell-padding: 0.5rem 0.6rem;
+
+    margin-top: -0.4rem;
+  }
+}
+
+.dashboard-order-link {
+  color: #1b8fd2;
+  white-space: nowrap;
+}
+
+.dashboard-amount {
+  color: var(--color-text);
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+}
+
+@media (min-width: 1200px) {
+  .dashboard .row {
+    --bs-gutter-y: 1rem;
+  }
+}
+
+@media (max-width: 767.98px) {
+  .dashboard-card {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .dashboard {
+    padding: var(--space-3) var(--space-2) var(--space-4);
+
+    &__stat {
+      --stat-card-padding: 0.75rem;
+      --stat-card-icon-size: 1.8rem;
+      --stat-card-icon-glyph: 0.9rem;
+      --stat-card-icon-overhang: -0.75rem;
+      --stat-card-value-size: 1.15rem;
+      --stat-card-label-size: 0.68rem;
+      --stat-card-trend-size: 0.64rem;
+
+      min-height: 5.5rem;
+    }
+  }
+
+  .dashboard-card {
+    padding: 0.9rem;
+  }
+}

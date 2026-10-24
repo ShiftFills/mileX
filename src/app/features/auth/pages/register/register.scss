@@ -1,0 +1,407 @@
+:host {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+.register-page {
+  display: grid;
+  min-height: 38rem;
+  grid-template-columns: 0.92fr 1.08fr;
+  color: var(--color-text);
+}
+
+.register-story {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: 2.5rem 2.75rem 1.5rem;
+  background: linear-gradient(145deg, #fffefa 0%, #fffdf5 100%);
+}
+
+.register-brand {
+  display: inline-grid;
+  width: max-content;
+  gap: 0;
+  color: var(--color-text);
+  line-height: 1;
+  text-decoration: none;
+
+  strong {
+    font-size: 1.2rem;
+    font-weight: 900;
+    letter-spacing: -0.08em;
+
+    span {
+      color: var(--color-accent);
+    }
+  }
+
+  small {
+    margin-top: 0.2rem;
+    color: var(--color-text-muted);
+    font-size: 0.42rem;
+    font-weight: var(--weight-medium);
+    letter-spacing: 0.42em;
+  }
+}
+
+.register-story-copy {
+  margin-top: 2.25rem;
+
+  h1 {
+    margin: 0;
+    font-size: clamp(1.65rem, 3vw, 2.25rem);
+    font-weight: 800;
+    line-height: 1.05;
+
+    span {
+      color: var(--color-accent);
+    }
+  }
+
+  p {
+    max-width: 19rem;
+    margin: 0.9rem 0 0;
+    color: var(--color-text-muted);
+    font-size: 0.72rem;
+    line-height: 1.6;
+  }
+}
+
+.register-illustration {
+  display: block;
+  width: min(100%, 24rem);
+  max-height: 20rem;
+  flex: 1 1 auto;
+  align-self: center;
+  margin-block: 0.75rem;
+  object-fit: contain;
+}
+
+.register-benefits {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  padding: 0.75rem 0 0;
+  border-top: 1px solid #f0eee4;
+  list-style: none;
+
+  li {
+    display: grid;
+    justify-items: center;
+    gap: 0.3rem;
+    padding-inline: 0.25rem;
+    color: var(--color-text);
+    font-size: 0.58rem;
+    text-align: center;
+
+    & + li {
+      border-left: 1px solid #f0eee4;
+    }
+  }
+
+  svg {
+    width: 0.85rem;
+    height: 0.85rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.2;
+  }
+}
+
+.register-form-panel {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: 2rem 2.5rem 1.5rem;
+  background: var(--color-surface);
+}
+
+.register-login-link {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  color: var(--color-text-muted);
+  font-size: 0.58rem;
+
+  a {
+    padding: 0.3rem 0.8rem;
+    border: 1px solid var(--color-accent);
+    border-radius: var(--radius-pill);
+    color: var(--color-text);
+    text-decoration: none;
+  }
+}
+
+.register-form-content {
+  width: 100%;
+  max-width: 31rem;
+  align-self: center;
+  margin: auto;
+}
+
+.register-heading {
+  margin-bottom: 1.25rem;
+
+  h2 {
+    margin: 0;
+    font-size: 1.45rem;
+    font-weight: 800;
+    line-height: 1.2;
+  }
+
+  p {
+    margin: 0.35rem 0 0;
+    color: var(--color-text-muted);
+    font-size: 0.65rem;
+  }
+}
+
+.register-form {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.register-field {
+  display: grid;
+  min-width: 0;
+  gap: 0.25rem;
+  color: var(--color-text);
+  font-size: 0.6rem;
+  font-weight: var(--weight-medium);
+
+  > label b {
+    color: var(--color-danger);
+    font-weight: var(--weight-regular);
+  }
+}
+
+.register-verified-field {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.register-input-wrap {
+  display: flex;
+  min-width: 0;
+  height: 2.2rem;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding-inline: 0.55rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 0.45rem;
+  background: var(--color-surface);
+
+  &:focus-within {
+    border-color: var(--color-focus-ring);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-focus-ring) 12%, transparent);
+  }
+
+  > svg {
+    width: 0.75rem;
+    height: 0.75rem;
+    flex: 0 0 auto;
+    fill: none;
+    stroke: var(--color-text-muted);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.1;
+  }
+
+  app-input {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+}
+
+.register-password-toggle {
+  display: grid;
+  width: 1.2rem;
+  height: 1.2rem;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+
+  svg {
+    width: 0.75rem;
+    height: 0.75rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.1;
+  }
+}
+
+.register-field-message,
+.register-message {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 0.58rem;
+  line-height: 1.35;
+}
+
+.register-submit {
+  width: 100%;
+  margin-top: 0.1rem;
+}
+
+.register-legal {
+  margin: 0.75rem 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.52rem;
+  line-height: 1.5;
+  text-align: center;
+
+  a {
+    color: var(--color-accent);
+    text-decoration: none;
+  }
+}
+
+@media (max-width: 991.98px) {
+  .register-story {
+    padding-inline: 1.75rem;
+  }
+
+  .register-form-panel {
+    padding-inline: 1.75rem;
+  }
+}
+
+@media (min-width: 768px) and (max-height: 800px) {
+  .register-page {
+    min-height: 0;
+  }
+
+  .register-story {
+    padding: 1.5rem 2rem 1rem;
+  }
+
+  .register-story-copy {
+    margin-top: 1.5rem;
+
+    p {
+      margin-top: 0.6rem;
+    }
+  }
+
+  .register-illustration {
+    max-height: 15rem;
+    margin-block: 0.4rem;
+  }
+
+  .register-benefits {
+    padding-top: 0.55rem;
+  }
+
+  .register-form-panel {
+    padding: 1.25rem 2rem 1rem;
+  }
+
+  .register-form-content {
+    max-width: 29rem;
+  }
+
+  .register-heading {
+    margin-bottom: 0.8rem;
+
+    h2 {
+      font-size: 1.3rem;
+    }
+  }
+
+  .register-form {
+    gap: 0.45rem;
+  }
+
+  .register-field {
+    gap: 0.15rem;
+  }
+
+  .register-input-wrap {
+    height: 1.9rem;
+  }
+
+  .register-legal {
+    margin-top: 0.5rem;
+  }
+}
+
+@media (max-width: 767.98px) {
+  .register-page {
+    min-height: 0;
+    grid-template-columns: 1fr;
+  }
+
+  .register-story {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 0.75rem 1rem;
+    padding: 1.25rem 1.5rem 0.75rem;
+  }
+
+  .register-brand {
+    align-self: start;
+  }
+
+  .register-story-copy {
+    margin: 0;
+
+    h1 {
+      font-size: 1.3rem;
+    }
+
+    p {
+      margin-top: 0.35rem;
+      font-size: 0.58rem;
+    }
+  }
+
+  .register-illustration {
+    width: min(100%, 14rem);
+    height: 7rem;
+    grid-column: 1 / -1;
+    margin: 0 auto;
+  }
+
+  .register-benefits {
+    grid-column: 1 / -1;
+    padding-top: 0.5rem;
+
+    li {
+      font-size: 0.52rem;
+    }
+  }
+
+  .register-form-panel {
+    padding: 1rem 1.5rem 1.5rem;
+  }
+
+  .register-form-content {
+    max-width: none;
+    margin-block: 1.25rem 0;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .register-story {
+    padding-inline: 1rem;
+  }
+
+  .register-form-panel {
+    padding-inline: 1rem;
+  }
+}

@@ -1,0 +1,93 @@
+:host {
+  display: block;
+  height: 100%;
+  min-width: 0;
+}
+
+.stat-card {
+  height: 100%;
+  padding: var(--stat-card-padding, var(--space-3));
+  border-radius: var(--stat-card-radius, var(--radius-md));
+  background: var(--color-surface);
+  box-shadow: var(--stat-card-shadow, var(--shadow-sm));
+
+  &__top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+
+  &__label {
+    color: var(--color-text-muted);
+    font-size: var(--stat-card-label-size, 0.6rem);
+    line-height: var(--stat-card-label-leading, inherit);
+  }
+
+  &__icon {
+    display: grid;
+    width: var(--stat-card-icon-size, 1.7rem);
+    height: var(--stat-card-icon-size, 1.7rem);
+    flex: 0 0 auto;
+    place-items: center;
+    // A negative value lets a larger icon hang below the label row without pushing the value down.
+    margin-bottom: var(--stat-card-icon-overhang, 0);
+    border-radius: var(--stat-card-icon-radius, var(--radius-md));
+
+    svg {
+      width: var(--stat-card-icon-glyph, 0.85rem);
+      height: var(--stat-card-icon-glyph, 0.85rem);
+      stroke: currentColor;
+      stroke-width: 1.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    img {
+      display: block;
+      max-width: 100%;
+      max-height: 100%;
+    }
+
+    &--indigo { background: #ebe9fb; color: #3f37c9; }
+    &--green { background: #e6f8f1; color: var(--color-success); }
+    &--amber { background: #fbf6e3; color: #c79a07; }
+    &--red { background: #fdecef; color: #e11d48; }
+    &--cyan { background: #e4f9fb; color: #0891b2; }
+  }
+
+  &__value {
+    margin-top: var(--stat-card-value-gap, var(--space-1));
+    color: var(--color-text);
+    font-size: var(--stat-card-value-size, 1.1rem);
+    font-weight: var(--weight-bold);
+    line-height: var(--leading-tight);
+
+    small {
+      font-size: var(--stat-card-prefix-size, 0.7rem);
+      font-weight: var(--weight-medium);
+    }
+  }
+
+  &__trend {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+    margin-top: var(--stat-card-trend-gap, var(--space-2));
+    color: var(--color-document-verified);
+    font-size: var(--stat-card-trend-size, 0.56rem);
+
+    svg {
+      width: var(--stat-card-trend-icon, 0.6rem);
+      height: var(--stat-card-trend-icon, 0.6rem);
+      stroke: currentColor;
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    &--negative {
+      color: var(--color-document-not-verified);
+    }
+  }
+}

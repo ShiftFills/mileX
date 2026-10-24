@@ -1,0 +1,299 @@
+:host {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+.login-page {
+  display: grid;
+  min-height: 38rem;
+  grid-template-columns: 0.92fr 1.08fr;
+  color: var(--color-text);
+}
+
+.login-story {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: 2rem 2.25rem 1.25rem;
+  background: linear-gradient(145deg, #fffefa 0%, #fffdf5 100%);
+}
+
+.login-brand {
+  display: inline-grid;
+  width: max-content;
+  gap: 0;
+  color: var(--color-text);
+  line-height: 1;
+  text-decoration: none;
+
+  strong {
+    font-size: 1.05rem;
+    font-weight: 900;
+    letter-spacing: -0.08em;
+
+    span { color: var(--color-accent); }
+  }
+
+  small {
+    margin-top: 0.18rem;
+    color: var(--color-text-muted);
+    font-size: 0.36rem;
+    font-weight: var(--weight-medium);
+    letter-spacing: 0.42em;
+  }
+}
+
+.login-story-copy {
+  margin-top: 1.35rem;
+
+  h1 {
+    margin: 0;
+    font-size: clamp(1.35rem, 2.3vw, 1.85rem);
+    font-weight: 800;
+    line-height: 1.05;
+
+    span { color: var(--color-accent); }
+  }
+
+  p {
+    max-width: 18rem;
+    margin: 0.65rem 0 0;
+    color: var(--color-text-muted);
+    font-size: 0.62rem;
+    line-height: 1.55;
+  }
+}
+
+.login-illustration {
+  display: block;
+  width: min(100%, 20rem);
+  max-height: 13rem;
+  flex: 1 1 auto;
+  align-self: center;
+  margin-block: 0.35rem;
+  object-fit: contain;
+}
+
+.login-benefits {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  padding: 0.6rem 0 0;
+  border-top: 1px solid #f0eee4;
+  list-style: none;
+
+  li {
+    display: grid;
+    justify-items: center;
+    gap: 0.25rem;
+    padding-inline: 0.2rem;
+    color: var(--color-text);
+    font-size: 0.5rem;
+    text-align: center;
+
+    & + li { border-left: 1px solid #f0eee4; }
+  }
+
+  svg {
+    width: 0.75rem;
+    height: 0.75rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.2;
+  }
+}
+
+.login-form-panel {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: 1.5rem 2.25rem 1.25rem;
+  background: var(--color-surface);
+}
+
+.login-register-link {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  color: var(--color-text-muted);
+  font-size: 0.52rem;
+
+  a {
+    padding: 0.25rem 0.7rem;
+    border: 1px solid var(--color-accent);
+    border-radius: var(--radius-pill);
+    color: var(--color-text);
+    text-decoration: none;
+  }
+}
+
+.login-form-content {
+  width: 100%;
+  max-width: 25rem;
+  align-self: center;
+  margin: auto;
+}
+
+.login-heading {
+  margin-bottom: 0.85rem;
+
+  h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 800;
+    line-height: 1.2;
+  }
+
+  p {
+    margin: 0.3rem 0 0;
+    color: var(--color-text-muted);
+    font-size: 0.58rem;
+  }
+}
+
+.login-form {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.login-field {
+  display: grid;
+  min-width: 0;
+  gap: 0.2rem;
+  color: var(--color-text);
+  font-size: 0.55rem;
+  font-weight: var(--weight-medium);
+
+  > label b {
+    color: var(--color-danger);
+    font-weight: var(--weight-regular);
+  }
+}
+
+.login-input-wrap {
+  display: flex;
+  min-width: 0;
+  height: 1.9rem;
+  align-items: center;
+  gap: 0.45rem;
+  padding-inline: 0.5rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 0.4rem;
+  background: var(--color-surface);
+
+  &:focus-within {
+    border-color: var(--color-focus-ring);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-focus-ring) 12%, transparent);
+  }
+
+  > svg {
+    width: 0.7rem;
+    height: 0.7rem;
+    flex: 0 0 auto;
+    fill: none;
+    stroke: var(--color-text-muted);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.1;
+  }
+
+  app-input { flex: 1 1 auto; min-width: 0; }
+}
+
+.login-password-toggle {
+  display: grid;
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+
+  svg {
+    width: 0.7rem;
+    height: 0.7rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.1;
+  }
+}
+
+.login-form-options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  color: var(--color-text-muted);
+  font-size: 0.5rem;
+
+  label { display: flex; align-items: center; gap: 0.35rem; }
+
+  input {
+    width: 0.7rem;
+    height: 0.7rem;
+    margin: 0;
+    accent-color: var(--color-accent);
+  }
+
+  a { color: var(--color-text); text-decoration: none; white-space: nowrap; }
+}
+
+.login-message {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 0.58rem;
+  line-height: 1.4;
+}
+
+.login-submit { width: 100%; margin-top: 0.05rem; }
+
+.login-legal {
+  margin: 0.65rem 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.48rem;
+  line-height: 1.5;
+  text-align: center;
+
+  a { color: var(--color-accent); text-decoration: none; }
+}
+
+@media (min-width: 768px) and (max-height: 800px) {
+  .login-page { min-height: 0; }
+  .login-story { padding: 1.5rem 2rem 1rem; }
+  .login-story-copy { margin-top: 1.5rem; }
+  .login-illustration { max-height: 15rem; margin-block: 0.4rem; }
+  .login-benefits { padding-top: 0.55rem; }
+  .login-form-panel { padding: 1.25rem 2rem 1rem; }
+}
+
+@media (max-width: 767.98px) {
+  .login-page { min-height: 0; grid-template-columns: 1fr; }
+  .login-story {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 0.65rem 1rem;
+    padding: 1rem 1.25rem 0.65rem;
+  }
+  .login-brand { align-self: start; }
+  .login-story-copy { margin: 0; }
+  .login-story-copy h1 { font-size: 1.2rem; }
+  .login-story-copy p { margin-top: 0.3rem; font-size: 0.54rem; }
+  .login-illustration { width: min(100%, 12rem); height: 6rem; grid-column: 1 / -1; margin: 0 auto; }
+  .login-benefits { grid-column: 1 / -1; padding-top: 0.45rem; }
+  .login-form-panel { padding: 0.85rem 1.25rem 1.25rem; }
+  .login-form-content { max-width: none; margin-block: 0.9rem 0; }
+}
+
+@media (max-width: 575.98px) {
+  .login-story, .login-form-panel { padding-inline: 1rem; }
+}

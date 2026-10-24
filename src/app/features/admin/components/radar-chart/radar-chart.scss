@@ -1,0 +1,37 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+.radar {
+  width: 100%;
+  max-width: 14rem;
+  height: auto;
+  margin-inline: auto;
+
+  &__ring,
+  &__axis {
+    fill: none;
+    stroke: #e9edf3;
+    stroke-width: 0.8;
+  }
+
+  &__area {
+    fill: rgb(255 214 10 / 35%);
+    stroke: #fcd34d;
+    stroke-width: 1;
+    stroke-linejoin: round;
+  }
+
+  &__dot {
+    fill: #ffd60a;
+    stroke: var(--color-surface);
+    stroke-width: 0.6;
+  }
+
+  &__label {
+    fill: var(--color-placeholder);
+    font-family: var(--font-body);
+    font-size: 7.5px;
+  }
+}

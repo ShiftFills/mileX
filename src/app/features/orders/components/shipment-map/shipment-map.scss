@@ -1,0 +1,278 @@
+// Pill and refresh button sizing mirror the tracking page.
+:host {
+  display: block;
+  min-width: 0;
+}
+
+svg {
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+h2,
+p {
+  margin: 0;
+}
+
+button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.tracking-pill {
+  padding: 0.2rem 0.7rem;
+  border-radius: var(--radius-pill);
+  background: var(--color-success-subtle);
+  color: var(--color-success);
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
+.tracking-map {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+  border-color: var(--color-border-subtle);
+  border-radius: 1rem;
+  box-shadow: 0 2px 10px rgb(30 45 70 / 4%);
+
+  &__head {
+    padding: 0.8rem 1.1rem;
+    border-bottom: 1px solid var(--color-border-subtle);
+
+    .tracking-map__title {
+      margin-right: auto;
+      font-size: 0.8rem;
+      font-weight: var(--weight-bold);
+    }
+  }
+
+  &__expand {
+    display: grid;
+    color: var(--color-placeholder);
+  }
+
+  &__stage {
+    position: relative;
+    min-height: 19rem;
+    aspect-ratio: 640 / 310;
+    background: #eff3f8;
+  }
+
+  &.is-expanded &__stage {
+    min-height: 32rem;
+  }
+
+  &__art {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  &__marker {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+  }
+
+  &__pin {
+    width: 2.2rem;
+    height: 2.2rem;
+    transform: translate(-50%, -50%);
+    border: 3px solid #fff;
+    border-radius: 50%;
+    background: var(--color-accent);
+    box-shadow: var(--shadow-md);
+    color: var(--color-accent-contrast);
+
+    svg {
+      fill: currentColor;
+    }
+  }
+
+  &__popup {
+    position: absolute;
+    bottom: 2.4rem;
+    left: 0;
+    width: 11.8rem;
+    transform: translateX(calc(-50% - 5rem));
+    padding: 0.6rem 0.8rem;
+    border-radius: 0.6rem;
+    background: #fff;
+    box-shadow: var(--shadow-md);
+    font-size: 0.65rem;
+    color: var(--color-text-muted);
+
+    &::after {
+      position: absolute;
+      bottom: -0.3rem;
+      left: calc(50% - 0.3rem);
+      width: 0.6rem;
+      height: 0.6rem;
+      transform: rotate(45deg);
+      background: #fff;
+      content: '';
+    }
+
+    p:first-child {
+      margin-bottom: 0.4rem;
+      padding-bottom: 0.4rem;
+      border-bottom: 1px solid var(--color-border-subtle);
+      font-size: 0.72rem;
+    }
+
+    strong {
+      color: var(--color-text);
+    }
+  }
+
+  &__status {
+    position: absolute;
+    right: 0.9rem;
+    bottom: 0.9rem;
+    left: 0.9rem;
+    padding: 0.6rem 0.9rem;
+    border-radius: 0.75rem;
+    background: #fff;
+    box-shadow: var(--shadow-sm);
+
+    > svg {
+      color: var(--color-accent);
+    }
+
+    p {
+      display: grid;
+      min-width: 0;
+      flex: 1 1 auto;
+      gap: 0.1rem;
+      color: var(--color-text-muted);
+      font-size: 0.65rem;
+    }
+
+    strong {
+      color: var(--color-text);
+      font-size: 0.75rem;
+    }
+
+    b {
+      color: var(--color-text);
+      font-weight: var(--weight-medium);
+    }
+  }
+}
+
+.tracking-refresh ::ng-deep .btn {
+  min-height: 2rem;
+  border-radius: 0.5rem;
+  font-size: 0.7rem;
+  font-weight: var(--weight-medium);
+}
+
+@media (max-width: 767.98px) {
+  .tracking-map {
+    min-width: 0;
+
+    &__head {
+      flex-wrap: wrap;
+      gap: 0.6rem !important;
+      padding: 0.75rem 0.9rem;
+    }
+
+    &__title {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    &__stage {
+      min-height: 0;
+      aspect-ratio: 16 / 9;
+    }
+
+    &.is-expanded &__stage {
+      min-height: 16rem;
+    }
+
+    &__status {
+      position: static;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 0.65rem;
+      margin: 0.65rem;
+      padding: 0.7rem;
+
+      p {
+        overflow-wrap: anywhere;
+      }
+
+      app-button {
+        min-width: 0;
+      }
+    }
+
+    &__popup {
+      left: 0;
+      width: min(11.8rem, calc(100vw - 2rem));
+      transform: translateX(-50%);
+    }
+  }
+}
+
+@media (max-width: 575.98px) {
+  .tracking-map {
+    &__head {
+      display: grid !important;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 0.4rem 0.5rem !important;
+      padding: 0.7rem 0.8rem;
+    }
+
+    &__title {
+      grid-column: 1;
+      grid-row: 1;
+      font-size: 0.74rem !important;
+    }
+
+    .tracking-pill {
+      grid-column: 1;
+      grid-row: 2;
+      justify-self: start;
+      font-size: 0.62rem;
+    }
+
+    &__expand {
+      grid-column: 2;
+      grid-row: 1 / span 2;
+      width: 2.75rem;
+      height: 2.75rem;
+      place-items: center;
+    }
+
+    &__status {
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 0.55rem;
+
+      app-button {
+        grid-column: 1 / -1;
+        justify-self: stretch;
+      }
+    }
+  }
+
+  .tracking-refresh ::ng-deep .btn {
+    width: 100%;
+    min-height: 2.75rem;
+    justify-content: center;
+  }
+}

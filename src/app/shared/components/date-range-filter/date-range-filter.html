@@ -1,0 +1,11 @@
+<div class="date-range">
+  <svg class="date-range__icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <rect x="2" y="3" width="12" height="11" rx="1.5" /><path d="M2 6.5h12M5.5 1.8v2.4M10.5 1.8v2.4" />
+  </svg>
+  <label class="visually-hidden" [for]="inputId()">Date range</label>
+  <app-select class="date-range__select" [inputId]="inputId()" name="dateRange" size="compact" [value]="value()" (valueChange)="change($event)">
+    @for (option of options(); track option.value) {
+      <option [value]="option.value" [selected]="option.value === value()">{{ option.label }}</option>
+    }
+  </app-select>
+</div>

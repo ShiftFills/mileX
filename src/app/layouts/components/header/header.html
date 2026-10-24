@@ -1,0 +1,20 @@
+<header class="header">
+  <div class="container header__inner">
+    <a class="header__brand" routerLink="/" aria-label="MileX home">MileX</a>
+
+    <nav class="header__nav" aria-label="Main">
+      <a routerLink="/" routerLinkActive="is-active" [routerLinkActiveOptions]="{ exact: true }">Home</a>
+      <a [routerLink]="routes.products" routerLinkActive="is-active">Products</a>
+    </nav>
+
+    <div class="header__actions">
+      <a [routerLink]="routes.cart" routerLinkActive="is-active">Cart</a>
+      @if (auth.isAuthenticated()) {
+        <a [routerLink]="routes.account" routerLinkActive="is-active">Account</a>
+      } @else {
+        
+        <a class="btn" [routerLink]="routes.login">Sign in</a>
+      }
+    </div>
+  </div>
+</header>

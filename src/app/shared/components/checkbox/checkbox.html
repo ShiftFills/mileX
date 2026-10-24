@@ -1,0 +1,17 @@
+<label class="checkbox">
+  <input
+    class="checkbox__input"
+    type="checkbox"
+    [checked]="checked()"
+    [disabled]="disabled()"
+    [attr.name]="name()"
+    [attr.aria-label]="ariaLabel()"
+    (change)="updateChecked($event)"
+  />
+  <span class="checkbox__indicator" aria-hidden="true">
+    <svg viewBox="0 0 16 16" fill="none">
+      <path d="m3.5 8.2 3 3 6-6.4" />
+    </svg>
+  </span>
+  <span class="checkbox__label"><ng-content /></span>
+</label>

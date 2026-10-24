@@ -1,0 +1,25 @@
+// Storefront density: the shared card and heading are sized up from their admin defaults.
+:host {
+  display: block;
+  min-width: 0;
+  padding-block: 1.25rem 2rem;
+  --order-card-scale: 1.1;
+  --page-heading-title-size: 1.35rem;
+  --page-heading-subtitle-size: 0.74rem;
+}
+
+app-pagination {
+  display: block;
+  margin-top: var(--space-3);
+}
+
+.order-list__empty {
+  padding: var(--space-6) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-text-muted);
+  text-align: center;
+
+  p { margin-bottom: var(--space-3); }
+}

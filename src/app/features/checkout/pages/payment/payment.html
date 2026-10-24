@@ -1,0 +1,154 @@
+<div class="store-container pay-page">
+  <app-page-heading heading="Payment" subtitle="Choose your preferred payment method and complete your order.">
+    <app-stepper ariaLabel="Checkout progress" [steps]="steps" [current]="2" />
+  </app-page-heading>
+
+  @if (placed()) {
+    <section appCard class="pay-empty" role="status">
+      <h2>Demo order complete</h2>
+      <p>Your demo checkout was recorded locally. No payment was processed and no order was sent to a server.</p>
+      <a class="btn btn--accent btn-sm" [routerLink]="routes.home">Return to MileX</a>
+    </section>
+  } @else if (cart.items().length) {
+    <div class="row pay-layout">
+      <div class="col-12 col-lg-7">
+        <section appCard class="pay-card pay-methods" aria-labelledby="pay-methods-title">
+          <h2 id="pay-methods-title" class="pay-card__title">Payment Method</h2>
+
+          <div class="pay-methods__list" role="radiogroup" aria-labelledby="pay-methods-title">
+            @for (method of methods; track method.id) {
+              @let isSelected = selectedMethod() === method.id;
+              <label class="pay-option" [class.is-selected]="isSelected">
+                <input
+                  class="visually-hidden"
+                  type="radio"
+                  name="payment-method"
+                  [value]="method.id"
+                  [checked]="isSelected"
+                  (change)="selectMethod(method.id)"
+                />
+                <span class="pay-option__radio" aria-hidden="true"></span>
+                <span class="pay-option__text">
+                  <strong class="pay-option__title">{{ method.title }}</strong>
+                  <span class="pay-option__desc">{{ method.description }}</span>
+                </span>
+
+                <span class="pay-option__brands" aria-hidden="true">
+                  @switch (method.id) {
+                    @case ('upi') {
+                      <span class="pay-brand pay-brand--gpay"><img src="/images/gpay.svg" alt="" /></span>
+                      <span class="pay-brand pay-brand--phonepe"><img src="/images/पे.svg" alt="" /></span>
+                      <span class="pay-brand pay-brand--paytm"><b>Pay</b><i>tm</i></span>
+                      <span class="pay-brand pay-brand--more">+ more</span>
+                    }
+                    @case ('card') {
+                      <span class="pay-brand pay-brand--visa">VISA</span>
+                      <span class="pay-mastercard"><span></span><span></span></span>
+                      <span class="pay-brand pay-brand--rupay">RuPay<svg viewBox="0 0 8 12"><path d="m1.5 1 5 5-5 5" /></svg></span>
+                      <svg class="pay-card-icon" viewBox="0 0 18 14">
+                        <rect x="0.75" y="0.75" width="16.5" height="12.5" rx="2" />
+                        <path d="M0.75 4.5h16.5M11 10h3" />
+                      </svg>
+                    }
+                    @case ('netbanking') {
+                      <svg class="pay-method-icon pay-method-icon--bank" viewBox="0 0 23 22">
+                        <path d="M1.2 8 11.5 1.6 21.8 8H1.2ZM4 8v7.5M8.7 8v7.5M14.3 8v7.5M19 8v7.5M2.6 16h17.8" />
+                        <path class="is-heavy" d="M0.8 20.4h21.4" />
+                      </svg>
+                    }
+                    @case ('wallet') {
+                      <span class="pay-brand pay-brand--paytm"><b>Pay</b><i>tm</i></span>
+                      <span class="pay-brand pay-brand--phonepe"><img src="/images/पे.svg" alt="" /></span>
+                      <span class="pay-amazonpay">amazon<span>pay</span></span>
+                      <span class="pay-brand pay-brand--more">+ more</span>
+                    }
+                    @case ('cod') {
+                      <svg class="pay-method-icon" viewBox="0 0 23 24">
+                        <path d="M11.5 1 1.3 6.6v10.8L11.5 23l10.2-5.6V6.6L11.5 1ZM1.3 6.6l10.2 5.6 10.2-5.6M11.5 12.2V23M6 3.9l10.3 5.6v3.6" />
+                      </svg>
+                    }
+                  }
+                </span>
+              </label>
+            }
+          </div>
+        </section>
+
+        <p class="pay-secure-banner">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 2.5 3.6v4c0 3.2 2.3 5.6 5.5 6.9 3.2-1.3 5.5-3.7 5.5-6.9v-4L8 1.5Z" /><path d="m5.7 7.9 1.7 1.7 3-3.3" /></svg>
+          <span>
+            <strong>Your payment is 100% secure</strong>
+            We use industry-standard encryption to keep your information safe.
+          </span>
+        </p>
+      </div>
+
+      <aside class="col-12 col-lg-5" aria-label="Order summary">
+        <section appCard class="pay-card pay-summary" aria-labelledby="pay-summary-title">
+          <h2 id="pay-summary-title" class="pay-card__title pay-summary__title">Order Summary</h2>
+
+          @for (item of cart.items(); track item.product.id) {
+            @let variant = variantOf(item.product);
+            <div class="pay-summary__item">
+              <img [src]="item.product.imageUrl" [alt]="item.product.name" />
+              <div class="pay-summary__info">
+                <p class="pay-summary__name">{{ item.product.name }}</p>
+                @if (variant.color || variant.size) {
+                  <p class="pay-summary__meta">
+                    {{ variant.color }}
+                    @if (variant.color && variant.size) {
+                      <span class="pay-summary__dot" aria-hidden="true"></span>
+                    }
+                    {{ variant.size }}
+                  </p>
+                }
+                <p class="pay-summary__meta">Qty: {{ item.quantity }}</p>
+              </div>
+              <strong class="pay-summary__price">{{ item.product.price * item.quantity | currency: 'INR' : 'symbol' : '1.0-0' }}</strong>
+            </div>
+          }
+
+          <dl class="pay-summary__lines">
+            @if (productDiscount() > 0) {
+              <div class="is-saving"><dt>Product discount</dt><dd>&minus; {{ productDiscount() | currency: 'INR' : 'symbol' : '1.0-0' }}</dd></div>
+            }
+            <div class="is-saving"><dt>Delivery charges</dt><dd>Free</dd></div>
+          </dl>
+
+          <p class="pay-summary__total"><span>Order total</span><strong>{{ orderTotal() | currency: 'INR' : 'symbol' : '1.0-0' }}</strong></p>
+
+          <app-button class="pay-summary__pay" variant="accent" (clicked)="pay()">
+            @if (isCod()) {
+              Place Order
+            } @else {
+              Pay {{ orderTotal() | currency: 'INR' : 'symbol' : '1.0-0' }}
+            }
+          </app-button>
+
+          <small class="pay-summary__secure">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7" width="9" height="7" rx="1" /><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" /></svg>
+            Safe and secure checkout
+          </small>
+
+          <p class="pay-summary__shipping">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 4h8v7h-8zM9.5 6.5h3l2 2V11h-5zM4.5 12.5a1 1 0 1 0 0-.01M11.5 12.5a1 1 0 1 0 0-.01" /></svg>
+            <span>
+              <strong>Free Shipping on orders above {{ freeShippingThreshold | currency: 'INR' : 'symbol' : '1.0-0' }}</strong>
+              @if (qualifiesForFreeShipping()) {
+                Your order qualifies for free shipping.
+              } @else {
+                Your {{ orderTotal() | currency: 'INR' : 'symbol' : '1.0-0' }} subtotal does not qualify yet.
+              }
+            </span>
+          </p>
+        </section>
+      </aside>
+    </div>
+  } @else {
+    <section appCard class="pay-empty" aria-label="Empty cart">
+      <h2>Your cart is empty</h2>
+      <p>Add something to your cart before choosing a payment method.</p>
+      <a class="btn btn--accent btn-sm" [routerLink]="routes.products">Browse products</a>
+    </section>
+  }
+</div>

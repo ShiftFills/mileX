@@ -1,0 +1,65 @@
+<main class="admin-content admin-list-page">
+  <app-page-heading heading="Order Management" subtitle="View and manage all customer orders in one place.">
+    <app-date-range-filter inputId="order-date-range" [value]="range()" (valueChange)="range.set($event)" />
+    <app-export-button (exported)="exportOrders()" />
+  </app-page-heading>
+
+  <section class="row row-cols-2 row-cols-md-3 row-cols-xl-5 g-2 g-md-3 mb-3" aria-label="Order summary">
+    @for (stat of stats; track stat.label) {
+      <div class="col">
+        <app-stat-card
+          [label]="stat.label" [value]="stat.value" [prefix]="stat.prefix ?? ''" [trend]="stat.trend"
+          [trendDirection]="stat.trendDirection" [trendTone]="stat.trendTone" [icon]="stat.icon" [tone]="stat.tone"
+        />
+      </div>
+    }
+  </section>
+
+  <section appCard class="admin-list-panel" aria-label="Orders">
+    <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-2 gap-lg-3 py-2">
+      <label class="admin-list-search">
+        <img src="/images/search-icon.svg" alt="" aria-hidden="true" />
+        <app-input class="admin-list-search-control" inputId="admin-order-search" name="orderSearch" placeholder="Search by order number, customer name, mobile......" size="compact" [value]="query()" (valueInput)="setQuery($event)" />
+        <span class="visually-hidden">Search orders</span>
+      </label>
+      <div class="admin-list-filters">
+        <label class="visually-hidden" for="admin-order-status">Filter by order status</label>
+        <app-select class="admin-list-filter" inputId="admin-order-status" name="orderStatus" size="compact" [value]="orderStatus()" (valueChange)="setFilter('orderStatus', $event)">
+          <option value="">All Status</option>
+          @for (status of orderStatuses; track status) { <option [value]="status">{{ status }}</option> }
+        </app-select>
+        <label class="visually-hidden" for="admin-order-payment">Filter by payment status</label>
+        <app-select class="admin-list-filter" inputId="admin-order-payment" name="paymentStatus" size="compact" [value]="paymentStatus()" (valueChange)="setFilter('paymentStatus', $event)">
+          <option value="">All Payment Status</option>
+          @for (status of paymentStatuses; track status) { <option [value]="status">{{ status }}</option> }
+        </app-select>
+        <label class="visually-hidden" for="admin-order-shipping">Filter by shipping status</label>
+        <app-select class="admin-list-filter" inputId="admin-order-shipping" name="shippingStatus" size="compact" [value]="shippingStatus()" (valueChange)="setFilter('shippingStatus', $event)">
+          <option value="">All Shipping Status</option>
+          @for (status of shippingStatuses; track status) { <option [value]="status">{{ status }}</option> }
+        </app-select>
+      </div>
+    </div>
+
+    <app-table
+      class="admin-list-table orders-table"
+      ariaLabel="Orders"
+      [columns]="tableColumns()"
+      [rows]="visibleRows()"
+      emptyMessage="No orders match these filters."
+    />
+
+    <ng-template #selectAllHeader>
+      <app-checkbox [checked]="allVisibleSelected()" ariaLabel="Select all orders on this page" (checkedChange)="toggleAllVisible($event)" />
+    </ng-template>
+    <ng-template #selectRowCell let-order>
+      <app-checkbox [checked]="selectedIds().has(order.id)" [ariaLabel]="'Select ' + order.orderNo" (checkedChange)="toggleSelected(order.id, $event)" />
+    </ng-template>
+    <ng-template #orderNoCell let-order><span class="admin-order-link">{{ order.orderNo }}</span></ng-template>
+    <ng-template #paymentCell let-order><app-badge [tone]="paymentTone(order.paymentStatus)" size="compact">{{ order.paymentStatus }}</app-badge></ng-template>
+    <ng-template #orderStatusCell let-order><app-badge [tone]="orderTone(order.orderStatus)" size="compact">{{ order.orderStatus }}</app-badge></ng-template>
+    <ng-template #shippingCell let-order><app-badge [tone]="shippingTone(order.shippingStatus)" size="compact">{{ order.shippingStatus }}</app-badge></ng-template>
+
+    <app-pagination ariaLabel="Order pages" itemLabel="products" [page]="page()" [pageSize]="pageSize" [total]="filteredRows().length" (pageChange)="page.set($event)" />
+  </section>
+</main>

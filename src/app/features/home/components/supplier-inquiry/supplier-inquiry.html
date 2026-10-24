@@ -1,0 +1,30 @@
+<section class="supplier-inquiry" aria-labelledby="supplier-heading">
+  <div class="supplier-inquiry__copy">
+    <h2 id="supplier-heading">An easy way to send requests<br />to all suppliers</h2>
+    <p>Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt.</p>
+  </div>
+  <form appCard class="supplier-inquiry__form" (submit)="submit($event)">
+    <h3>Send quote to suppliers</h3>
+    <label class="visually-hidden" for="inquiry-item">What item you need?</label>
+    <app-input class="supplier-inquiry__field" inputId="inquiry-item" name="item" size="compact" placeholder="What item you need?" required />
+    <label class="visually-hidden" for="inquiry-details">Type more details</label>
+    <app-textarea class="supplier-inquiry__field" inputId="inquiry-details" name="details" size="compact" placeholder="Type more details" [rows]="3" />
+    <div class="supplier-inquiry__quantity">
+      <label class="visually-hidden" for="inquiry-quantity">Quantity</label>
+      <app-input class="supplier-inquiry__field" inputId="inquiry-quantity" name="quantity" type="number" min="1" size="compact" placeholder="Quantity" required />
+      <label class="visually-hidden" for="inquiry-unit">Quantity unit</label>
+      <app-select inputId="inquiry-unit" name="unit" value="Pcs" size="compact">
+        <option>Pcs</option>
+        <option>Kg</option>
+        <option>Liters</option>
+        <option>Sets</option>
+      </app-select>
+    </div>
+    <app-button size="small" type="submit">Preview inquiry <span aria-hidden="true">→</span></app-button>
+    @if (submitted()) {
+      <app-alert class="supplier-inquiry__notice">
+        Demo only: no inquiry was sent. Supplier messaging is not connected yet.
+      </app-alert>
+    }
+  </form>
+</section>

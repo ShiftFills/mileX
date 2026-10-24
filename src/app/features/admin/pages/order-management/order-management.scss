@@ -1,0 +1,9 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+// 11 columns: let the shared table scroll horizontally instead of squashing on small screens.
+.orders-table {
+  --table-responsive-min-width: 64rem;
+}
