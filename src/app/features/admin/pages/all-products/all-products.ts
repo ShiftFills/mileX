@@ -1,14 +1,21 @@
 import { ChangeDetectionStrategy, Component, TemplateRef, computed, inject, signal, viewChild } from '@angular/core';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
+import { EMPTY, catchError, distinctUntilChanged, map, switchMap, tap } from 'rxjs';
 import { Badge } from '@shared/components/badge/badge';
 import { Button } from '@shared/components/button/button';
 import { Card } from '@shared/components/card/card';
 import { Checkbox } from '@shared/components/checkbox/checkbox';
 import { Dialog } from '@shared/components/dialog/dialog';
 import { Input } from '@shared/components/input/input';
+import { LoadingSpinner } from '@shared/components/loading-spinner/loading-spinner';
+import { Pagination } from '@shared/components/pagination/pagination';
 import { Select } from '@shared/components/select/select';
 import { Table, TableCellContext, TableColumn, TableHeaderContext } from '@shared/components/table/table';
-import { ADMIN_PRODUCTS, AdminProductRow } from '../../data/admin-products';
+import { ClickOutside } from '@shared/directives/click-outside';
+import { ProductCatalogService } from '@core/services/product-catalog.service';
+import { Product } from '@shared/models';
+import { AdminProductRow } from '../../data/admin-products';
 
 interface ProductEditForm {
   name: string;
@@ -20,23 +27,63 @@ interface ProductEditForm {
   status: AdminProductRow['status'];
 }
 
-const PAGE_SIZE = 6;
+const DEFAULT_PAGE_SIZE = 5;
+const PAGE_SIZES = [5, 10, 20] as const;
+
+function mapAdminProduct(product: Product): AdminProductRow {
+  const id = Number(product.id);
+  if (!Number.isSafeInteger(id)) {
+    throw new Error(`The products API returned an invalid product ID: ${product.id}`);
+  }
+
+  return {
+    id,
+    name: product.name,
+    sku: product.sku || '—',
+    category: product.category,
+    brand: product.brand ?? 'Unknown',
+    price: `₹${product.price.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
+    stock: product.stockLeft ?? null,
+    status:
+      product.isActive === undefined
+        ? 'Unknown'
+        : product.isActive
+          ? 'Active'
+          : 'Inactive',
+    image: product.imageUrl,
+  };
+}
 
 @Component({
   selector: 'app-admin-all-products',
-  imports: [Badge, Button, Card, Checkbox, Dialog, Input, Select, Table],
+  imports: [Badge, Button, Card, Checkbox, ClickOutside, Dialog, Input, LoadingSpinner, Pagination, Select, Table],
   templateUrl: './all-products.html',
   styleUrl: './all-products.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AllProducts {
   private readonly router = inject(Router);
-  protected readonly products = signal(ADMIN_PRODUCTS);
+  private readonly catalog = inject(ProductCatalogService);
+  protected readonly products = signal<AdminProductRow[]>([]);
+  protected readonly loadStatus = signal<'loading' | 'success' | 'error'>('loading');
+  protected readonly loadError = signal<string | null>(null);
   protected readonly query = signal('');
   protected readonly category = signal('');
   protected readonly brand = signal('');
   protected readonly statusTab = signal<'All' | 'Active' | 'Inactive'>('All');
   protected readonly page = signal(1);
+  protected readonly pageSize = signal(DEFAULT_PAGE_SIZE);
+  protected readonly paginationNotice = signal<string | null>(null);
+  private readonly retryCount = signal(0);
+  private readonly pageData = signal<{
+    total?: number;
+    totalPages?: number;
+    page: number;
+    pageSize: number;
+    hasNext: boolean;
+  } | null>(null);
+  private readonly knownTotal = signal<number | null>(null);
+  protected readonly pageSizes = PAGE_SIZES;
   protected readonly selectedIds = signal<ReadonlySet<number>>(new Set());
   protected readonly openActionMenuId = signal<number | null>(null);
   protected readonly editingProduct = signal<AdminProductRow | null>(null);
@@ -76,12 +123,46 @@ export class AllProducts {
     const rows = this.visibleRows();
     return rows.length > 0 && rows.every((row) => this.selectedIds().has(row.id));
   });
-  protected readonly pageCount = computed(() => Math.max(1, Math.ceil(this.filteredRows().length / PAGE_SIZE)));
-  protected readonly pageNumbers = computed(() => {
-    const count = Math.min(this.pageCount(), 5);
-    const first = Math.min(Math.max(1, this.page() - 2), this.pageCount() - count + 1);
-    return Array.from({ length: count }, (_, index) => first + index);
+  protected readonly totalProducts = computed(
+    () => this.pageData()?.total ?? this.knownTotal() ?? undefined,
+  );
+  protected readonly totalPages = computed(
+    () =>
+      this.pageData()?.totalPages ??
+      (this.knownTotal() === null
+        ? undefined
+        : Math.ceil(this.knownTotal()! / this.pageSize())),
+  );
+  protected readonly hasNextPage = computed(() => {
+    const totalPages = this.totalPages();
+    return totalPages !== undefined
+      ? this.page() < totalPages
+      : (this.pageData()?.hasNext ?? false);
   });
+  protected readonly effectivePageSize = computed(
+    () => this.pageData()?.pageSize ?? this.pageSize(),
+  );
+  protected readonly pageRequest = computed(() => ({
+    page: this.page(),
+    pageSize: this.pageSize(),
+    retry: this.retryCount(),
+  }));
+  protected readonly categoryOptions = computed(() => {
+    const categories = new Set(this.products().map((product) => product.category));
+    if (this.category()) categories.add(this.category());
+    return [...categories].sort();
+  });
+  protected readonly brandOptions = computed(() => {
+    const brands = new Set(this.products().map((product) => product.brand));
+    if (this.brand()) brands.add(this.brand());
+    return [...brands].sort();
+  });
+  protected readonly activeOnPage = computed(
+    () => this.products().filter((product) => product.status === 'Active').length,
+  );
+  protected readonly inactiveOnPage = computed(
+    () => this.products().filter((product) => product.status === 'Inactive').length,
+  );
   protected readonly filteredRows = computed(() => {
     const query = this.query().trim().toLowerCase();
     return this.products().filter((row) => {
@@ -93,14 +174,91 @@ export class AllProducts {
     });
   });
   protected readonly visibleRows = computed(() => {
-    const start = (this.page() - 1) * PAGE_SIZE;
-    return this.filteredRows().slice(start, start + PAGE_SIZE);
+    return this.filteredRows();
   });
+
+  protected statusTone(status: AdminProductRow['status']): 'success' | 'warning' | 'neutral' {
+    if (status === 'Active') return 'success';
+    if (status === 'Inactive') return 'warning';
+    return 'neutral';
+  }
+
+  constructor() {
+    toObservable(this.pageRequest)
+      .pipe(
+        distinctUntilChanged(
+          (previous, current) =>
+            previous.page === current.page &&
+            previous.pageSize === current.pageSize &&
+            previous.retry === current.retry,
+        ),
+        tap(() => {
+          this.loadStatus.set('loading');
+          this.loadError.set(null);
+          this.products.set([]);
+          this.pageData.set(null);
+        }),
+        switchMap(({ page, pageSize }) =>
+          this.catalog.loadPage(page, pageSize).pipe(
+            map((response) => ({
+              products: response.items.map(mapAdminProduct),
+              response,
+            })),
+            tap(({ products, response }) => {
+              const totalPages =
+                response.totalPages ??
+                (this.knownTotal() === null
+                  ? undefined
+                  : Math.ceil(this.knownTotal()! / response.pageSize));
+              if (response.total !== undefined) this.knownTotal.set(response.total);
+              const lastPageForEmptyResponse = Math.max(
+                1,
+                response.totalPages ??
+                  Math.ceil(
+                    (response.total ?? (response.page - 1) * response.pageSize) /
+                      response.pageSize,
+                  ),
+              );
+              if (
+                response.page > 1 &&
+                response.items.length === 0 &&
+                response.page > lastPageForEmptyResponse
+              ) {
+                const total = response.total ?? (response.page - 1) * response.pageSize;
+                this.knownTotal.set(total);
+                this.paginationNotice.set(
+                  `Page ${response.page} has no products. Showing page ${lastPageForEmptyResponse}, the last available page.`,
+                );
+                this.page.set(lastPageForEmptyResponse);
+                return;
+              }
+              this.products.set(products);
+              this.pageData.set({
+                ...(response.total !== undefined ? { total: response.total } : {}),
+                ...(totalPages !== undefined ? { totalPages } : {}),
+                page: response.page,
+                pageSize: response.pageSize,
+                hasNext: response.hasNext,
+              });
+              this.loadStatus.set('success');
+            }),
+            catchError((error: unknown) => {
+              this.loadError.set(this.catalog.getErrorMessage(error));
+              this.loadStatus.set('error');
+              return EMPTY;
+            }),
+          ),
+        ),
+        takeUntilDestroyed(),
+      )
+      .subscribe();
+  }
 
   protected setQuery(event: Event): void {
     const input = event.target;
     if (input instanceof HTMLInputElement) {
       this.query.set(input.value);
+      this.paginationNotice.set(null);
       this.page.set(1);
     }
   }
@@ -109,6 +267,7 @@ export class AllProducts {
     const select = event.target;
     if (select instanceof HTMLSelectElement) {
       this.category.set(select.value);
+      this.paginationNotice.set(null);
       this.page.set(1);
     }
   }
@@ -117,12 +276,14 @@ export class AllProducts {
     const select = event.target;
     if (select instanceof HTMLSelectElement) {
       this.brand.set(select.value);
+      this.paginationNotice.set(null);
       this.page.set(1);
     }
   }
 
   protected setStatus(status: 'All' | 'Active' | 'Inactive'): void {
     this.statusTab.set(status);
+    this.paginationNotice.set(null);
     this.page.set(1);
   }
 
@@ -154,15 +315,36 @@ export class AllProducts {
   }
 
   protected setPage(page: number): void {
-    if (page >= 1 && page <= this.pageCount()) this.page.set(page);
+    if (page >= 1 && (this.totalPages() === undefined || page <= this.totalPages()!)) {
+      this.paginationNotice.set(null);
+      this.page.set(page);
+    }
   }
 
   protected rangeStart(): number {
-    return this.filteredRows().length ? (this.page() - 1) * PAGE_SIZE + 1 : 0;
+    if (this.totalProducts() === 0) return 0;
+    return (this.page() - 1) * this.effectivePageSize() + 1;
   }
 
   protected rangeEnd(): number {
-    return Math.min(this.page() * PAGE_SIZE, this.filteredRows().length);
+    const end = this.page() * this.effectivePageSize();
+    const total = this.totalProducts();
+    return total === undefined ? end : Math.min(end, total);
+  }
+
+  protected setPageSize(event: Event): void {
+    const select = event.target;
+    if (!(select instanceof HTMLSelectElement)) return;
+    const pageSize = Number(select.value);
+    if (PAGE_SIZES.some((size) => size === pageSize)) {
+      this.pageSize.set(pageSize);
+      this.paginationNotice.set(null);
+      this.page.set(1);
+    }
+  }
+
+  protected retryLoad(): void {
+    this.retryCount.update((retry) => retry + 1);
   }
 
   protected addProduct(): void {
@@ -180,6 +362,10 @@ export class AllProducts {
 
   protected toggleActionMenu(productId: number): void {
     this.openActionMenuId.update((openId) => openId === productId ? null : productId);
+  }
+
+  protected closeActionMenu(productId: number): void {
+    if (this.openActionMenuId() === productId) this.openActionMenuId.set(null);
   }
 
   protected openEdit(product: AdminProductRow): void {

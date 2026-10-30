@@ -7,6 +7,23 @@
   --page-heading-subtitle-size: 0.72rem;
 }
 
+.cart-state {
+  display: flex;
+  min-height: 12rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.cart-state__retry {
+  margin-inline-start: 0.5rem;
+  border: 0;
+  background: transparent;
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+
 // Small inline icons share one stroke style.
 svg {
   flex: 0 0 auto;

@@ -3,7 +3,17 @@
     <app-stepper ariaLabel="Checkout progress" [steps]="steps" [current]="1" />
   </app-page-heading>
 
-  @if (cart.items().length) {
+  @if (catalog.status() === 'loading' || catalog.status() === 'idle') {
+    <div role="status"><app-loading-spinner /> Loading your cart…</div>
+  } @else if (catalog.status() === 'error') {
+    <app-alert tone="danger" role="alert">
+      {{ catalog.error() }}
+      <button type="button" (click)="retryLoad()">Try again</button>
+    </app-alert>
+  } @else if (cart.items().length) {
+    @if (cart.hasUnavailableItems()) {
+      <app-alert tone="warning" role="alert">Remove out-of-stock items from your cart before continuing.</app-alert>
+    }
     <div class="row g-2">
       <div class="col-12 col-lg-8">
         <section appCard class="address-section" aria-labelledby="saved-title">
@@ -159,7 +169,7 @@
 
           <p class="order-summary__total"><span>Order total</span><strong>{{ orderTotal() | currency: 'INR' : 'symbol' : '1.0-0' }}</strong></p>
 
-          <app-button class="order-summary__confirm" variant="accent" (clicked)="confirmToPayment()">Confirm to Payment</app-button>
+          <app-button class="order-summary__confirm" variant="accent" [disabled]="cart.hasUnavailableItems()" (clicked)="confirmToPayment()">Confirm to Payment</app-button>
           <small class="order-summary__secure">
             <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7" width="9" height="7" rx="1" /><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" /></svg>
             Safe and secure checkout

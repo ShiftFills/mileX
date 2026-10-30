@@ -12,7 +12,7 @@ export const APP_ROUTES = {
   addresses: '/account/addresses',
   offers: '/offers',
   login: '/auth/login',
-  register: '/register',
+  register: '/auth/register',
   wishlist: '/wishlist',
   support: '/help',
   sell: '/sell',

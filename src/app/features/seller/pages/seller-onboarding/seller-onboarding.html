@@ -52,8 +52,8 @@
       @if (submitted()) {
         <section class="seller-complete" aria-live="polite">
           <div class="seller-complete__check" aria-hidden="true">✓</div>
-          <h2>Review complete</h2>
-          <p>Your details are validated, but seller registration is not connected to a submission service yet.</p>
+          <h2>Application submitted</h2>
+          <p>Your seller application was submitted successfully. We’ll review your details and contact you with an update.</p>
           <app-button variant="secondary" (clicked)="close()">Back to Milex</app-button>
         </section>
       } @else if (activeStep() === 1) {
@@ -64,7 +64,7 @@
 
         <div class="row g-4 seller-form-grid">
           <div class="col-12 col-md-6 d-flex flex-column gap-2">
-            @for (field of leftFields; track field.name) {
+            @for (field of leftFields(); track field.name) {
               <ng-container
                 [ngTemplateOutlet]="sellerFieldTemplate"
                 [ngTemplateOutletContext]="{ field: field }"
@@ -91,7 +91,7 @@
                       placeholder: 'Select state',
                       icon: 'map',
                       type: 'select',
-                      options: states
+                      options: states()
                     }
                   }"
                 />
@@ -212,7 +212,7 @@
               </header>
               <dl class="seller-review-list">
                 <div><dt>Business Name</dt><dd>{{ valueFor('businessName') }}</dd></div>
-                <div><dt>Seller Type</dt><dd>{{ displayValueFor('businessType', businessTypes) }}</dd></div>
+                <div><dt>Seller Type</dt><dd>{{ displayValueFor('businessType', businessTypes()) }}</dd></div>
                 <div><dt>Contact Person</dt><dd>{{ valueFor('contactPersonName') }}</dd></div>
                 <div><dt>Email</dt><dd>{{ valueFor('contactEmail') }}</dd></div>
                 <div><dt>Mobile Number</dt><dd>{{ valueFor('contactPersonMobile') }}</dd></div>
@@ -275,6 +275,9 @@
         >
           I confirm that the information provided is accurate and complete.
         </app-checkbox>
+        @if (submissionError(); as message) {
+          <p class="seller-field__error" role="alert">{{ message }}</p>
+        }
       }
     </div>
 
@@ -291,8 +294,8 @@
         @if (activeStep() > 1) {
           <app-button class="seller-dialog__cancel" variant="outline" size="small" (clicked)="cancel()">Cancel</app-button>
         }
-        <app-button class="seller-dialog__next" variant="accent" size="small" (clicked)="continue()">
-          {{ activeStep() === 4 ? 'Submit Application' : 'Next' }}
+        <app-button class="seller-dialog__next" variant="accent" size="small" [disabled]="isSubmitting()" [loading]="isSubmitting()" (clicked)="continue()">
+          {{ isSubmitting() ? 'Submitting…' : activeStep() === 4 ? 'Submit Application' : 'Next' }}
           @if (activeStep() < 4) { <span aria-hidden="true">→</span> }
         </app-button>
       }
@@ -347,6 +350,23 @@
         }
       </svg>
       @switch (field.type) {
+        @case ('searchable-select') {
+          <app-searchable-select
+            class="seller-field__input"
+            [inputId]="fieldId(field.name)"
+            [name]="field.name"
+            [options]="field.options ?? []"
+            [value]="valueFor(field.name)"
+            [placeholder]="lookupPlaceholder(field.name, field.placeholder)"
+            searchPlaceholder="Search business types..."
+            [required]="true"
+            [disabled]="isLookupDisabled(field.name)"
+            [ariaLabel]="field.label"
+            [ariaInvalid]="!!errorFor(field.name)"
+            [ariaDescribedBy]="errorFor(field.name) ? fieldId(field.name) + '-error' : null"
+            (valueChange)="updateSearchableValue(field.name, $event)"
+          />
+        }
         @case ('select') {
           <app-select
             class="seller-field__input"
@@ -354,13 +374,14 @@
             [name]="field.name"
             [value]="valueFor(field.name)"
             [required]="true"
+            [disabled]="isLookupDisabled(field.name)"
             size="compact"
             [ariaInvalid]="!!errorFor(field.name)"
             [ariaDescribedBy]="errorFor(field.name) ? fieldId(field.name) + '-error' : null"
             (valueChange)="updateValue(field.name, $event)"
             (focusout)="markTouched(field.name)"
           >
-            <option value="" disabled>{{ field.placeholder }}</option>
+            <option value="" disabled>{{ lookupPlaceholder(field.name, field.placeholder) }}</option>
             @for (option of field.options; track option.value) {
               <option [value]="option.value">{{ option.label }}</option>
             }
@@ -403,6 +424,10 @@
     </div>
     @if (errorFor(field.name); as message) {
       <span class="seller-field__error" [id]="fieldId(field.name) + '-error'">{{ message }}</span>
+    }
+    @if (lookupErrorFor(field.name); as message) {
+      <span class="seller-field__error" role="alert">{{ message }}</span>
+      <app-button variant="link" size="dense" (clicked)="loadLookup(field.name)">Retry options</app-button>
     }
   </div>
 </ng-template>

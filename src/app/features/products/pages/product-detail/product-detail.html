@@ -128,6 +128,18 @@
       </section>
     </app-dialog>
   }
+} @else if (catalogStatus() === 'loading' || catalogStatus() === 'idle') {
+  <main class="container product-detail__empty" role="status">
+    <app-loading-spinner />
+    <p>Loading product…</p>
+  </main>
+} @else if (catalogStatus() === 'error') {
+  <main class="container product-detail__empty">
+    <app-alert tone="danger" role="alert">
+      {{ catalogError() }}
+      <button type="button" class="product-detail__retry" (click)="retryLoad()">Try again</button>
+    </app-alert>
+  </main>
 } @else {
   <main class="container product-detail__empty">
     <h1>Product not found</h1>

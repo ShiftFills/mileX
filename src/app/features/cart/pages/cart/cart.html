@@ -3,7 +3,14 @@
     <app-stepper ariaLabel="Checkout progress" [steps]="steps" [current]="0" />
   </app-page-heading>
 
-  @if (cart.items().length) {
+  @if (catalog.status() === 'loading' || catalog.status() === 'idle') {
+    <div class="cart-state" role="status"><app-loading-spinner /> Loading cart…</div>
+  } @else if (catalog.status() === 'error') {
+    <app-alert tone="danger" role="alert">
+      {{ catalog.error() }}
+      <button type="button" class="cart-state__retry" (click)="retryLoad()">Try again</button>
+    </app-alert>
+  } @else if (cart.items().length) {
     <div class="row g-3">
       <div class="col-12 col-lg-8">
         <p class="cart-added" role="status">
@@ -12,6 +19,11 @@
         </p>
 
         <section class="cart-items" aria-label="Cart items">
+          @if (cart.hasUnavailableItems()) {
+            <app-alert tone="warning" role="alert">
+              One or more items are out of stock. Remove them before continuing to checkout.
+            </app-alert>
+          }
           @for (item of cart.items(); track item.product.id) {
             @let product = item.product;
             @let variant = variantOf(product);
@@ -54,6 +66,8 @@
                   </div>
                   @if (product.inStock) {
                     <span class="cart-item__stock">{{ stockNote(product) }}</span>
+                  } @else {
+                    <app-badge tone="danger">Out of stock</app-badge>
                   }
                 </div>
 
@@ -155,7 +169,7 @@
               You're saving {{ totalSavings() | currency: 'INR' : 'symbol' : '1.0-0' }} on this order
             </app-alert>
           }
-          <app-button class="cart-checkout-action" variant="accent" (clicked)="proceedToCheckout()">Proceed to Checkout</app-button>
+          <app-button class="cart-checkout-action" variant="accent" [disabled]="cart.hasUnavailableItems()" (clicked)="proceedToCheckout()">Proceed to Checkout</app-button>
           <small class="cart-summary__secure">
             <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7" width="9" height="7" rx="1" /><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" /></svg>
             Safe and secure checkout

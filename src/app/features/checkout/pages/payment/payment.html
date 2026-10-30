@@ -9,7 +9,20 @@
       <p>Your demo checkout was recorded locally. No payment was processed and no order was sent to a server.</p>
       <a class="btn btn--accent btn-sm" [routerLink]="routes.home">Return to MileX</a>
     </section>
+  } @else if (catalog.status() === 'loading' || catalog.status() === 'idle') {
+    <section appCard class="pay-empty" role="status">
+      <app-loading-spinner />
+      <p>Loading your cart…</p>
+    </section>
+  } @else if (catalog.status() === 'error') {
+    <app-alert tone="danger" role="alert">
+      {{ catalog.error() }}
+      <button type="button" (click)="retryLoad()">Try again</button>
+    </app-alert>
   } @else if (cart.items().length) {
+    @if (cart.hasUnavailableItems()) {
+      <app-alert tone="warning" role="alert">Remove out-of-stock items from your cart before placing the order.</app-alert>
+    }
     <div class="row pay-layout">
       <div class="col-12 col-lg-7">
         <section appCard class="pay-card pay-methods" aria-labelledby="pay-methods-title">
@@ -117,7 +130,7 @@
 
           <p class="pay-summary__total"><span>Order total</span><strong>{{ orderTotal() | currency: 'INR' : 'symbol' : '1.0-0' }}</strong></p>
 
-          <app-button class="pay-summary__pay" variant="accent" (clicked)="pay()">
+          <app-button class="pay-summary__pay" variant="accent" [disabled]="cart.hasUnavailableItems()" (clicked)="pay()">
             @if (isCod()) {
               Place Order
             } @else {

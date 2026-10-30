@@ -4,8 +4,11 @@ import { RouterLink } from '@angular/router';
 import { APP_ROUTES } from '@core/constants/app-routes';
 import { CHECKOUT_STEPS, FREE_SHIPPING_THRESHOLD } from '@core/constants/checkout';
 import { CartService } from '@core/services/cart.service';
+import { ProductCatalogService } from '@core/services/product-catalog.service';
+import { Alert } from '@shared/components/alert/alert';
 import { Button } from '@shared/components/button/button';
 import { Card } from '@shared/components/card/card';
+import { LoadingSpinner } from '@shared/components/loading-spinner/loading-spinner';
 import { PageHeading } from '@shared/components/page-heading/page-heading';
 import { Stepper } from '@shared/components/stepper/stepper';
 import { Product } from '@shared/models';
@@ -30,13 +33,14 @@ const PAYMENT_METHODS: readonly PaymentMethodOption[] = [
 /** Checkout step 3: choose how to pay and review the order summary. */
 @Component({
   selector: 'app-payment',
-  imports: [Button, Card, CurrencyPipe, PageHeading, RouterLink, Stepper],
+  imports: [Alert, Button, Card, CurrencyPipe, LoadingSpinner, PageHeading, RouterLink, Stepper],
   templateUrl: './payment.html',
   styleUrl: './payment.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PaymentPage {
   protected readonly cart = inject(CartService);
+  protected readonly catalog = inject(ProductCatalogService);
 
   protected readonly routes = APP_ROUTES;
   protected readonly steps = CHECKOUT_STEPS;
@@ -56,11 +60,6 @@ export class PaymentPage {
   /** Cash on delivery has nothing to pay online, so the button says what it actually does. */
   protected readonly isCod = computed(() => this.selectedMethod() === 'cod');
 
-  constructor() {
-    // Demo cart matching the design: a single item for first-time visitors.
-    this.cart.seedDemoItems(['women-printed-maxi-dress-1']);
-  }
-
   protected selectMethod(id: PaymentMethodId): void {
     this.selectedMethod.set(id);
   }
@@ -71,8 +70,12 @@ export class PaymentPage {
 
   /** Demo checkout: like the existing `/checkout` page, nothing is sent to a server. */
   protected pay(): void {
-    if (!this.cart.items().length) return;
+    if (!this.cart.items().length || this.cart.hasUnavailableItems()) return;
     this.placed.set(true);
     this.cart.clear();
+  }
+
+  protected retryLoad(): void {
+    this.catalog.load();
   }
 }

@@ -1,36 +1,22 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { APP_ROUTES } from '@core/constants/app-routes';
-import { PRODUCT_CATEGORY_LABELS } from '@core/constants/product-categories';
+import { productCategoryLabel } from '@core/constants/product-categories';
+import { ProductCatalogService } from '@core/services/product-catalog.service';
 import { CartService } from '@core/services/cart.service';
+import { Alert } from '@shared/components/alert/alert';
 import { Card } from '@shared/components/card/card';
 import { Filter, FilterOption } from '@shared/components/filter/filter';
+import { LoadingSpinner } from '@shared/components/loading-spinner/loading-spinner';
 import { PageHeading } from '@shared/components/page-heading/page-heading';
 import { ProductCard } from '@shared/components/product-card/product-card';
 import { Product } from '@shared/models';
 import { WishlistService } from '../../services/wishlist.service';
 
 const ALL = 'all';
-const WISHLIST_CATEGORY_ORDER = ['fashion', 'electronics', 'home-living', 'beauty'] as const;
-/** Items pre-saved for first-time visitors so the page matches the design. */
-const DEMO_WISHLIST_IDS = [
-  'women-floral-maxi-dress-1',
-  'women-floral-maxi-dress-2',
-  'women-floral-maxi-dress-3',
-  'women-floral-maxi-dress-4',
-  'women-floral-maxi-dress-5',
-  'white-sneakers-1',
-  'smart-watch-2',
-  'laptop-2',
-  'headphones-2',
-  'home-decor-planter-set-1',
-  'skincare-combo-1',
-  'leather-handbag-1',
-];
-
 @Component({
   selector: 'app-wishlist',
-  imports: [Card, Filter, PageHeading, ProductCard, RouterLink],
+  imports: [Alert, Card, Filter, LoadingSpinner, PageHeading, ProductCard, RouterLink],
   templateUrl: './wishlist.html',
   styleUrl: './wishlist.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -38,6 +24,7 @@ const DEMO_WISHLIST_IDS = [
 export class Wishlist {
   protected readonly wishlist = inject(WishlistService);
   private readonly cart = inject(CartService);
+  protected readonly catalog = inject(ProductCatalogService);
   protected readonly routes = APP_ROUTES;
 
   private readonly selectedCategory = signal(ALL);
@@ -49,9 +36,9 @@ export class Wishlist {
     for (const { category } of products) counts.set(category, (counts.get(category) ?? 0) + 1);
     return [
       { value: ALL, label: 'All', count: products.length },
-      ...WISHLIST_CATEGORY_ORDER.map((category) => ({
+      ...[...counts.keys()].sort().map((category) => ({
         value: category,
-        label: PRODUCT_CATEGORY_LABELS[category] ?? category,
+        label: productCategoryLabel(category),
         count: counts.get(category) ?? 0,
       })),
     ];
@@ -72,10 +59,6 @@ export class Wishlist {
     return products;
   });
 
-  constructor() {
-    this.wishlist.seedDemoItems(DEMO_WISHLIST_IDS);
-  }
-
   protected selectCategory(category: string): void {
     this.selectedCategory.set(category);
   }
@@ -87,5 +70,9 @@ export class Wishlist {
   protected addToCart(product: Product): void {
     this.cart.add(product);
     this.notice.set(`${product.name} added to your cart`);
+  }
+
+  protected retryLoad(): void {
+    this.catalog.load();
   }
 }

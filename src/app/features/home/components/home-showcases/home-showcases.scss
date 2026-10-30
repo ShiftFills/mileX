@@ -3,6 +3,23 @@
   padding-block: 1.5rem;
 }
 
+.product-state {
+  display: flex;
+  min-height: 12rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.product-state__retry {
+  margin-inline-start: 0.5rem;
+  border: 0;
+  background: transparent;
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+
 .product-section {
   margin-block: 0 1.5rem;
 
@@ -12,17 +29,17 @@
     justify-content: space-between;
     margin-bottom: 1rem;
     padding-bottom: 0.65rem;
-    border-bottom: 1px solid #dfe5ec;
+    border-bottom: 1px solid var(--color-border);
 
     h2 {
       margin: 0;
-      color: #1c2738;
+      color: var(--color-text);
       font-size: 1.2rem;
       font-weight: 700;
     }
 
     a {
-      color: #1c2738;
+      color: var(--color-text);
       font-size: 0.85rem;
       font-weight: 600;
       text-decoration: none;
@@ -42,9 +59,9 @@
   min-height: 17.5rem;
   margin-bottom: 1.5rem;
   overflow: hidden;
-  border: 1px solid #e0e4e8;
+  border: 1px solid var(--color-border);
   border-radius: 0.4rem;
-  background: #fff;
+  background: var(--color-surface);
 
   &__feature {
     display: flex;
@@ -53,11 +70,11 @@
     align-items: flex-start;
     gap: 1.1rem;
     padding: 1.25rem;
-    background-color: #f1ead9;
+    background-color: var(--color-bg);
     background-position: center;
     background-repeat: no-repeat;
     background-size: contain;
-    color: #172033;
+    color: var(--color-text);
     text-decoration: none;
   }
 
@@ -73,8 +90,8 @@
     display: inline-block;
     padding: 0.5rem 0.85rem;
     border-radius: 0.5rem;
-    background: #fff;
-    color: #172033;
+    background: var(--color-surface);
+    color: var(--color-text);
     font-size: 0.88rem;
   }
 
@@ -91,12 +108,12 @@
     flex-direction: column;
     gap: 0.45rem;
     padding: 1.1rem;
-    border-left: 1px solid #e6e8eb;
-    color: #1c2738;
+    border-left: 1px solid var(--color-border);
+    color: var(--color-text);
     text-decoration: none;
 
     &:nth-child(n + 5) {
-      border-top: 1px solid #e6e8eb;
+      border-top: 1px solid var(--color-border);
     }
 
     strong {
@@ -105,7 +122,7 @@
     }
 
     span {
-      color: #617084;
+      color: var(--color-text-muted);
       line-height: 1.35;
     }
 

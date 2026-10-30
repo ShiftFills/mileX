@@ -4,6 +4,7 @@ import { Router } from '@angular/router';
 import { APP_ROUTES } from '@core/constants/app-routes';
 import { CHECKOUT_STEPS, FREE_SHIPPING_THRESHOLD, PINCODE_PATTERN } from '@core/constants/checkout';
 import { CartService } from '@core/services/cart.service';
+import { ProductCatalogService } from '@core/services/product-catalog.service';
 import { WishlistService } from '@core/services/wishlist.service';
 import { OfferService } from '@features/offers/services/offer.service';
 import { Alert } from '@shared/components/alert/alert';
@@ -11,6 +12,7 @@ import { Badge } from '@shared/components/badge/badge';
 import { Button } from '@shared/components/button/button';
 import { Card } from '@shared/components/card/card';
 import { Input } from '@shared/components/input/input';
+import { LoadingSpinner } from '@shared/components/loading-spinner/loading-spinner';
 import { PageHeading } from '@shared/components/page-heading/page-heading';
 import { Stepper } from '@shared/components/stepper/stepper';
 import { Product } from '@shared/models';
@@ -24,13 +26,14 @@ type PincodeState = 'idle' | 'available' | 'invalid';
 
 @Component({
   selector: 'app-cart',
-  imports: [Alert, Badge, Button, Card, CurrencyPipe, Input, PageHeading, Stepper],
+  imports: [Alert, Badge, Button, Card, CurrencyPipe, Input, LoadingSpinner, PageHeading, Stepper],
   templateUrl: './cart.html',
   styleUrl: './cart.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class Cart {
   protected readonly cart = inject(CartService);
+  protected readonly catalog = inject(ProductCatalogService);
   private readonly wishlist = inject(WishlistService);
   private readonly offers = inject(OfferService);
   private readonly router = inject(Router);
@@ -63,11 +66,6 @@ export class Cart {
   protected readonly pincode = signal('');
   protected readonly pincodeState = signal<PincodeState>('idle');
 
-  constructor() {
-    // Demo cart matching the design: a single item for first-time visitors.
-    this.cart.seedDemoItems(['women-printed-maxi-dress-1']);
-  }
-
   protected variantOf(product: Product): { color?: string; colorHex?: string; size?: string } {
     const color = product.colors?.[0];
     return { color: color?.name, colorHex: color?.hex, size: product.sizes?.[0] };
@@ -79,7 +77,13 @@ export class Cart {
   }
 
   protected maxQuantity(product: Product): number {
-    return product.stockLeft ?? DEFAULT_MAX_QUANTITY;
+    return Math.max(
+      1,
+      Math.min(
+        product.stockLeft ?? DEFAULT_MAX_QUANTITY,
+        product.maxOrderQuantity ?? DEFAULT_MAX_QUANTITY,
+      ),
+    );
   }
 
   protected setQuantity(product: Product, quantity: number): void {
@@ -126,10 +130,15 @@ export class Cart {
   }
 
   protected proceedToCheckout(): void {
+    if (this.cart.hasUnavailableItems()) return;
     void this.router.navigate([this.routes.deliveryAddress]);
   }
 
   protected browseProducts(): void {
     void this.router.navigate([this.routes.products]);
+  }
+
+  protected retryLoad(): void {
+    this.catalog.load();
   }
 }

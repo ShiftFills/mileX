@@ -5,8 +5,8 @@ export interface AdminProductRow {
   category: string;
   brand: string;
   price: string;
-  stock: number;
-  status: 'Active' | 'Inactive';
+  stock: number | null;
+  status: 'Active' | 'Inactive' | 'Unknown';
   image: string;
 }
 

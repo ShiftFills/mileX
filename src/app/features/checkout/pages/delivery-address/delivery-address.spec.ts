@@ -1,3 +1,5 @@
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { STORAGE_KEYS } from '@core/constants/storage-keys';
@@ -5,15 +7,23 @@ import { AddressService } from '@core/services/address.service';
 import { DeliveryAddressPage } from './delivery-address';
 
 function clearStorage(): void {
-  for (const key of [STORAGE_KEYS.cart, STORAGE_KEYS.cartDemoSeeded, STORAGE_KEYS.cartDemoSeedVersion, STORAGE_KEYS.addresses, STORAGE_KEYS.selectedAddress]) {
+  for (const key of [STORAGE_KEYS.cart, STORAGE_KEYS.addresses, STORAGE_KEYS.selectedAddress]) {
     localStorage.removeItem(key);
   }
 }
+
+const PRODUCTS_RESPONSE = {
+  status: 'SUCCESS',
+  data: [
+    { PRODUCT_ID: 4, PRODUCT_NAME: 'Wireless Mouse Updated', PRICE: '999.00', SELLING_PRICE: '749.00', STOCK_QUANTITY: 90, MAXIMUM_ORDER_QUANTITY: 10, CATEGORY_ID: 1, IS_ACTIVE: 1 },
+  ],
+};
 
 describe('DeliveryAddressPage', () => {
   let fixture: ComponentFixture<DeliveryAddressPage>;
   let root: HTMLElement;
   let navigate: ReturnType<typeof vi.spyOn>;
+  let http: HttpTestingController;
 
   const text = (): string => root.textContent?.replace(/\s+/g, ' ') ?? '';
   const click = async (el: Element | null | undefined): Promise<void> => {
@@ -30,14 +40,26 @@ describe('DeliveryAddressPage', () => {
 
   beforeEach(async () => {
     clearStorage();
+    localStorage.setItem(
+      STORAGE_KEYS.cart,
+      JSON.stringify([{ product: { id: '4' }, quantity: 1 }]),
+    );
     await TestBed.configureTestingModule({
       imports: [DeliveryAddressPage],
-      providers: [provideRouter([])],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
     }).compileComponents();
+    http = TestBed.inject(HttpTestingController);
     navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
     fixture = TestBed.createComponent(DeliveryAddressPage);
+    http.expectOne((request) => request.url.endsWith('/products/get')).flush(PRODUCTS_RESPONSE);
     root = fixture.nativeElement;
     await fixture.whenStable();
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    http.verify();
+    clearStorage();
   });
 
   it('shows the saved addresses with the first one selected, and the order summary', () => {
@@ -46,7 +68,7 @@ describe('DeliveryAddressPage', () => {
     expect(cards[0].classList).toContain('is-selected');
     expect(text()).toContain('Sujan Saha');
     expect(text()).toContain('Order total');
-    expect(text()).toContain('₹999');
+    expect(text()).toContain('₹749');
   });
 
   it('continues to payment with the selected saved address', async () => {

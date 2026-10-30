@@ -35,6 +35,23 @@ src/
 
 Path aliases: `@core/*`, `@shared`, `@shared/*`, `@features/*`, `@layouts/*`, `@env/*`.
 
+### Product catalog API
+
+The API base URL is provided by `src/environments/environment.ts` for production builds and
+`src/environments/environment.development.ts` for development builds. Development uses `/api` and
+the Angular dev-server proxy configured in `proxy.conf.json`; set the production environment's
+`apiUrl` to the deployed API base URL before release.
+
+The shared `ApiService` owns HTTP methods and base-URL joining. Endpoint paths are centralized in
+`src/app/core/constants/api-endpoints.ts`; product response mapping and paged requests live in
+`ProductCatalogService`. The storefront loads products from `GET {apiUrl}/products/get`. Product
+listings request server-side pages with `LIMIT` and `OFFSET=(page - 1) * LIMIT`. The current API response contains
+`status`, `message`, and a `data` array, but does not provide total-record or total-page metadata.
+Pagination therefore enables sequential next/previous navigation from the returned page size and
+infers the final total when a short or empty page is reached; exact totals are unavailable until
+then. Search and category filters apply only to the loaded page because no API filter parameters
+have been provided. Configure the deployed API or its reverse proxy to allow the storefront origin.
+
 ### Feature folder layout
 ```
 features/<name>/

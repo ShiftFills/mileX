@@ -1,382 +1,328 @@
-import { Injectable } from '@angular/core';
-import { Product } from '@shared/models';
+import { HttpErrorResponse } from '@angular/common/http';
+import { Injectable, inject, signal } from '@angular/core';
+import { Observable, ReplaySubject, catchError, map, shareReplay, throwError } from 'rxjs';
+import { PaginatedResponse, Product } from '@shared/models';
+import { API_ENDPOINTS } from '../constants/api-endpoints';
+import { ApiService } from './api.service';
+
+export type ProductCatalogStatus = 'idle' | 'loading' | 'success' | 'error';
+
+const FALLBACK_IMAGE = '/images/latest-gadgets.svg';
+const MAX_CACHED_PRODUCT_PAGES = 20;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function numericValue(value: unknown): number | undefined {
+  if (typeof value !== 'number' && typeof value !== 'string') return undefined;
+  if (typeof value === 'string' && !value.trim()) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function mapProduct(value: unknown): Product | null {
+  if (!isRecord(value)) return null;
+
+  const rawId = value['PRODUCT_ID'];
+  const name = typeof value['PRODUCT_NAME'] === 'string' ? value['PRODUCT_NAME'].trim() : '';
+  const price = numericValue(value['SELLING_PRICE']) ?? numericValue(value['PRICE']);
+  if (
+    (typeof rawId !== 'string' && typeof rawId !== 'number') ||
+    !String(rawId).trim() ||
+    !name ||
+    price === undefined ||
+    price < 0
+  ) {
+    return null;
+  }
+
+  const stock = numericValue(value['STOCK_QUANTITY']);
+  const originalPrice = numericValue(value['PRICE']);
+  const maxOrderQuantity = numericValue(value['MAXIMUM_ORDER_QUANTITY']);
+  const categoryId = value['CATEGORY_ID'];
+  const brandId = value['BRAND_ID'];
+  const active = value['IS_ACTIVE'];
+  const category =
+    typeof categoryId === 'string' || typeof categoryId === 'number'
+      ? `category-${categoryId}`
+      : 'uncategorized';
+  const brand =
+    typeof brandId === 'string' || typeof brandId === 'number'
+      ? `brand-${brandId}`
+      : undefined;
+  const images = typeof value['IMAGE_URL'] === 'string' && value['IMAGE_URL'].trim()
+    ? [value['IMAGE_URL'].trim()]
+    : undefined;
+  const hasDiscount = originalPrice !== undefined && originalPrice > price;
+  const isActive =
+    active === true ||
+    active === 1 ||
+    (typeof active === 'string' && active.trim().toUpperCase() === '1') ||
+    (typeof active === 'string' && active.trim().toUpperCase() === 'TRUE');
+
+  return {
+    id: String(rawId),
+    name,
+    description:
+      typeof value['PRODUCT_DESCRIPTION'] === 'string' && value['PRODUCT_DESCRIPTION'].trim()
+        ? value['PRODUCT_DESCRIPTION'].trim()
+        : 'Product description is not available.',
+    price,
+    currency: 'INR',
+    imageUrl: images?.[0] ?? FALLBACK_IMAGE,
+    ...(typeof value['PRODUCT_CODE_SKU'] === 'string'
+      ? { sku: value['PRODUCT_CODE_SKU'].trim() }
+      : {}),
+    ...(brand ? { brand } : {}),
+    ...(active !== undefined && active !== null
+      ? { isActive }
+      : {}),
+    ...(images ? { images } : {}),
+    category,
+    inStock: stock !== undefined && stock > 0,
+    ...(stock !== undefined ? { stockLeft: stock } : {}),
+    ...(maxOrderQuantity !== undefined && maxOrderQuantity > 0
+      ? { maxOrderQuantity }
+      : {}),
+    ...(hasDiscount ? { originalPrice, discountLabel: `${Math.round((1 - price / originalPrice) * 100)}% OFF` } : {}),
+  };
+}
+
+function mapProductsResponse(response: unknown): Product[] {
+  if (!isRecord(response) || typeof response['status'] !== 'string') {
+    throw new Error('The products API returned an invalid response.');
+  }
+
+  if (response['status'].toUpperCase() !== 'SUCCESS') {
+    const message = typeof response['message'] === 'string' ? response['message'] : '';
+    throw new Error(message || 'The products API could not load products.');
+  }
+
+  const data = response['data'];
+  if (!Array.isArray(data)) throw new Error('The products API returned an invalid product list.');
+
+  const activeEntries = data.filter((entry) => {
+    if (!isRecord(entry)) return true;
+    const active = entry['IS_ACTIVE'];
+    return active !== false && active !== 0 && !(typeof active === 'string' && active.trim() === '0');
+  });
+  const products = activeEntries.map(mapProduct);
+  if (products.some((product) => product === null)) {
+    throw new Error('The products API returned a product with missing or invalid required fields.');
+  }
+
+  return products.filter((product): product is Product => product !== null);
+}
+
+function findNumber(
+  sources: readonly Record<string, unknown>[],
+  keys: readonly string[],
+): number | undefined {
+  for (const source of sources) {
+    for (const key of keys) {
+      const value = numericValue(source[key] ?? source[key.toUpperCase()]);
+      if (value !== undefined) return value;
+    }
+  }
+  return undefined;
+}
+
+function mapProductPageResponse(
+  response: unknown,
+  requestedPage: number,
+  requestedPageSize: number,
+): PaginatedResponse<Product> {
+  if (!isRecord(response)) {
+    throw new Error('The products API returned an invalid paginated response.');
+  }
+
+  if (
+    response['status'] !== undefined &&
+    (typeof response['status'] !== 'string' || response['status'].toUpperCase() !== 'SUCCESS')
+  ) {
+    const message = typeof response['message'] === 'string' ? response['message'] : '';
+    throw new Error(message || 'The products API could not load products.');
+  }
+
+  const data = response['data'];
+  const dataRecord = isRecord(data) ? data : undefined;
+  const entries = Array.isArray(data)
+    ? data
+    : Array.isArray(response['items'])
+      ? response['items']
+      : dataRecord && Array.isArray(dataRecord['items'])
+        ? dataRecord['items']
+        : dataRecord && Array.isArray(dataRecord['products'])
+          ? dataRecord['products']
+          : null;
+  if (!entries) throw new Error('The products API returned an invalid product list.');
+
+  const products = entries.map(mapProduct);
+  if (products.some((product) => product === null)) {
+    throw new Error('The products API returned a product with missing or invalid required fields.');
+  }
+
+  const metadataSources = [
+    isRecord(dataRecord?.['pagination']) ? dataRecord['pagination'] : undefined,
+    isRecord(dataRecord?.['meta']) ? dataRecord['meta'] : undefined,
+    isRecord(response['pagination']) ? response['pagination'] : undefined,
+    isRecord(response['meta']) ? response['meta'] : undefined,
+    isRecord(response['metadata']) ? response['metadata'] : undefined,
+    dataRecord,
+    response,
+  ].filter((source): source is Record<string, unknown> => source !== undefined);
+  const reportedTotal = findNumber(metadataSources, [
+    'total',
+    'totalRecords',
+    'total_records',
+    'totalCount',
+    'total_count',
+    'totalItems',
+    'total_items',
+    'totalRecord',
+    'total_record',
+    'recordsTotal',
+  ]);
+  const pageSize =
+    findNumber(metadataSources, ['pageSize', 'page_size', 'perPage', 'per_page', 'limit', 'LIMIT']) ??
+    requestedPageSize;
+  const page =
+    findNumber(metadataSources, ['page', 'currentPage', 'current_page', 'pageNumber', 'page_number']) ??
+    requestedPage;
+  const totalPages =
+    findNumber(metadataSources, ['totalPages', 'total_pages', 'pages']) ??
+    (reportedTotal !== undefined && pageSize > 0
+      ? Math.ceil(reportedTotal / pageSize)
+      : products.length < requestedPageSize
+        ? Math.ceil((offsetForPage(requestedPage, requestedPageSize) + products.length) / pageSize)
+        : undefined);
+  const total =
+    reportedTotal ??
+    (products.length < requestedPageSize
+      ? offsetForPage(requestedPage, requestedPageSize) + products.length
+      : undefined);
+
+  if (
+    (total !== undefined && (!Number.isInteger(total) || total < 0)) ||
+    !Number.isInteger(page) ||
+    page < 1 ||
+    !Number.isInteger(pageSize) ||
+    pageSize < 1 ||
+    (totalPages !== undefined &&
+      (!Number.isInteger(totalPages) || totalPages < 0))
+  ) {
+    throw new Error('The products API returned invalid or missing pagination metadata.');
+  }
+
+  return {
+    items: products.filter((product): product is Product => product !== null),
+    ...(total !== undefined ? { total } : {}),
+    page,
+    pageSize,
+    totalPages,
+    hasNext: totalPages !== undefined ? page < totalPages : products.length === requestedPageSize,
+  };
+}
+
+function offsetForPage(page: number, pageSize: number): number {
+  return (page - 1) * pageSize;
+}
 
 @Injectable({ providedIn: 'root' })
 export class ProductCatalogService {
-  readonly products: Product[] = [
-    {
-      id: 'women-printed-maxi-dress-1',
-      name: 'Women Printed Maxi Dress',
-      variantDetails: 'Blue · M',
-      description: 'Stay stylish and comfortable with this beautiful printed maxi dress. Designed for effortless elegance, this dress is perfect for casual outings, beach trips or day events. The lightweight fabric and flowy fit make it a must-have in your wardrobe.',
-      price: 999,
-      originalPrice: 1499,
-      currency: 'INR',
-      imageUrl: '/images/women-dress.svg',
-      images: Array.from({ length: 4 }, () => '/images/women-dress.svg'),
-      category: 'fashion',
-      discountLabel: '33% OFF',
-      rating: 4.2,
-      reviewCount: '128',
-      inStock: true,
-      stockLeft: 5,
-      colors: [
-        { name: 'Navy Blue', hex: '#1e3a8a' },
-        { name: 'Coral Pink', hex: '#f08a80' },
-        { name: 'Sage Green', hex: '#6b8f71' },
-        { name: 'Beige', hex: '#d9cdb4' },
-      ],
-      sizes: ['S', 'M', 'L', 'XL', 'XXL'],
-      highlights: [
-        'Lightweight & breathable fabric',
-        'Comfortable fit for all-day wear',
-        'Beautiful floral print design',
-        'Perfect for casual outings, vacations & day events',
-      ],
-      specifications: [
-        { label: 'Fabric', value: 'Rayon' },
-        { label: 'Fit', value: 'Regular' },
-        { label: 'Pattern', value: 'Printed' },
-        { label: 'Length', value: 'Maxi' },
-        { label: 'Care', value: 'Hand wash or machine wash (gentle cycle)' },
-      ],
-    },
-    {
-      id: 'mens-cotton-t-shirt-1',
-      name: 'T-shirts with multiple colors, for men',
-      variantDetails: 'Black · Regular',
-      description: 'Soft cotton polo T-shirt available in multiple colors.',
-      price: 499,
-      currency: 'INR',
-      imageUrl: '/images/T-shirt.svg',
-      category: 'fashion',
-      inStock: true,
-    },
-    {
-      id: 'portable-laptop-1',
-      name: 'Portable laptop',
-      description: 'A lightweight laptop for work, study, and everyday browsing.',
-      price: 32999,
-      currency: 'INR',
-      imageUrl: '/images/laptop.svg',
-      category: 'electronics',
-      inStock: true,
-    },
-    {
-      id: 'mobile-phone-1',
-      name: 'Android mobile phone',
-      description: 'A modern smartphone for communication, photos, and entertainment.',
-      price: 14999,
-      currency: 'INR',
-      imageUrl: '/images/mobile-phone.svg',
-      category: 'electronics',
-      inStock: true,
-    },
-    {
-      id: 'smart-watch-1',
-      name: 'Smart watch',
-      variantDetails: 'Black · Standard',
-      description: 'Smart watch with everyday health and activity tracking.',
-      price: 1000,
-      currency: 'INR',
-      imageUrl: '/images/smart-watch.svg',
-      category: 'electronics',
-      inStock: true,
-    },
-    {
-      id: 'soft-chair-1',
-      name: 'Soft chair',
-      variantDetails: 'Beige · Standard',
-      description: 'Comfortable upholstered chair for your home.',
-      price: 2000,
-      currency: 'INR',
-      imageUrl: '/images/soft-chair.svg',
-      category: 'home-living',
-      inStock: true,
-    },
-    {
-      id: 'digital-camera-1',
-      name: 'Digital camera',
-      description: 'Compact digital camera for capturing everyday moments.',
-      price: 7999,
-      currency: 'INR',
-      imageUrl: '/images/camera.svg',
-      category: 'electronics',
-      inStock: true,
-    },
-    {
-      id: 'wireless-headphones-1',
-      name: 'Wireless headphones',
-      variantDetails: 'Black · Over-ear',
-      description: 'Comfortable wireless headphones for music and calls.',
-      price: 2499,
-      currency: 'INR',
-      imageUrl: '/images/headphones.svg',
-      category: 'electronics',
-      inStock: true,
-    },
-    {
-      id: 'classic-watch-1',
-      name: 'Classic wristwatch',
-      variantDetails: 'Black · 42 mm',
-      description: 'A classic everyday wristwatch with a clean design.',
-      price: 1799,
-      currency: 'INR',
-      imageUrl: '/images/watch.svg',
-      category: 'electronics',
-      inStock: true,
-    },
-    {
-      id: 'travel-laptop-1',
-      name: 'Everyday laptop',
-      description: 'A reliable laptop for everyday tasks and productivity.',
-      price: 28999,
-      currency: 'INR',
-      imageUrl: '/images/laptop.svg',
-      category: 'electronics',
-      inStock: true,
-    },
-    {
-      id: 'womens-floral-dress-2',
-      name: 'Floral print summer dress',
-      description: 'A lightweight floral dress for warm days and casual outings.',
-      price: 1199,
-      originalPrice: 1499,
-      currency: 'INR',
-      imageUrl: '/images/women-dress.svg',
-      category: 'fashion',
-      discountLabel: '20% Off',
-      rating: 4.1,
-      reviewCount: '860',
-      inStock: true,
-    },
-    {
-      id: 'mens-cotton-t-shirt-2',
-      name: 'Classic cotton polo T-shirt',
-      description: 'An easy-to-wear cotton polo for everyday use.',
-      price: 599,
-      originalPrice: 749,
-      currency: 'INR',
-      imageUrl: '/images/T-shirt.svg',
-      category: 'fashion',
-      discountLabel: '20% Off',
-      rating: 4.0,
-      reviewCount: '520',
-      inStock: true,
-    },
-    {
-      id: 'lightweight-laptop-2',
-      name: 'Lightweight work laptop',
-      description: 'A portable laptop suited to study, work, and browsing.',
-      price: 30999,
-      originalPrice: 35999,
-      currency: 'INR',
-      imageUrl: '/images/laptop.svg',
-      category: 'electronics',
-      discountLabel: '14% Off',
-      rating: 4.3,
-      reviewCount: '740',
-      inStock: true,
-    },
-    {
-      id: 'smartphone-android-2',
-      name: 'Everyday Android smartphone',
-      description: 'A practical smartphone for calls, photos, and entertainment.',
-      price: 12999,
-      originalPrice: 15999,
-      currency: 'INR',
-      imageUrl: '/images/mobile-phone.svg',
-      category: 'electronics',
-      discountLabel: '19% Off',
-      rating: 4.2,
-      reviewCount: '1.1k',
-      inStock: true,
-    },
-    {
-      id: 'accent-soft-chair-2',
-      name: 'Modern accent chair',
-      description: 'A cushioned accent chair to complement a living space.',
-      price: 2499,
-      originalPrice: 2999,
-      currency: 'INR',
-      imageUrl: '/images/soft-chair.svg',
-      category: 'home-living',
-      discountLabel: '17% Off',
-      rating: 4.1,
-      reviewCount: '390',
-      inStock: true,
-    },
-    {
-      id: 'women-floral-maxi-dress-1',
-      name: 'Women Floral Maxi Dress',
-      description: 'Lightweight floral maxi dress with a flowy fit.',
-      price: 899,
-      originalPrice: 1299,
-      currency: 'INR',
-      imageUrl: '/images/wishlist/dress-green.jpg',
-      category: 'fashion',
-      discountLabel: '33% OFF',
-      rating: 4.1,
-      reviewCount: '96',
-      inStock: true,
-    },
-    {
-      id: 'women-floral-maxi-dress-2',
-      name: 'Women Floral Maxi Dress',
-      description: 'Lightweight floral maxi dress with a flowy fit.',
-      price: 899,
-      originalPrice: 1299,
-      currency: 'INR',
-      imageUrl: '/images/wishlist/dress-pink.jpg',
-      category: 'fashion',
-      discountLabel: '33% OFF',
-      rating: 4.1,
-      reviewCount: '96',
-      inStock: true,
-    },
-    {
-      id: 'women-floral-maxi-dress-3',
-      name: 'Women Floral Maxi Dress',
-      description: 'Lightweight floral maxi dress with a flowy fit.',
-      price: 899,
-      originalPrice: 1299,
-      currency: 'INR',
-      imageUrl: '/images/wishlist/dress-blue.jpg',
-      category: 'fashion',
-      discountLabel: '33% OFF',
-      rating: 4.1,
-      reviewCount: '96',
-      inStock: true,
-    },
-    {
-      id: 'women-floral-maxi-dress-4',
-      name: 'Women Floral Maxi Dress',
-      description: 'Lightweight floral maxi dress with a flowy fit.',
-      price: 899,
-      originalPrice: 1299,
-      currency: 'INR',
-      imageUrl: '/images/wishlist/dress-black.jpg',
-      category: 'fashion',
-      discountLabel: '33% OFF',
-      rating: 4.1,
-      reviewCount: '96',
-      inStock: true,
-    },
-    {
-      id: 'women-floral-maxi-dress-5',
-      name: 'Women Floral Maxi Dress',
-      description: 'Lightweight floral maxi dress with a flowy fit.',
-      price: 899,
-      originalPrice: 1299,
-      currency: 'INR',
-      imageUrl: '/images/wishlist/dress-boho.jpg',
-      category: 'fashion',
-      discountLabel: '33% OFF',
-      rating: 4.1,
-      reviewCount: '96',
-      inStock: true,
-    },
-    {
-      id: 'white-sneakers-1',
-      name: 'White Sneakers',
-      description: 'Clean white sneakers for everyday wear.',
-      price: 3981,
-      originalPrice: 5299,
-      currency: 'INR',
-      imageUrl: '/images/wishlist/white-sneakers.jpg',
-      category: 'fashion',
-      discountLabel: '33% OFF',
-      rating: 4.1,
-      reviewCount: '96',
-      inStock: true,
-    },
-    {
-      id: 'smart-watch-2',
-      name: 'Smart Watch',
-      description: 'Smart watch with fitness and notification tracking.',
-      price: 4980,
-      originalPrice: 6999,
-      currency: 'INR',
-      imageUrl: '/images/wishlist/smart-watch.jpg',
-      category: 'electronics',
-      discountLabel: '29% OFF',
-      rating: 4.1,
-      reviewCount: '96',
-      inStock: true,
-    },
-    {
-      id: 'laptop-2',
-      name: 'Laptop',
-      description: 'High-performance laptop for work and creative projects.',
-      price: 42990,
-      originalPrice: 55990,
-      currency: 'INR',
-      imageUrl: '/images/wishlist/laptop.jpg',
-      category: 'electronics',
-      discountLabel: '23% OFF',
-      rating: 4.1,
-      reviewCount: '96',
-      inStock: true,
-    },
-    {
-      id: 'headphones-2',
-      name: 'Headphones',
-      description: 'Over-ear headphones with rich, balanced sound.',
-      price: 1999,
-      originalPrice: 2999,
-      currency: 'INR',
-      imageUrl: '/images/wishlist/headphones.jpg',
-      category: 'electronics',
-      discountLabel: '33% OFF',
-      rating: 4.1,
-      reviewCount: '96',
-      inStock: true,
-    },
-    {
-      id: 'home-decor-planter-set-1',
-      name: 'Home Decor Planter Set',
-      description: 'Set of ceramic planters on wooden stands.',
-      price: 899,
-      originalPrice: 1299,
-      currency: 'INR',
-      imageUrl: '/images/wishlist/planter-set.jpg',
-      category: 'home-living',
-      discountLabel: '33% OFF',
-      rating: 4.1,
-      reviewCount: '96',
-      inStock: true,
-    },
-    {
-      id: 'skincare-combo-1',
-      name: 'Skincare Combo',
-      description: 'Cleanser, toner and serum gift set.',
-      price: 899,
-      originalPrice: 1299,
-      currency: 'INR',
-      imageUrl: '/images/wishlist/skincare-combo.jpg',
-      category: 'beauty',
-      discountLabel: '33% OFF',
-      rating: 4.1,
-      reviewCount: '96',
-      inStock: true,
-    },
-    {
-      id: 'leather-handbag-1',
-      name: 'Handbag',
-      description: 'Structured top-handle handbag in vegan leather.',
-      price: 899,
-      originalPrice: 1299,
-      currency: 'INR',
-      imageUrl: '/images/wishlist/handbag.jpg',
-      category: 'fashion',
-      discountLabel: '33% OFF',
-      rating: 4.1,
-      reviewCount: '96',
-      inStock: true,
-    },
-  ];
+  private readonly api = inject(ApiService);
+  private readonly _products = signal<readonly Product[]>([]);
+  private readonly _status = signal<ProductCatalogStatus>('idle');
+  private readonly _error = signal<string | null>(null);
+  private readonly productsLoaded = new ReplaySubject<readonly Product[]>(1);
+  private readonly pageRequests = new Map<string, Observable<PaginatedResponse<Product>>>();
+
+  readonly products = this._products.asReadonly();
+  readonly status = this._status.asReadonly();
+  readonly error = this._error.asReadonly();
+  readonly productsLoaded$ = this.productsLoaded.asObservable();
+
+  load(): void {
+    if (this._status() === 'loading' || this._status() === 'success') return;
+
+    this._status.set('loading');
+    this._error.set(null);
+    this.api
+      .get<unknown>(API_ENDPOINTS.products.get)
+      .pipe(map(mapProductsResponse))
+      .subscribe({
+        next: (products) => {
+          this._products.set(products);
+          this._status.set('success');
+          this.productsLoaded.next(products);
+        },
+        error: (error: unknown) => {
+          this._status.set('error');
+          this._error.set(this.getErrorMessage(error));
+        },
+      });
+  }
+
+  loadPage(page: number, pageSize: number): Observable<PaginatedResponse<Product>> {
+    if (!Number.isSafeInteger(page) || page < 1) {
+      return throwError(() => new RangeError('Page must be a positive safe integer.'));
+    }
+    if (!Number.isSafeInteger(pageSize) || pageSize < 1) {
+      return throwError(() => new RangeError('Page size must be a positive safe integer.'));
+    }
+
+    const offset = offsetForPage(page, pageSize);
+    if (!Number.isSafeInteger(offset)) {
+      return throwError(() => new RangeError('The requested page offset is outside the supported range.'));
+    }
+    const cacheKey = `${pageSize}:${offset}`;
+    const cachedRequest = this.pageRequests.get(cacheKey);
+    if (cachedRequest) {
+      // Map preserves insertion order, so reinserting marks this page as recently used.
+      this.pageRequests.delete(cacheKey);
+      this.pageRequests.set(cacheKey, cachedRequest);
+      return cachedRequest;
+    }
+
+    let request: Observable<PaginatedResponse<Product>>;
+    request = this.api
+      .get<unknown>(API_ENDPOINTS.products.get, { LIMIT: pageSize, OFFSET: offset })
+      .pipe(
+        map((response) => mapProductPageResponse(response, page, pageSize)),
+        catchError((error: unknown) => {
+          // Do not let an older evicted request remove a newer request for this key.
+          if (this.pageRequests.get(cacheKey) === request) this.pageRequests.delete(cacheKey);
+          return throwError(() => error);
+        }),
+        shareReplay({ bufferSize: 1, refCount: true }),
+      );
+    this.pageRequests.set(cacheKey, request);
+    while (this.pageRequests.size > MAX_CACHED_PRODUCT_PAGES) {
+      const oldestKey = this.pageRequests.keys().next().value;
+      if (oldestKey === undefined) break;
+      this.pageRequests.delete(oldestKey);
+    }
+    return request;
+  }
+
+  /** Clears cached pages after a successful product mutation or when fresh data is required. */
+  invalidatePageCache(): void {
+    this.pageRequests.clear();
+  }
 
   findById(id: string): Product | undefined {
-    return this.products.find((product) => product.id === id);
+    return this._products().find((product) => product.id === id);
+  }
+
+  getErrorMessage(error: unknown): string {
+    if (error instanceof HttpErrorResponse) {
+      const body = error.error;
+      if (isRecord(body) && typeof body['message'] === 'string') return body['message'];
+      return error.status
+        ? `Products could not be loaded (HTTP ${error.status}).`
+        : 'Products could not be loaded. Check your connection and try again.';
+    }
+    return error instanceof Error ? error.message : 'Products could not be loaded. Please try again.';
   }
 }

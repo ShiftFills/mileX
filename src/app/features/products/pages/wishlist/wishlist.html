@@ -9,7 +9,14 @@
     (valueChange)="selectCategory($event)"
   />
 
-  @if (wishlist.products().length) {
+  @if (catalog.status() === 'loading' || catalog.status() === 'idle') {
+    <div class="wishlist__state" role="status"><app-loading-spinner /> Loading your wishlist…</div>
+  } @else if (catalog.status() === 'error') {
+    <app-alert tone="danger" role="alert">
+      {{ catalog.error() }}
+      <button type="button" class="wishlist__retry" (click)="retryLoad()">Try again</button>
+    </app-alert>
+  } @else if (wishlist.products().length) {
     <p class="visually-hidden" role="status" aria-live="polite">{{ notice() }}</p>
 
     <section appCard class="wishlist__products" aria-label="Saved products">

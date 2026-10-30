@@ -169,7 +169,7 @@ export class EditProduct extends AddProduct {
       category: product.category,
       brand: product.brand,
       sellingPrice: product.price.replace(/[^\d.]/g, ''),
-      stockQuantity: String(product.stock),
+      stockQuantity: String(product.stock ?? ''),
     });
     this.hasVariants.set(hasVariants);
     this.gallery.set(

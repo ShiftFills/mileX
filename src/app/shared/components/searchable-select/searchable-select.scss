@@ -1,0 +1,129 @@
+:host {
+  display: block;
+  width: 100%;
+}
+
+:host(.seller-field__input) {
+  height: 100%;
+  min-width: 0;
+  font-size: 0.625rem;
+}
+
+.searchable-select {
+  position: relative;
+  width: 100%;
+  color: var(--color-text, #283b55);
+  font: inherit;
+
+  &__trigger {
+    display: flex;
+    width: 100%;
+    min-height: 2.45rem;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+    padding: 0.55rem 0.75rem;
+    border: 1px solid var(--color-border, #d8e0e9);
+    border-radius: var(--radius-md, 0.5rem);
+    background: var(--color-surface, #fff);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+
+    :host(.seller-field__input) & {
+      height: 100%;
+      min-height: 0;
+      padding: 0.35rem 0.6rem 0.35rem 1.7rem;
+      border: 0;
+      border-radius: 0.4rem;
+      background: transparent;
+      font-size: inherit;
+      line-height: 1.2;
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--color-focus-ring, #377bb5);
+      outline-offset: 2px;
+    }
+
+    &:disabled {
+      background: var(--color-surface-muted, #f3f5f7);
+      cursor: not-allowed;
+    }
+
+    svg {
+      width: 0.8rem;
+      height: 0.8rem;
+      flex: 0 0 auto;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.5;
+    }
+  }
+
+  &__placeholder {
+    color: var(--color-text-muted, #8493a8);
+  }
+
+  &__panel {
+    position: absolute;
+    z-index: 20;
+    inset: calc(100% + 0.25rem) 0 auto;
+    overflow: hidden;
+    border: 1px solid var(--color-border, #d8e0e9);
+    border-radius: var(--radius-md, 0.5rem);
+    background: var(--color-surface, #fff);
+    box-shadow: 0 0.5rem 1.5rem rgb(20 35 55 / 16%);
+  }
+
+  &__search {
+    display: block;
+    width: calc(100% - 1rem);
+    min-height: 2rem;
+    margin: 0.5rem;
+    padding: 0.4rem 0.55rem;
+    border: 1px solid var(--color-border, #d8e0e9);
+    border-radius: var(--radius-sm, 0.3rem);
+    background: var(--color-surface, #fff);
+    color: inherit;
+    font: inherit;
+
+    &:focus {
+      border-color: var(--color-focus-ring, #377bb5);
+      outline: 0;
+    }
+  }
+
+  ul {
+    max-height: 13rem;
+    overflow-y: auto;
+    margin: 0;
+    padding: 0 0.25rem 0.25rem;
+    list-style: none;
+  }
+
+  &__option {
+    width: 100%;
+    padding: 0.5rem 0.6rem;
+    border: 0;
+    border-radius: var(--radius-sm, 0.3rem);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+
+    &:hover,
+    &:focus-visible,
+    &.is-selected {
+      background: var(--color-surface-hover, #f3f6f9);
+      outline: none;
+    }
+  }
+
+  &__empty {
+    padding: 0.6rem;
+    color: var(--color-text-muted, #8493a8);
+  }
+}

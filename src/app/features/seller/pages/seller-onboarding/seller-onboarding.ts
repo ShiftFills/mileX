@@ -1,16 +1,23 @@
-import { ChangeDetectionStrategy, Component, computed, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, OnDestroy, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { NgTemplateOutlet } from '@angular/common';
+import { Subscription } from 'rxjs';
 import { Button } from '@shared/components/button/button';
 import { Badge } from '@shared/components/badge/badge';
 import { Card } from '@shared/components/card/card';
 import { Checkbox } from '@shared/components/checkbox/checkbox';
 import { FileUpload } from '@shared/components/file-upload/file-upload';
 import { Input } from '@shared/components/input/input';
+import { SearchableSelect } from '@shared/components/searchable-select/searchable-select';
 import { Select } from '@shared/components/select/select';
 import { Textarea } from '@shared/components/textarea/textarea';
 import { Home } from '@features/home/pages/home/home';
 import { DocumentPreview } from '../../components/document-preview/document-preview';
+import {
+  SellerLookupOption,
+  SellerOnboardingPayload,
+  SellerOnboardingService,
+} from '../../services/seller-onboarding.service';
 
 interface SellerFieldOption {
   label: string;
@@ -21,22 +28,51 @@ interface SellerFieldDefinition {
   name: string;
   label: string;
   placeholder: string;
-  icon: 'business' | 'user' | 'type' | 'email' | 'phone' | 'location' | 'globe' | 'document' | 'card' | 'map';
-  type?: 'text' | 'email' | 'tel' | 'select' | 'textarea' | 'file';
+  icon:
+    | 'business'
+    | 'user'
+    | 'type'
+    | 'email'
+    | 'phone'
+    | 'location'
+    | 'globe'
+    | 'document'
+    | 'card'
+    | 'map';
+  type?:
+    'text' | 'email' | 'tel' | 'password' | 'select' | 'searchable-select' | 'textarea' | 'file';
   required?: boolean;
   options?: readonly SellerFieldOption[];
 }
 
+type LookupName = 'businessType' | 'country' | 'state';
+type LookupStatus = 'loading' | 'success' | 'error';
+
 @Component({
   selector: 'app-seller-onboarding',
-  imports: [Badge, Button, Card, Checkbox, DocumentPreview, FileUpload, Home, Input, NgTemplateOutlet, Select, Textarea],
+  imports: [
+    Badge,
+    Button,
+    Card,
+    Checkbox,
+    DocumentPreview,
+    FileUpload,
+    Home,
+    Input,
+    NgTemplateOutlet,
+    SearchableSelect,
+    Select,
+    Textarea,
+  ],
   templateUrl: './seller-onboarding.html',
   styleUrl: './seller-onboarding.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class SellerOnboarding {
+export class SellerOnboarding implements OnDestroy {
   protected readonly activeStep = signal(1);
   protected readonly submitted = signal(false);
+  protected readonly isSubmitting = signal(false);
+  protected readonly submissionError = signal<string | null>(null);
   protected readonly values = signal<Record<string, string>>({});
   protected readonly uploadedDocuments = signal<Record<string, File>>({});
   protected readonly attemptedNext = signal(false);
@@ -44,6 +80,17 @@ export class SellerOnboarding {
   protected readonly previewDocument = signal<string | null>(null);
   protected readonly touchedFields = signal<Record<string, boolean>>({});
   protected readonly accuracyConfirmed = signal(true);
+  protected readonly businessTypes = signal<SellerFieldOption[]>([]);
+  protected readonly countries = signal<SellerFieldOption[]>([]);
+  protected readonly states = signal<SellerFieldOption[]>([]);
+  protected readonly lookupStatus = signal<Record<LookupName, LookupStatus>>({
+    businessType: 'loading',
+    country: 'loading',
+    state: 'success',
+  });
+  protected readonly lookupErrors = signal<Partial<Record<LookupName, string>>>({});
+  private readonly lookupSubscriptions = new Map<LookupName, Subscription>();
+  private submissionSubscription: Subscription | null = null;
   private readonly router: Router;
 
   protected readonly previewedDocument = computed(() => {
@@ -53,25 +100,6 @@ export class SellerOnboarding {
     return name && file && field ? { name, label: field.label, file } : null;
   });
 
-  protected readonly businessTypes: SellerFieldOption[] = [
-    { label: 'Private Limited Company', value: 'private-limited' },
-    { label: 'Partnership', value: 'partnership' },
-    { label: 'Sole Proprietorship', value: 'sole-proprietorship' },
-    { label: 'Other', value: 'other' },
-  ];
-
-  protected readonly countries: SellerFieldOption[] = [
-    { label: 'India', value: 'india' },
-  ];
-
-  protected readonly states: SellerFieldOption[] = [
-    { label: 'Andhra Pradesh', value: 'andhra-pradesh' },
-    { label: 'Delhi', value: 'delhi' },
-    { label: 'Karnataka', value: 'karnataka' },
-    { label: 'Maharashtra', value: 'maharashtra' },
-    { label: 'Tamil Nadu', value: 'tamil-nadu' },
-  ];
-
   protected readonly steps = [
     'Seller Onboarding',
     'Seller Documents',
@@ -79,37 +107,141 @@ export class SellerOnboarding {
     'Review & Submit',
   ];
 
-  protected readonly leftFields: SellerFieldDefinition[] = [
-    { name: 'businessName', label: 'Business Name', placeholder: 'Enter business name', icon: 'business' },
-    { name: 'businessType', label: 'Business Type', placeholder: 'Select business type', icon: 'type', type: 'select', options: this.businessTypes },
-    { name: 'mobileNumber', label: 'Mobile Number', placeholder: 'Enter mobile number', icon: 'phone', type: 'tel' },
+  protected readonly leftFields = computed<SellerFieldDefinition[]>(() => [
+    {
+      name: 'businessName',
+      label: 'Business Name',
+      placeholder: 'Enter business name',
+      icon: 'business',
+    },
+    {
+      name: 'businessType',
+      label: 'Business Type',
+      placeholder: 'Select business type',
+      icon: 'type',
+      type: 'searchable-select',
+      options: this.businessTypes(),
+    },
+    {
+      name: 'mobileNumber',
+      label: 'Mobile Number',
+      placeholder: 'Enter mobile number',
+      icon: 'phone',
+      type: 'tel',
+    },
     { name: 'city', label: 'City', placeholder: 'Enter city', icon: 'location' },
-    { name: 'country', label: 'Country', placeholder: 'Select country', icon: 'globe', type: 'select', options: this.countries },
+    {
+      name: 'country',
+      label: 'Country',
+      placeholder: 'Select country',
+      icon: 'globe',
+      type: 'select',
+      options: this.countries(),
+    },
     { name: 'gstNumber', label: 'GST Number', placeholder: 'Enter GST number', icon: 'document' },
-    { name: 'registrationNumber', label: 'Business Registration Number', placeholder: 'Enter business registration number', icon: 'document' },
-    { name: 'contactEmail', label: 'Contact Person Email', placeholder: 'Enter contact person email', icon: 'email', type: 'email' },
-  ];
+    {
+      name: 'registrationNumber',
+      label: 'Business Registration Number',
+      placeholder: 'Enter business registration number',
+      icon: 'document',
+    },
+    {
+      name: 'contactEmail',
+      label: 'Contact Person Email',
+      placeholder: 'Enter contact person email',
+      icon: 'email',
+      type: 'email',
+    },
+  ]);
 
   protected readonly rightTopFields: SellerFieldDefinition[] = [
     { name: 'sellerName', label: 'Seller Name', placeholder: 'Enter seller name', icon: 'user' },
-    { name: 'email', label: 'Email', placeholder: 'Enter email address', icon: 'email', type: 'email' },
-    { name: 'businessAddress', label: 'Business Address', placeholder: 'Enter business address', icon: 'location', type: 'textarea' },
+    {
+      name: 'email',
+      label: 'Email',
+      placeholder: 'Enter email address',
+      icon: 'email',
+      type: 'email',
+    },
+    {
+      name: 'businessAddress',
+      label: 'Business Address',
+      placeholder: 'Enter business address',
+      icon: 'location',
+      type: 'textarea',
+    },
   ];
 
   protected readonly rightBottomFields: SellerFieldDefinition[] = [
     { name: 'panNumber', label: 'PAN Number', placeholder: 'Enter PAN number', icon: 'card' },
-    { name: 'contactPersonName', label: 'Contact Person Name', placeholder: 'Enter contact person name', icon: 'user' },
-    { name: 'contactPersonMobile', label: 'Contact Person Mobile', placeholder: 'Enter mobile number', icon: 'phone', type: 'tel' },
+    {
+      name: 'contactPersonName',
+      label: 'Contact Person Name',
+      placeholder: 'Enter contact person name',
+      icon: 'user',
+    },
+    {
+      name: 'contactPersonMobile',
+      label: 'Contact Person Mobile',
+      placeholder: 'Enter mobile number',
+      icon: 'phone',
+      type: 'tel',
+    },
+    { name: 'userName', label: 'Account Username', placeholder: 'Choose a username', icon: 'user' },
+    {
+      name: 'userPassword',
+      label: 'Account Password',
+      placeholder: 'Choose a password',
+      icon: 'card',
+      type: 'password',
+    },
   ];
 
   protected readonly documentFields: SellerFieldDefinition[] = [
-    { name: 'gstCertificate', label: 'GST Certificate', placeholder: 'Choose Files', icon: 'document', type: 'file' },
+    {
+      name: 'gstCertificate',
+      label: 'GST Certificate',
+      placeholder: 'Choose Files',
+      icon: 'document',
+      type: 'file',
+    },
     { name: 'panCard', label: 'PAN Card', placeholder: 'Choose Files', icon: 'card', type: 'file' },
-    { name: 'registrationCertificate', label: 'Business Registration Certificate', placeholder: 'Choose Files', icon: 'business', type: 'file' },
-    { name: 'addressProof', label: 'Address Proof', placeholder: 'Choose Files', icon: 'document', type: 'file' },
-    { name: 'ownerIdProof', label: 'Owner/Director ID Proof', placeholder: 'Choose Files', icon: 'user', type: 'file' },
-    { name: 'bankProof', label: 'Bank Proof / Cancelled Cheque', placeholder: 'Choose Files', icon: 'card', type: 'file' },
-    { name: 'supportingDocument', label: 'Other Supporting Document', placeholder: 'Choose Files', icon: 'document', type: 'file', required: false },
+    {
+      name: 'registrationCertificate',
+      label: 'Business Registration Certificate',
+      placeholder: 'Choose Files',
+      icon: 'business',
+      type: 'file',
+    },
+    {
+      name: 'addressProof',
+      label: 'Address Proof',
+      placeholder: 'Choose Files',
+      icon: 'document',
+      type: 'file',
+    },
+    {
+      name: 'ownerIdProof',
+      label: 'Owner/Director ID Proof',
+      placeholder: 'Choose Files',
+      icon: 'user',
+      type: 'file',
+    },
+    {
+      name: 'bankProof',
+      label: 'Bank Proof / Cancelled Cheque',
+      placeholder: 'Choose Files',
+      icon: 'card',
+      type: 'file',
+    },
+    {
+      name: 'supportingDocument',
+      label: 'Other Supporting Document',
+      placeholder: 'Choose Files',
+      icon: 'document',
+      type: 'file',
+      required: false,
+    },
   ];
 
   protected readonly accountTypes: SellerFieldOption[] = [
@@ -118,11 +250,31 @@ export class SellerOnboarding {
   ];
 
   protected readonly bankFields: SellerFieldDefinition[] = [
-    { name: 'accountHolder', label: 'Account Holder Name', placeholder: 'Enter account holder name', icon: 'user' },
+    {
+      name: 'accountHolder',
+      label: 'Account Holder Name',
+      placeholder: 'Enter account holder name',
+      icon: 'user',
+    },
     { name: 'bankName', label: 'Bank Name', placeholder: 'Enter bank name', icon: 'business' },
-    { name: 'branchName', label: 'Branch Name', placeholder: 'Enter branch name', icon: 'business' },
-    { name: 'accountNumber', label: 'Account Number', placeholder: 'Enter bank account number', icon: 'card' },
-    { name: 'confirmAccountNumber', label: 'Confirm Account Number', placeholder: 'Enter account number', icon: 'card' },
+    {
+      name: 'branchName',
+      label: 'Branch Name',
+      placeholder: 'Enter branch name',
+      icon: 'business',
+    },
+    {
+      name: 'accountNumber',
+      label: 'Account Number',
+      placeholder: 'Enter bank account number',
+      icon: 'card',
+    },
+    {
+      name: 'confirmAccountNumber',
+      label: 'Confirm Account Number',
+      placeholder: 'Enter account number',
+      icon: 'card',
+    },
     {
       name: 'accountType',
       label: 'Account Type',
@@ -135,12 +287,41 @@ export class SellerOnboarding {
 
   protected readonly requiredFieldsByStep: Record<number, string[]> = {
     1: [
-      'businessName', 'businessType', 'mobileNumber', 'city', 'country', 'gstNumber',
-      'registrationNumber', 'contactEmail', 'sellerName', 'email', 'businessAddress',
-      'state', 'pincode', 'panNumber', 'contactPersonName', 'contactPersonMobile',
+      'businessName',
+      'businessType',
+      'mobileNumber',
+      'city',
+      'country',
+      'gstNumber',
+      'registrationNumber',
+      'contactEmail',
+      'sellerName',
+      'email',
+      'businessAddress',
+      'state',
+      'pincode',
+      'panNumber',
+      'contactPersonName',
+      'contactPersonMobile',
+      'userName',
+      'userPassword',
     ],
-    2: ['gstCertificate', 'panCard', 'registrationCertificate', 'addressProof', 'ownerIdProof', 'bankProof'],
-    3: ['accountHolder', 'bankName', 'branchName', 'accountNumber', 'confirmAccountNumber', 'accountType'],
+    2: [
+      'gstCertificate',
+      'panCard',
+      'registrationCertificate',
+      'addressProof',
+      'ownerIdProof',
+      'bankProof',
+    ],
+    3: [
+      'accountHolder',
+      'bankName',
+      'branchName',
+      'accountNumber',
+      'confirmAccountNumber',
+      'accountType',
+    ],
   };
 
   private readonly requiredMessagesByField: Record<string, string> = {
@@ -160,6 +341,8 @@ export class SellerOnboarding {
     panNumber: 'PAN number is required.',
     contactPersonName: 'Contact person name is required.',
     contactPersonMobile: 'Contact person mobile is required.',
+    userName: 'Account username is required.',
+    userPassword: 'Account password is required.',
     accountHolder: 'Account holder name is required.',
     bankName: 'Bank name is required.',
     branchName: 'Branch name is required.',
@@ -169,13 +352,58 @@ export class SellerOnboarding {
   };
 
   private readonly gstinStateCodes = new Set([
-    '01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13', '14',
-    '15', '16', '17', '18', '19', '20', '21', '22', '23', '24', '26', '27', '29', '30',
-    '31', '32', '33', '34', '35', '36', '37', '38', '97', '99',
+    '01',
+    '02',
+    '03',
+    '04',
+    '05',
+    '06',
+    '07',
+    '08',
+    '09',
+    '10',
+    '11',
+    '12',
+    '13',
+    '14',
+    '15',
+    '16',
+    '17',
+    '18',
+    '19',
+    '20',
+    '21',
+    '22',
+    '23',
+    '24',
+    '26',
+    '27',
+    '29',
+    '30',
+    '31',
+    '32',
+    '33',
+    '34',
+    '35',
+    '36',
+    '37',
+    '38',
+    '97',
+    '99',
   ]);
 
-  constructor(router: Router) {
+  constructor(
+    router: Router,
+    private readonly sellerOnboarding: SellerOnboardingService,
+  ) {
     this.router = router;
+    this.loadLookup('businessType');
+    this.loadLookup('country');
+  }
+
+  ngOnDestroy(): void {
+    for (const subscription of this.lookupSubscriptions.values()) subscription.unsubscribe();
+    this.submissionSubscription?.unsubscribe();
   }
 
   protected valueFor(name: string): string {
@@ -205,7 +433,8 @@ export class SellerOnboarding {
   }
 
   protected errorFor(name: string): string | null {
-    if (!this.attemptedNext() && !this.touchedFields()[name] && !this.valueFor(name).trim()) return null;
+    if (!this.attemptedNext() && !this.touchedFields()[name] && !this.valueFor(name).trim())
+      return null;
     return this.errorForStep(name, this.activeStep());
   }
 
@@ -217,7 +446,7 @@ export class SellerOnboarding {
     const value = this.valueFor(name).trim();
     if (!value) {
       return this.requiredFieldsByStep[step]?.includes(name)
-        ? this.requiredMessagesByField[name] ?? 'This field is required.'
+        ? (this.requiredMessagesByField[name] ?? 'This field is required.')
         : null;
     }
 
@@ -227,7 +456,9 @@ export class SellerOnboarding {
         return this.isValidEmail(value) ? null : 'Please enter a valid email address.';
       case 'mobileNumber':
       case 'contactPersonMobile':
-        return this.isValidMobileNumber(value) ? null : 'Please enter a valid 10-digit mobile number.';
+        return this.isValidMobileNumber(value)
+          ? null
+          : 'Please enter a valid 10-digit mobile number.';
       case 'pincode':
         return /^[1-9]\d{5}$/.test(value) ? null : 'Please enter a valid 6-digit PIN code.';
       case 'gstNumber':
@@ -246,7 +477,9 @@ export class SellerOnboarding {
       case 'accountNumber':
         return /^\d+$/.test(value) ? null : 'Account number must contain digits only.';
       case 'confirmAccountNumber':
-        return this.valueFor('accountNumber').trim() === value ? null : 'Account numbers do not match.';
+        return this.valueFor('accountNumber').trim() === value
+          ? null
+          : 'Account numbers do not match.';
       case 'registrationNumber':
         return null;
       default:
@@ -255,7 +488,9 @@ export class SellerOnboarding {
   }
 
   private isValidEmail(value: string): boolean {
-    return /^[A-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Z0-9!#$%&'*+/=?^_`{|}~-]+)*@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+$/i.test(value);
+    return /^[A-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Z0-9!#$%&'*+/=?^_`{|}~-]+)*@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+$/i.test(
+      value,
+    );
   }
 
   private isValidMobileNumber(value: string): boolean {
@@ -286,16 +521,107 @@ export class SellerOnboarding {
   }
 
   private isValidOption(name: string, value: string): boolean {
-    const options = name === 'businessType'
-      ? this.businessTypes
-      : name === 'country'
-        ? this.countries
-        : name === 'state'
-          ? this.states
-          : name === 'accountType'
-            ? this.accountTypes
-            : [];
+    const options =
+      name === 'businessType'
+        ? this.businessTypes()
+        : name === 'country'
+          ? this.countries()
+          : name === 'state'
+            ? this.states()
+            : name === 'accountType'
+              ? this.accountTypes
+              : [];
     return options.some((option) => option.value === value);
+  }
+
+  protected loadLookup(name: LookupName): void {
+    this.lookupSubscriptions.get(name)?.unsubscribe();
+    this.lookupSubscriptions.delete(name);
+    this.lookupErrors.update((errors) => {
+      const { [name]: _removed, ...remaining } = errors;
+      return remaining;
+    });
+
+    const countryId = this.valueFor('country');
+    if (name === 'state' && !countryId) {
+      this.states.set([]);
+      this.lookupStatus.update((status) => ({ ...status, state: 'success' }));
+      return;
+    }
+
+    this.lookupStatus.update((status) => ({ ...status, [name]: 'loading' }));
+
+    const request =
+      name === 'businessType'
+        ? this.sellerOnboarding.getBusinessTypes()
+        : name === 'country'
+          ? this.sellerOnboarding.getCountries()
+          : this.sellerOnboarding.getStates(countryId);
+    const subscription = request.subscribe({
+      next: (options) => {
+        const mapped = this.toFieldOptions(options, name === 'country');
+        if (name === 'businessType') this.businessTypes.set(mapped);
+        else if (name === 'country') this.countries.set(mapped);
+        else this.states.set(mapped);
+        this.lookupStatus.update((status) => ({ ...status, [name]: 'success' }));
+      },
+      error: (error: unknown) => {
+        this.lookupErrors.update((errors) => ({
+          ...errors,
+          [name]: this.sellerOnboarding.getErrorMessage(error),
+        }));
+        this.lookupStatus.update((status) => ({ ...status, [name]: 'error' }));
+      },
+    });
+    this.lookupSubscriptions.set(name, subscription);
+  }
+
+  protected isLookupDisabled(fieldName: string): boolean {
+    return (
+      this.isLookupName(fieldName) &&
+      (this.lookupStatus()[fieldName] !== 'success' ||
+        this.lookupOptions(fieldName).length === 0 ||
+        (fieldName === 'state' && !this.valueFor('country')))
+    );
+  }
+
+  protected lookupPlaceholder(fieldName: string, fallback: string): string {
+    if (!this.isLookupName(fieldName)) return fallback;
+    const status = this.lookupStatus()[fieldName];
+    if (status === 'loading') return 'Loading options…';
+    if (status === 'error') return 'Options unavailable';
+    if (fieldName === 'state' && !this.valueFor('country')) return 'Select country first';
+    if (this.lookupOptions(fieldName).length === 0) return 'No options available';
+    return fallback;
+  }
+
+  protected lookupErrorFor(fieldName: string): string | null {
+    if (!this.isLookupName(fieldName)) return null;
+    return (
+      this.lookupErrors()[fieldName] ??
+      (this.lookupStatus()[fieldName] === 'success' && this.lookupOptions(fieldName).length === 0
+        ? 'No options are currently available.'
+        : null)
+    );
+  }
+
+  private isLookupName(name: string): name is LookupName {
+    return name === 'businessType' || name === 'country' || name === 'state';
+  }
+
+  private lookupOptions(name: LookupName): readonly SellerFieldOption[] {
+    return name === 'businessType'
+      ? this.businessTypes()
+      : name === 'country'
+        ? this.countries()
+        : this.states();
+  }
+
+  private toFieldOptions(
+    options: readonly SellerLookupOption[],
+    useIdsAsValues: boolean,
+  ): SellerFieldOption[] {
+    return options.map(({ id, name }) => ({ label: name, value: useIdsAsValues ? id : name }));
   }
 
   protected updateValue(name: string, event: Event): void {
@@ -310,7 +636,22 @@ export class SellerOnboarding {
           ? (element.files?.[0]?.name ?? '')
           : element.value;
       this.values.update((current) => ({ ...current, [name]: value }));
+      if (name === 'country') {
+        this.values.update((current) => ({ ...current, state: '' }));
+        this.states.set([]);
+        this.loadLookup('state');
+      }
     }
+  }
+
+  protected updateSearchableValue(name: string, value: string): void {
+    this.values.update((current) => ({ ...current, [name]: value }));
+    this.markTouched(name);
+    this.submissionError.set(null);
+  }
+
+  private lookupName(name: LookupName, id: string): string {
+    return this.lookupOptions(name).find((option) => option.value === id)?.label ?? '';
   }
 
   protected updateDocument(name: string, file: File): void {
@@ -331,11 +672,13 @@ export class SellerOnboarding {
   }
 
   protected continue(): void {
+    if (this.isSubmitting()) return;
     this.attemptedNext.set(true);
     this.previewDocument.set(null);
     for (let step = 1; step <= this.activeStep(); step += 1) {
-      const hasErrors = (this.requiredFieldsByStep[step] ?? [])
-        .some((name) => this.errorForStep(name, step) !== null);
+      const hasErrors = (this.requiredFieldsByStep[step] ?? []).some(
+        (name) => this.errorForStep(name, step) !== null,
+      );
       if (hasErrors) {
         this.activeStep.set(step);
         return;
@@ -347,11 +690,52 @@ export class SellerOnboarding {
       this.attemptedNext.set(false);
       return;
     }
-    this.submitted.set(true);
+    this.submitApplication();
+  }
+
+  private submitApplication(): void {
+    const value = (name: string) => this.valueFor(name).trim();
+    const payload: SellerOnboardingPayload = {
+      BUSINESS_NAME: value('businessName'),
+      SELLER_NAME: value('sellerName'),
+      BUSINESS_TYPE: this.lookupName('businessType', value('businessType')),
+      EMAIL: value('email'),
+      MOBILE_NUMBER: Number(value('mobileNumber')),
+      BUSINESS_ADDRESS: value('businessAddress'),
+      CITY: value('city'),
+      STATE: this.lookupName('state', value('state')),
+      COUNTRY: this.lookupName('country', value('country')),
+      PINCODE: value('pincode'),
+      GST_NUMBER: value('gstNumber').toUpperCase(),
+      PAN_NUMBER: value('panNumber').toUpperCase(),
+      BUSINESS_REGISTRATION_NUMBER: value('registrationNumber'),
+      CONTACT_PERSON_NAME: value('contactPersonName'),
+      CONTACT_PERSON_MOBILE: Number(value('contactPersonMobile')),
+      CONTACT_PERSON_EMAIL: value('contactEmail'),
+      USER_NAME: value('userName'),
+      USER_PASSWORD: value('userPassword'),
+      CREATED_BY: 1,
+    };
+
+    this.isSubmitting.set(true);
+    this.submissionError.set(null);
+    this.submissionSubscription?.unsubscribe();
+    this.submissionSubscription = this.sellerOnboarding.submit(payload).subscribe({
+      next: () => {
+        this.isSubmitting.set(false);
+        this.values.update(({ userPassword: _password, ...remaining }) => remaining);
+        this.submitted.set(true);
+      },
+      error: (error: unknown) => {
+        this.isSubmitting.set(false);
+        this.submissionError.set(this.sellerOnboarding.getErrorMessage(error));
+      },
+    });
   }
 
   protected goToStep(step: number): void {
-    if (this.submitted() || step < 1 || step > this.steps.length || step === this.activeStep()) return;
+    if (this.submitted() || step < 1 || step > this.steps.length || step === this.activeStep())
+      return;
     this.activeStep.set(step);
     this.attemptedNext.set(false);
     this.previewDocument.set(null);

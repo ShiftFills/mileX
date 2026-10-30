@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { APP_ROUTES } from '@core/constants/app-routes';
 import { Button } from '@shared/components/button/button';
 import { Input } from '@shared/components/input/input';
 
@@ -11,6 +12,7 @@ import { Input } from '@shared/components/input/input';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class Login {
+  protected readonly routes = APP_ROUTES;
   protected readonly email = signal('');
   protected readonly password = signal('');
   protected readonly passwordVisible = signal(false);

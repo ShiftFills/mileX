@@ -3,11 +3,14 @@ import { ChangeDetectionStrategy, Component, TemplateRef, computed, inject, sign
 import { Router, RouterLink } from '@angular/router';
 import { APP_ROUTES } from '@core/constants/app-routes';
 import { CartService } from '@core/services/cart.service';
+import { ProductCatalogService } from '@core/services/product-catalog.service';
 import { CartItem } from '@shared/models';
+import { Alert } from '@shared/components/alert/alert';
 import { Button } from '@shared/components/button/button';
 import { Card } from '@shared/components/card/card';
 import { Checkbox } from '@shared/components/checkbox/checkbox';
 import { Input } from '@shared/components/input/input';
+import { LoadingSpinner } from '@shared/components/loading-spinner/loading-spinner';
 import { Radio } from '@shared/components/radio/radio';
 import { Table, TableCellContext, TableColumn } from '@shared/components/table/table';
 
@@ -30,13 +33,14 @@ type PaymentMethod = 'upi' | 'card' | 'bank' | 'cod';
 
 @Component({
   selector: 'app-checkout',
-  imports: [Button, Card, Checkbox, CurrencyPipe, Input, Radio, RouterLink, Table],
+  imports: [Alert, Button, Card, Checkbox, CurrencyPipe, Input, LoadingSpinner, Radio, RouterLink, Table],
   templateUrl: './checkout.html',
   styleUrl: './checkout.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class Checkout {
   protected readonly cart = inject(CartService);
+  protected readonly catalog = inject(ProductCatalogService);
   private readonly router = inject(Router);
   protected readonly routes = APP_ROUTES;
   protected readonly placed = signal(false);
@@ -82,6 +86,10 @@ export class Checkout {
     { key: 'tax', label: 'Tax', width: '10%', cellTemplate: this.taxCell() },
     { key: 'total', label: 'Total Amount', width: '20%', bold: true, cellTemplate: this.totalCell() },
   ]);
+
+  protected retryLoad(): void {
+    this.catalog.load();
+  }
 
   protected discountFor(item: CartItem): number {
     return Math.max(0, (item.product.originalPrice ?? item.product.price) - item.product.price) * item.quantity;
@@ -191,7 +199,7 @@ export class Checkout {
 
   protected placeDemoOrder(event: SubmitEvent): void {
     event.preventDefault();
-    if (this.editingCard()) return;
+    if (this.editingCard() || this.cart.hasUnavailableItems()) return;
     this.placed.set(true);
     this.cart.clear();
   }

@@ -1,1 +1,59 @@
-<p>searchable-select works!</p>
+<div
+  class="searchable-select"
+  appClickOutside
+  (clickedOutside)="closeOnOutsideClick()"
+  (focusout)="closeOnFocusout($event)"
+  (keydown)="closeOnEscape($event)"
+>
+  <button
+    type="button"
+    class="searchable-select__trigger"
+    [id]="inputId()"
+    aria-haspopup="listbox"
+    [attr.aria-expanded]="isOpen()"
+    [attr.aria-controls]="listboxId()"
+    [attr.aria-label]="ariaLabel()"
+    [attr.aria-invalid]="ariaInvalid() === null ? null : ariaInvalid() ? 'true' : 'false'"
+    [attr.aria-describedby]="ariaDescribedBy()"
+    [attr.name]="name()"
+    [attr.aria-required]="required()"
+    [disabled]="disabled()"
+    (click)="toggle()"
+  >
+    <span [class.searchable-select__placeholder]="!selectedOption()">
+      {{ selectedOption()?.label ?? placeholder() }}
+    </span>
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 6 5 5 5-5" /></svg>
+  </button>
+
+  @if (isOpen()) {
+    <div class="searchable-select__panel">
+      <input
+        class="searchable-select__search"
+        type="search"
+        [placeholder]="searchPlaceholder()"
+        [value]="query()"
+        [attr.aria-label]="searchPlaceholder()"
+        (input)="setQuery($event)"
+      />
+      <ul [id]="listboxId()" role="listbox" [attr.aria-label]="ariaLabel() ?? placeholder()">
+        @for (option of filteredOptions(); track option.value) {
+          <li role="presentation">
+            <button
+              type="button"
+              role="option"
+              class="searchable-select__option"
+              [class.is-selected]="value() === option.value"
+              [attr.aria-selected]="value() === option.value"
+              (click)="select(option)"
+            >
+              {{ option.label }}
+            </button>
+          </li>
+        } @empty {
+          <li class="searchable-select__empty" role="presentation">No matching options</li>
+        }
+      </ul>
+    </div>
+  }
+</div>

@@ -9,9 +9,10 @@ export class WishlistService {
   private readonly catalog = inject(ProductCatalogService);
   private readonly productIds = signal(this.readProductIds());
 
-  readonly products = computed(() =>
-    this.catalog.products.filter((product) => this.productIds().includes(product.id)),
-  );
+  readonly products = computed(() => {
+    const savedIds = new Set(this.productIds());
+    return this.catalog.products().filter((product) => savedIds.has(product.id));
+  });
 
   has(productId: string): boolean {
     return this.productIds().includes(productId);
@@ -26,26 +27,10 @@ export class WishlistService {
     this.storage.set(STORAGE_KEYS.wishlist, next);
   }
 
-  /** Pre-fills the wishlist once for first-time visitors so the page matches the design. */
-  seedDemoItems(productIds: string[]): void {
-    if (this.storage.get<boolean>(STORAGE_KEYS.wishlistDemoSeeded)) return;
-    this.storage.set(STORAGE_KEYS.wishlistDemoSeeded, true);
-    if (this.productIds().length) return;
-    const available = new Set(this.catalog.products.map((product) => product.id));
-    const next = productIds.filter((id) => available.has(id));
-    this.productIds.set(next);
-    this.storage.set(STORAGE_KEYS.wishlist, next);
-  }
-
   private readProductIds(): string[] {
     const stored = this.storage.get<unknown>(STORAGE_KEYS.wishlist);
     if (!Array.isArray(stored)) return [];
 
-    const availableIds = new Set(this.catalog.products.map((product) => product.id));
-    return [
-      ...new Set(
-        stored.filter((id): id is string => typeof id === 'string' && availableIds.has(id)),
-      ),
-    ];
+    return [...new Set(stored.filter((id): id is string => typeof id === 'string'))];
   }
 }

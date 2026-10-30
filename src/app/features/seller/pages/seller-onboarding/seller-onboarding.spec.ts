@@ -1,6 +1,11 @@
 import type { WritableSignal } from '@angular/core';
 import { Router } from '@angular/router';
+import { Observable, of, throwError } from 'rxjs';
 import { SellerOnboarding } from './seller-onboarding';
+import {
+  SellerOnboardingPayload,
+  SellerOnboardingService,
+} from '../../services/seller-onboarding.service';
 
 type ValidationHarness = {
   activeStep: WritableSignal<number>;
@@ -9,6 +14,11 @@ type ValidationHarness = {
   uploadedDocuments: WritableSignal<Record<string, File>>;
   values: WritableSignal<Record<string, string>>;
   submitted: WritableSignal<boolean>;
+  businessTypes: WritableSignal<{ label: string; value: string }[]>;
+  states: WritableSignal<{ label: string; value: string }[]>;
+  lookupStatus: WritableSignal<
+    Record<'businessType' | 'country' | 'state', 'loading' | 'success' | 'error'>
+  >;
   bankFields: { name: string }[];
   errorFor: (name: string) => string | null;
   markTouched: (name: string) => void;
@@ -23,16 +33,69 @@ type ValidationHarness = {
   removeDocument: (name: string) => void;
   goBack: () => void;
   goToStep: (step: number) => void;
+  isSubmitting(): boolean;
+  submissionError(): string | null;
+  isLookupDisabled(fieldName: string): boolean;
+  lookupErrorFor(fieldName: string): string | null;
 };
 
 describe('SellerOnboarding validation', () => {
   let component: ValidationHarness;
+  let submittedPayloads: SellerOnboardingPayload[];
+  let submissionResult: Observable<void>;
+  let stateCountryIds: string[];
+  let deferStateLookup: boolean;
+  let stateLookupUnsubscribed: boolean;
 
   beforeEach(() => {
+    submittedPayloads = [];
+    submissionResult = of(undefined);
+    stateCountryIds = [];
+    deferStateLookup = false;
+    stateLookupUnsubscribed = false;
     const router = { navigateByUrl: vi.fn() } as unknown as Router;
-    component = new SellerOnboarding(router) as unknown as ValidationHarness;
+    const sellerOnboarding = {
+      getBusinessTypes: () =>
+        of([
+          { id: '1', name: 'partnership' },
+          { id: '2', name: 'private-limited' },
+          { id: '3', name: 'sole-proprietorship' },
+          { id: '4', name: 'other' },
+          { id: '5', name: 'Retail Business' },
+        ]),
+      getCountries: () => of([{ id: '1', name: 'India' }]),
+      getStates: (countryId: string) => {
+        stateCountryIds.push(countryId);
+        if (deferStateLookup) {
+          return new Observable(() => () => {
+            stateLookupUnsubscribed = true;
+          });
+        }
+        return of([
+          { id: '1', name: 'karnataka' },
+          { id: '2', name: 'Tamil Nadu' },
+        ]);
+      },
+      getErrorMessage: (error: unknown) =>
+        error instanceof Error ? error.message : 'Request failed',
+      submit: (payload: SellerOnboardingPayload) => {
+        submittedPayloads.push(payload);
+        return submissionResult;
+      },
+    } as unknown as SellerOnboardingService;
+    component = new SellerOnboarding(router, sellerOnboarding) as unknown as ValidationHarness;
     component.attemptedNext.set(true);
   });
+
+  function chooseCountry(countryId = '1'): void {
+    const select = document.createElement('select');
+    const option = document.createElement('option');
+    option.value = countryId;
+    option.textContent = 'India';
+    select.append(option);
+    select.value = countryId;
+    component.updateValue('country', { target: select } as unknown as Event);
+  }
 
   it.each([
     ['businessName', 'Business name is required.'],
@@ -51,6 +114,8 @@ describe('SellerOnboarding validation', () => {
     ['panNumber', 'PAN number is required.'],
     ['contactPersonName', 'Contact person name is required.'],
     ['contactPersonMobile', 'Contact person mobile is required.'],
+    ['userName', 'Account username is required.'],
+    ['userPassword', 'Account password is required.'],
   ])('uses the specific required message for %s', (name, message) => {
     expect(component.errorFor(name)).toBe(message);
   });
@@ -116,7 +181,9 @@ describe('SellerOnboarding validation', () => {
 
   it('clears the PAN format error as soon as the value becomes valid', () => {
     component.values.set({ panNumber: 'ABCDE1234' });
-    expect(component.errorFor('panNumber')).toBe('Please enter a valid PAN number (e.g., ABCDE1234F).');
+    expect(component.errorFor('panNumber')).toBe(
+      'Please enter a valid PAN number (e.g., ABCDE1234F).',
+    );
 
     component.values.set({ panNumber: 'ABCDE1234F' });
     expect(component.errorFor('panNumber')).toBeNull();
@@ -124,7 +191,9 @@ describe('SellerOnboarding validation', () => {
 
   it('clears the GSTIN format error as a valid GSTIN is typed, including lowercase input', () => {
     component.values.set({ gstNumber: '27AAACR5055K1Z' });
-    expect(component.errorFor('gstNumber')).toBe('Please enter a valid GST number (e.g., 27AAPFU0939F1ZV).');
+    expect(component.errorFor('gstNumber')).toBe(
+      'Please enter a valid GST number (e.g., 27AAPFU0939F1ZV).',
+    );
 
     const input = document.createElement('input');
     input.value = '27aaacr5055k1z7';
@@ -136,7 +205,9 @@ describe('SellerOnboarding validation', () => {
 
   it('keeps the reported GSTIN invalid and clears the message for a corrected structure and checksum', () => {
     component.values.set({ gstNumber: '33AAHDG9837H2VG' });
-    expect(component.errorFor('gstNumber')).toBe('Please enter a valid GST number (e.g., 27AAPFU0939F1ZV).');
+    expect(component.errorFor('gstNumber')).toBe(
+      'Please enter a valid GST number (e.g., 27AAPFU0939F1ZV).',
+    );
 
     const input = document.createElement('input');
     input.value = '33AAHFG9837H2Z4';
@@ -156,7 +227,9 @@ describe('SellerOnboarding validation', () => {
   it('shows format errors as the user types and required errors after a field is blurred', () => {
     component.attemptedNext.set(false);
     component.values.set({ gstNumber: 'not-a-gstin' });
-    expect(component.errorFor('gstNumber')).toBe('Please enter a valid GST number (e.g., 27AAPFU0939F1ZV).');
+    expect(component.errorFor('gstNumber')).toBe(
+      'Please enter a valid GST number (e.g., 27AAPFU0939F1ZV).',
+    );
 
     component.values.set({ gstNumber: '' });
     expect(component.errorFor('gstNumber')).toBeNull();
@@ -181,8 +254,18 @@ describe('SellerOnboarding validation', () => {
     expect(component.errorFor('state')).toBe('Please select a valid option.');
   });
 
+  it('does not enable a lookup dropdown when the API returns an empty option list', () => {
+    component.businessTypes.set([]);
+    component.lookupStatus.update((status) => ({ ...status, businessType: 'success' }));
+
+    expect(component.isLookupDisabled('businessType')).toBe(true);
+    expect(component.lookupErrorFor('businessType')).toBe('No options are currently available.');
+  });
+
   it('accepts dropdown values from the configured options', () => {
-    component.values.set({ businessType: 'partnership', country: 'india', state: 'karnataka' });
+    component.values.set({ businessType: 'partnership' });
+    chooseCountry();
+    component.values.update((values) => ({ ...values, state: 'karnataka' }));
     expect(component.errorFor('businessType')).toBeNull();
     expect(component.errorFor('country')).toBeNull();
     expect(component.errorFor('state')).toBeNull();
@@ -192,10 +275,38 @@ describe('SellerOnboarding validation', () => {
     expect(component.errorFor('accountType')).toBeNull();
   });
 
+  it('loads states using the selected country ID and clears state on country changes', () => {
+    chooseCountry('1');
+    component.values.update((values) => ({ ...values, state: 'karnataka' }));
+    chooseCountry('2');
+
+    expect(stateCountryIds).toEqual(['1', '2']);
+    expect(component.values()).toMatchObject({ country: '2', state: '' });
+  });
+
+  it('does not request state options until a country is selected', () => {
+    expect(stateCountryIds).toEqual([]);
+    expect(component.isLookupDisabled('state')).toBe(true);
+  });
+
+  it('cancels the state request and clears options when the country is cleared', () => {
+    deferStateLookup = true;
+    chooseCountry('1');
+    expect(stateCountryIds).toEqual(['1']);
+
+    chooseCountry('');
+
+    expect(stateLookupUnsubscribed).toBe(true);
+    expect(component.states()).toEqual([]);
+    expect(component.isLookupDisabled('state')).toBe(true);
+  });
+
   it('requires a non-whitespace registration number for every supported business type', () => {
     for (const businessType of ['private-limited', 'partnership', 'sole-proprietorship', 'other']) {
       component.values.set({ businessType, registrationNumber: '   ' });
-      expect(component.errorFor('registrationNumber')).toBe('Business registration number is required.');
+      expect(component.errorFor('registrationNumber')).toBe(
+        'Business registration number is required.',
+      );
     }
   });
 
@@ -243,9 +354,13 @@ describe('SellerOnboarding validation', () => {
     expect(component.documentStatusFor('supportingDocument')).toBe('uploaded');
     expect(component.values()['supportingDocument']).toBe('supporting-document.pdf');
 
-    const replacement = new File(['replacement'], 'updated-supporting-document.png', { type: 'image/png' });
+    const replacement = new File(['replacement'], 'updated-supporting-document.png', {
+      type: 'image/png',
+    });
     component.updateDocument('supportingDocument', replacement);
-    expect(component.documentFileNameFor('supportingDocument')).toBe('updated-supporting-document.png');
+    expect(component.documentFileNameFor('supportingDocument')).toBe(
+      'updated-supporting-document.png',
+    );
     expect(component.uploadedDocuments()['supportingDocument']).toBe(replacement);
   });
 
@@ -278,8 +393,12 @@ describe('SellerOnboarding validation', () => {
 
   it('requires one confirmation field and reports then clears a mismatch', () => {
     component.activeStep.set(3);
-    expect(component.bankFields.filter(({ name }) => name === 'confirmAccountNumber')).toHaveLength(1);
-    expect(component.bankFields.some(({ name }) => name === 'confirmAccountNumberAgain')).toBe(false);
+    expect(component.bankFields.filter(({ name }) => name === 'confirmAccountNumber')).toHaveLength(
+      1,
+    );
+    expect(component.bankFields.some(({ name }) => name === 'confirmAccountNumberAgain')).toBe(
+      false,
+    );
 
     component.values.set({ accountNumber: '123456789', confirmAccountNumber: '123456780' });
     expect(component.errorFor('confirmAccountNumber')).toBe('Account numbers do not match.');
@@ -290,12 +409,13 @@ describe('SellerOnboarding validation', () => {
 
   it('blocks Step 3 progression when account numbers do not match', () => {
     component.activeStep.set(3);
+    chooseCountry();
     component.values.set({
       businessName: 'Example Business',
       businessType: 'partnership',
       mobileNumber: '9876543210',
       city: 'Bengaluru',
-      country: 'india',
+      country: '1',
       gstNumber: '27AAPFU0939F1ZV',
       registrationNumber: 'REG-123',
       contactEmail: 'contact@example.com',
@@ -307,6 +427,8 @@ describe('SellerOnboarding validation', () => {
       panNumber: 'ABCDE1234F',
       contactPersonName: 'Contact Person',
       contactPersonMobile: '9876543210',
+      userName: 'seller_user',
+      userPassword: 'Seller@123',
       gstCertificate: 'certificate.pdf',
       panCard: 'pan.pdf',
       registrationCertificate: 'registration.pdf',
@@ -325,6 +447,116 @@ describe('SellerOnboarding validation', () => {
 
     expect(component.activeStep()).toBe(3);
     expect(component.errorFor('confirmAccountNumber')).toBe('Account numbers do not match.');
+  });
+
+  it('submits the mapped seller details and waits for API success before completing', () => {
+    component.activeStep.set(4);
+    chooseCountry();
+    component.values.set({
+      businessName: 'ABC Electronics',
+      sellerName: 'Arun Kumar',
+      businessType: 'Retail Business',
+      email: 'arun@example.com',
+      mobileNumber: '9675433210',
+      businessAddress: 'Anna Salai',
+      city: 'Chennai',
+      state: 'Tamil Nadu',
+      country: '1',
+      pincode: '600002',
+      gstNumber: '33AAHFG9837H2Z4',
+      panNumber: 'AAHFG9837H',
+      registrationNumber: 'REG1001',
+      contactPersonName: 'Arun Kumar',
+      contactPersonMobile: '9876543210',
+      contactEmail: 'arun@example.com',
+      userName: 'arun_seller',
+      userPassword: 'Seller@123',
+      gstCertificate: 'gst.pdf',
+      panCard: 'pan.pdf',
+      registrationCertificate: 'registration.pdf',
+      addressProof: 'address.pdf',
+      ownerIdProof: 'id.pdf',
+      bankProof: 'bank.pdf',
+      accountHolder: 'Arun Kumar',
+      bankName: 'Example Bank',
+      branchName: 'Chennai',
+      accountNumber: '123456789',
+      confirmAccountNumber: '123456789',
+      accountType: 'current',
+    });
+
+    component.continue();
+
+    expect(component.submitted()).toBe(true);
+    expect(component.isSubmitting()).toBe(false);
+    expect(component.submissionError()).toBeNull();
+    expect(submittedPayloads).toEqual([
+      {
+        BUSINESS_NAME: 'ABC Electronics',
+        SELLER_NAME: 'Arun Kumar',
+        BUSINESS_TYPE: 'Retail Business',
+        EMAIL: 'arun@example.com',
+        MOBILE_NUMBER: 9675433210,
+        BUSINESS_ADDRESS: 'Anna Salai',
+        CITY: 'Chennai',
+        STATE: 'Tamil Nadu',
+        COUNTRY: 'India',
+        PINCODE: '600002',
+        GST_NUMBER: '33AAHFG9837H2Z4',
+        PAN_NUMBER: 'AAHFG9837H',
+        BUSINESS_REGISTRATION_NUMBER: 'REG1001',
+        CONTACT_PERSON_NAME: 'Arun Kumar',
+        CONTACT_PERSON_MOBILE: 9876543210,
+        CONTACT_PERSON_EMAIL: 'arun@example.com',
+        USER_NAME: 'arun_seller',
+        USER_PASSWORD: 'Seller@123',
+        CREATED_BY: 1,
+      },
+    ]);
+  });
+
+  it('keeps the review step open and reports a submission error', () => {
+    component.activeStep.set(4);
+    chooseCountry();
+    component.values.set({
+      businessName: 'ABC Electronics',
+      sellerName: 'Arun Kumar',
+      businessType: 'Retail Business',
+      email: 'arun@example.com',
+      mobileNumber: '9675433210',
+      businessAddress: 'Anna Salai',
+      city: 'Chennai',
+      state: 'Tamil Nadu',
+      country: '1',
+      pincode: '600002',
+      gstNumber: '33AAHFG9837H2Z4',
+      panNumber: 'AAHFG9837H',
+      registrationNumber: 'REG1001',
+      contactPersonName: 'Arun Kumar',
+      contactPersonMobile: '9876543210',
+      contactEmail: 'arun@example.com',
+      userName: 'arun_seller',
+      userPassword: 'Seller@123',
+      gstCertificate: 'gst.pdf',
+      panCard: 'pan.pdf',
+      registrationCertificate: 'registration.pdf',
+      addressProof: 'address.pdf',
+      ownerIdProof: 'id.pdf',
+      bankProof: 'bank.pdf',
+      accountHolder: 'Arun Kumar',
+      bankName: 'Example Bank',
+      branchName: 'Chennai',
+      accountNumber: '123456789',
+      confirmAccountNumber: '123456789',
+      accountType: 'current',
+    });
+    submissionResult = throwError(() => new Error('Seller service unavailable'));
+
+    component.continue();
+
+    expect(component.submitted()).toBe(false);
+    expect(component.isSubmitting()).toBe(false);
+    expect(component.submissionError()).toBe('Seller service unavailable');
   });
 
   describe('document preview', () => {

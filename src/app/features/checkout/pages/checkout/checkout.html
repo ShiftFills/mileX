@@ -5,6 +5,16 @@
       <p>Your demo checkout was recorded locally. No payment was processed and no order was sent to a server.</p>
       <a class="checkout-action" [routerLink]="routes.home">Return to MileX</a>
     </section>
+  } @else if (catalog.status() === 'loading' || catalog.status() === 'idle') {
+    <section appCard class="checkout-confirmation" role="status">
+      <app-loading-spinner />
+      <p>Loading your cart…</p>
+    </section>
+  } @else if (catalog.status() === 'error') {
+    <app-alert tone="danger" role="alert">
+      {{ catalog.error() }}
+      <button type="button" (click)="retryLoad()">Try again</button>
+    </app-alert>
   } @else if (!cart.items().length) {
     <section appCard class="checkout-confirmation">
       <h1>Your cart is empty</h1>
@@ -12,6 +22,9 @@
       <a class="checkout-action" [routerLink]="routes.products">Browse products</a>
     </section>
   } @else {
+    @if (cart.hasUnavailableItems()) {
+      <app-alert tone="warning" role="alert">Remove out-of-stock items from your cart before placing the order.</app-alert>
+    }
     <header class="checkout-heading">
       <a class="checkout-back" [routerLink]="routes.cart" aria-label="Back to shopping cart"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5M5 8h9" /></svg></a>
       <div><h1>Place Order</h1><p>Review your details and complete the payment to place your order.</p></div>
@@ -149,7 +162,7 @@
           <app-radio class="checkout-payment-option" [class.is-selected]="paymentMethod() === 'bank'" name="payment" value="bank" [checked]="paymentMethod() === 'bank'" (valueChange)="selectPaymentMethod($event)">Net Banking</app-radio>
           <app-radio class="checkout-payment-option" [class.is-selected]="paymentMethod() === 'cod'" name="payment" value="cod" [checked]="paymentMethod() === 'cod'" (valueChange)="selectPaymentMethod($event)">Cash on Delivery (COD)</app-radio>
           <p class="checkout-terms"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 13 3.4v3.8c0 3.1-2.1 5.6-5 7.3-2.9-1.7-5-4.2-5-7.3V3.4L8 1.5Z" /><path d="m5.6 7.7 1.5 1.5 3.4-3.5" /></svg><span>By placing this order, you agree to our<br /><a href="#terms">Terms &amp; Conditions</a> and <a href="#privacy">Privacy Policy</a>.</span></p>
-          <app-button class="place-order-button" variant="accent" type="submit" [disabled]="editingCard() !== null">Place Order</app-button>
+          <app-button class="place-order-button" variant="accent" type="submit" [disabled]="editingCard() !== null || cart.hasUnavailableItems()">Place Order</app-button>
         </section>
       </aside>
     </form>

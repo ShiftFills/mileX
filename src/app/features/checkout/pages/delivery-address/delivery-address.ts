@@ -6,12 +6,14 @@ import { CHECKOUT_STEPS, FREE_SHIPPING_THRESHOLD, MOBILE_PATTERN, PINCODE_PATTER
 import { INDIAN_STATES } from '@core/constants/indian-states';
 import { AddressService } from '@core/services/address.service';
 import { CartService } from '@core/services/cart.service';
+import { ProductCatalogService } from '@core/services/product-catalog.service';
 import { Alert } from '@shared/components/alert/alert';
 import { Badge, BadgeTone } from '@shared/components/badge/badge';
 import { Button } from '@shared/components/button/button';
 import { Card } from '@shared/components/card/card';
 import { Checkbox } from '@shared/components/checkbox/checkbox';
 import { Input } from '@shared/components/input/input';
+import { LoadingSpinner } from '@shared/components/loading-spinner/loading-spinner';
 import { PageHeading } from '@shared/components/page-heading/page-heading';
 import { Radio } from '@shared/components/radio/radio';
 import { Select } from '@shared/components/select/select';
@@ -74,13 +76,14 @@ const EMPTY_FORM: AddressForm = {
 /** Checkout step 2: pick a saved delivery address or add a new one. */
 @Component({
   selector: 'app-delivery-address',
-  imports: [Alert, Badge, Button, Card, Checkbox, CurrencyPipe, Input, PageHeading, Radio, RouterLink, Select, Stepper],
+  imports: [Alert, Badge, Button, Card, Checkbox, CurrencyPipe, Input, LoadingSpinner, PageHeading, Radio, RouterLink, Select, Stepper],
   templateUrl: './delivery-address.html',
   styleUrl: './delivery-address.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DeliveryAddressPage {
   protected readonly cart = inject(CartService);
+  protected readonly catalog = inject(ProductCatalogService);
   protected readonly addressBook = inject(AddressService);
   private readonly router = inject(Router);
   private readonly document = inject(DOCUMENT);
@@ -127,11 +130,6 @@ export class DeliveryAddressPage {
   protected readonly formStarted = computed(
     () => this.editingId() !== null || FIELDS.some((field) => this.form()[field.key].trim() !== ''),
   );
-
-  constructor() {
-    // Demo cart matching the design: a single item for first-time visitors.
-    this.cart.seedDemoItems(['women-printed-maxi-dress-1']);
-  }
 
   /** The error to show under a field: only after it was edited or a submit was attempted. */
   protected errorFor(key: FieldKey): string | null {
@@ -200,6 +198,7 @@ export class DeliveryAddressPage {
 
   // ---- Confirm ----
   protected confirmToPayment(): void {
+    if (this.cart.hasUnavailableItems()) return;
     if (this.formStarted()) {
       this.submitted.set(true);
       const firstInvalid = FIELDS.find((field) => this.errors()[field.key]);
@@ -213,6 +212,10 @@ export class DeliveryAddressPage {
       return;
     }
     void this.router.navigate([this.routes.payment]);
+  }
+
+  protected retryLoad(): void {
+    this.catalog.load();
   }
 
   private storeFormAddress(): void {

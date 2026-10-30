@@ -22,9 +22,9 @@
       Category
       <app-select [value]="query().get('category') ?? ''" (valueChange)="setCategory($event)">
         <option value="">All categories</option>
-        <option value="fashion">Fashion</option>
-        <option value="home-living">Home &amp; Living</option>
-        <option value="electronics">Electronics</option>
+        @for (category of categoryOptions(); track category.value) {
+          <option [value]="category.value">{{ category.label }}</option>
+        }
       </app-select>
     </label>
     <label>
@@ -38,8 +38,32 @@
     </label>
   </div>
 
-  <p class="catalog__count">{{ products().length }} products <span>· Demo catalog, not connected to a store API</span></p>
-  @if (products().length) {
+  @if (listingStatus() === 'loading' || listingStatus() === 'idle') {
+    <div class="catalog__state" role="status"><app-loading-spinner /> Loading products…</div>
+  } @else if (listingStatus() === 'error') {
+    <app-alert tone="danger" role="alert">
+      {{ listingError() }}
+      <button type="button" class="catalog__retry" (click)="retryLoad()">Try again</button>
+    </app-alert>
+  } @else if (!products().length) {
+    <div class="catalog__empty">
+      @if (hasProducts()) {
+        <h2>No matching products on this page</h2>
+        <p>Try a different search or category, or move to another page.</p>
+        <a class="btn btn-sm" [routerLink]="routes.products">Clear filters</a>
+      } @else {
+        <h2>No products available</h2>
+        <p>There are no products to display right now.</p>
+      }
+    </div>
+  } @else {
+    <p class="catalog__count">
+      @if (totalProducts() !== undefined) {
+        Showing {{ products().length }} products on this page of {{ totalProducts() }}
+      } @else {
+        Showing {{ products().length }} products on this page
+      }
+    </p>
     <div class="catalog__grid">
       @for (product of products(); track product.id) {
         <app-product-card
@@ -49,11 +73,18 @@
         />
       }
     </div>
-  } @else {
-    <div class="catalog__empty">
-      <h2>No matching products</h2>
-      <p>Try a different search or category.</p>
-      <a class="btn btn-sm" [routerLink]="routes.products">Clear filters</a>
-    </div>
+  }
+
+  @if (listingStatus() === 'success' && ((totalPages() ?? 1) > 1 || hasNextPage())) {
+    <app-pagination
+      ariaLabel="Product pages"
+      itemLabel="products"
+      [page]="currentPage()"
+      [pageSize]="pageSize()"
+      [total]="totalProducts()"
+      [totalPages]="totalPages()"
+      [hasNext]="hasNextPage()"
+      (pageChange)="goToPage($event)"
+    />
   }
 </section>

@@ -1,17 +1,25 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal, toObservable } from '@angular/core/rxjs-interop';
+import { EMPTY, catchError, distinctUntilChanged, switchMap, tap } from 'rxjs';
 import { ProductCard } from '@shared/components/product-card/product-card';
 import { PageHeader } from '@shared';
+import { Alert } from '@shared/components/alert/alert';
+import { LoadingSpinner } from '@shared/components/loading-spinner/loading-spinner';
+import { Pagination } from '@shared/components/pagination/pagination';
 import { SearchBox } from '@shared/components/search-box/search-box';
 import { Select } from '@shared/components/select/select';
 import { APP_ROUTES } from '@core/constants/app-routes';
+import { productCategoryLabel } from '@core/constants/product-categories';
+import { PaginatedResponse, Product } from '@shared/models';
 import { ProductService } from '../../services/product.service';
 import { WishlistService } from '../../services/wishlist.service';
 
+const PAGE_SIZE = 5;
+
 @Component({
   selector: 'app-product-list',
-  imports: [PageHeader, ProductCard, RouterLink, SearchBox, Select],
+  imports: [Alert, LoadingSpinner, PageHeader, Pagination, ProductCard, RouterLink, SearchBox, Select],
   templateUrl: './product-list.html',
   styleUrl: './product-list.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -26,16 +34,57 @@ export class ProductList {
     initialValue: this.route.snapshot.queryParamMap,
   });
   protected readonly sortBy = signal('featured');
+  protected readonly listingStatus = signal<'idle' | 'loading' | 'success' | 'error'>('idle');
+  protected readonly listingError = signal<string | null>(null);
+  protected readonly pageData = signal<PaginatedResponse<Product> | null>(null);
+  private readonly retryCount = signal(0);
+  private readonly knownTotal = signal<number | null>(null);
+  private readonly requestedPage = computed(() => {
+    const page = Number(this.query().get('page'));
+    return Number.isSafeInteger(page) && page > 0 ? page : 1;
+  });
+  private readonly pageRequest = computed(() => ({
+    page: this.requestedPage(),
+    search: (this.query().get('q') ?? '').trim().toLowerCase(),
+    category: this.query().get('category') ?? '',
+    retry: this.retryCount(),
+  }));
+  protected readonly currentPage = computed(() => this.pageData()?.page ?? this.requestedPage());
+  protected readonly totalPages = computed(
+    () =>
+      this.pageData()?.totalPages ??
+      (this.knownTotal() === null
+        ? undefined
+        : Math.ceil(this.knownTotal()! / this.pageSize())),
+  );
+  protected readonly pageSize = computed(() => this.pageData()?.pageSize ?? PAGE_SIZE);
+  protected readonly totalProducts = computed(
+    () => this.pageData()?.total ?? this.knownTotal() ?? undefined,
+  );
+  protected readonly hasProducts = computed(() => (this.totalProducts() ?? 0) > 0);
+  protected readonly hasNextPage = computed(() => {
+    const totalPages = this.totalPages();
+    return totalPages !== undefined
+      ? this.currentPage() < totalPages
+      : (this.pageData()?.hasNext ?? false);
+  });
+  protected readonly categoryOptions = computed(() => {
+    const categories = new Set((this.pageData()?.items ?? []).map((product) => product.category));
+    const selectedCategory = this.query().get('category');
+    if (selectedCategory) categories.add(selectedCategory);
+    return [...categories]
+      .sort()
+      .map((category) => ({ value: category, label: productCategoryLabel(category) }));
+  });
   protected readonly products = computed(() => {
     const query = this.query();
     const search = (query.get('q') ?? '').trim().toLowerCase();
     const category = query.get('category');
-    const results = this.productService.products.filter((product) => {
+    const results = (this.pageData()?.items ?? []).filter((product) => {
       const matchesSearch =
         !search || `${product.name} ${product.description} ${product.category}`.toLowerCase().includes(search);
       return matchesSearch && (!category || product.category === category);
     });
-
     return [...results].sort((a, b) => {
       if (this.sortBy() === 'price-low') return a.price - b.price;
       if (this.sortBy() === 'price-high') return b.price - a.price;
@@ -44,9 +93,55 @@ export class ProductList {
     });
   });
 
+  constructor() {
+    toObservable(this.pageRequest)
+      .pipe(
+        distinctUntilChanged(
+          (previous, current) =>
+            previous.page === current.page &&
+            previous.search === current.search &&
+            previous.category === current.category &&
+            previous.retry === current.retry,
+        ),
+        tap(() => {
+          this.listingStatus.set('loading');
+          this.listingError.set(null);
+          this.pageData.set(null);
+        }),
+        switchMap(({ page }) =>
+          this.productService.loadPage(page, PAGE_SIZE).pipe(
+            tap((pageData) => {
+              if (pageData.total !== undefined) this.knownTotal.set(pageData.total);
+              if (
+                pageData.page > 1 &&
+                pageData.items.length === 0 &&
+                pageData.totalPages !== undefined &&
+                pageData.page > pageData.totalPages
+              ) {
+                this.knownTotal.set(
+                  pageData.total ?? (pageData.page - 1) * pageData.pageSize,
+                );
+                this.goToPage(Math.max(1, pageData.totalPages));
+                return;
+              }
+              this.pageData.set(pageData);
+              this.listingStatus.set('success');
+            }),
+            catchError((error: unknown) => {
+              this.listingError.set(this.productService.getErrorMessage(error));
+              this.listingStatus.set('error');
+              return EMPTY;
+            }),
+          ),
+        ),
+        takeUntilDestroyed(),
+      )
+      .subscribe();
+  }
+
   protected search(searchTerm: string): void {
     void this.router.navigate([this.routes.products], {
-      queryParams: { ...this.currentQuery(), q: searchTerm || null },
+      queryParams: { ...this.currentQuery(), q: searchTerm || null, page: null },
     });
   }
 
@@ -54,9 +149,15 @@ export class ProductList {
     const select = event.target;
     if (select instanceof HTMLSelectElement) {
       void this.router.navigate([this.routes.products], {
-        queryParams: { ...this.currentQuery(), category: select.value || null },
+        queryParams: { ...this.currentQuery(), category: select.value || null, page: null },
       });
     }
+  }
+
+  protected goToPage(page: number): void {
+    void this.router.navigate([this.routes.products], {
+      queryParams: { ...this.currentQuery(), page: page === 1 ? null : String(page) },
+    });
   }
 
   protected toggleWishlist(productId: string): void {
@@ -65,7 +166,16 @@ export class ProductList {
 
   protected updateSort(event: Event): void {
     const select = event.target;
-    if (select instanceof HTMLSelectElement) this.sortBy.set(select.value);
+    if (select instanceof HTMLSelectElement) {
+      this.sortBy.set(select.value);
+      void this.router.navigate([this.routes.products], {
+        queryParams: { ...this.currentQuery(), page: null },
+      });
+    }
+  }
+
+  protected retryLoad(): void {
+    this.retryCount.update((count) => count + 1);
   }
 
   private currentQuery(): Record<string, string> {

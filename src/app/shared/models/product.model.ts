@@ -7,6 +7,9 @@ export interface Product {
   imageUrl: string;
   category: string;
   inStock: boolean;
+  sku?: string;
+  brand?: string;
+  isActive?: boolean;
   originalPrice?: number;
   discountLabel?: string;
   rating?: number;
@@ -18,6 +21,8 @@ export interface Product {
   sizes?: string[];
   /** Units left; surfaced as "Only N left" when low. */
   stockLeft?: number;
+  /** Maximum quantity allowed per order by the catalog API. */
+  maxOrderQuantity?: number;
   highlights?: string[];
   specifications?: ProductSpecification[];
 }

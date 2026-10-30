@@ -9,6 +9,7 @@ import { Button } from '@shared/components/button/button';
 import { Card } from '@shared/components/card/card';
 import { Dialog } from '@shared/components/dialog/dialog';
 import { Input } from '@shared/components/input/input';
+import { LoadingSpinner } from '@shared/components/loading-spinner/loading-spinner';
 import { ProductCard } from '@shared/components/product-card/product-card';
 import { Product } from '@shared/models';
 import { ProductGallery } from '../../components/product-gallery/product-gallery';
@@ -21,7 +22,7 @@ const RELATED_COUNT = 4;
 
 @Component({
   selector: 'app-product-detail',
-  imports: [Alert, Badge, Button, Card, CurrencyPipe, Dialog, Input, ProductCard, ProductGallery, ProductInfoTabs, RouterLink],
+  imports: [Alert, Badge, Button, Card, CurrencyPipe, Dialog, Input, LoadingSpinner, ProductCard, ProductGallery, ProductInfoTabs, RouterLink],
   templateUrl: './product-detail.html',
   styleUrl: './product-detail.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -49,6 +50,8 @@ export class ProductDetail {
   protected readonly cart = inject(CartService);
   private readonly router = inject(Router);
   private readonly productService = inject(ProductService);
+  protected readonly catalogStatus = this.productService.status;
+  protected readonly catalogError = this.productService.error;
 
   protected readonly product = computed(() => this.productService.findById(this.id()));
   protected readonly images = computed(() => {
@@ -56,7 +59,10 @@ export class ProductDetail {
     return item ? (item.images?.length ? item.images : [item.imageUrl]) : [];
   });
   protected readonly colorName = computed(() => this.selectedColor() ?? this.product()?.colors?.[0]?.name ?? '');
-  protected readonly maxQuantity = computed(() => this.product()?.stockLeft ?? 10);
+  protected readonly maxQuantity = computed(() => {
+    const item = this.product();
+    return Math.max(1, Math.min(item?.stockLeft ?? 10, item?.maxOrderQuantity ?? 10));
+  });
   protected readonly discountPercent = computed(() => {
     const item = this.product();
     return item?.originalPrice && item.originalPrice > item.price
@@ -66,13 +72,14 @@ export class ProductDetail {
   protected readonly related = computed<Product[]>(() => {
     const current = this.product();
     if (!current) return [];
-    const others = this.productService.products.filter((item) => item.id !== current.id);
+    const others = this.productService.products().filter((item) => item.id !== current.id);
     const sameCategory = others.filter((item) => item.category === current.category);
     const rest = others.filter((item) => item.category !== current.category);
     return [...sameCategory, ...rest].slice(0, RELATED_COUNT);
   });
 
   constructor() {
+    this.productService.load();
     // The same component instance is reused when navigating between products (e.g. "You may also like").
     effect(() => {
       this.id();
@@ -123,6 +130,10 @@ export class ProductDetail {
   protected addRelatedToCart(id: string): void {
     const item = this.productService.findById(id);
     if (item) this.cart.add(item, 1);
+  }
+
+  protected retryLoad(): void {
+    this.productService.load();
   }
 
   protected toggleWishlist(id = this.product()?.id): void {

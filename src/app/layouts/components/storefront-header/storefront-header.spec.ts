@@ -1,11 +1,21 @@
 import { Component } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { Router, provideRouter } from '@angular/router';
+import { Router, RouterOutlet, provideRouter } from '@angular/router';
+import { routes as appRoutes } from '../../../app.routes';
 import { AuthService } from '@core/services/auth.service';
+import { CartService } from '@core/services/cart.service';
 import { StorefrontHeader } from './storefront-header';
+
+const cartServiceStub = { provide: CartService, useValue: { count: () => 0 } };
 
 @Component({ template: '' })
 class TestHomePage {}
+
+@Component({
+  imports: [RouterOutlet, StorefrontHeader],
+  template: '<app-storefront-header /><router-outlet />',
+})
+class TestStorefrontShell {}
 
 describe('StorefrontHeader account menu', () => {
   let fixture: ComponentFixture<StorefrontHeader>;
@@ -21,7 +31,11 @@ describe('StorefrontHeader account menu', () => {
     localStorage.clear();
     await TestBed.configureTestingModule({
       imports: [StorefrontHeader],
-      providers: [provideRouter([{ path: 'checkout/address', children: [] }])],
+      providers: [provideRouter([
+        { path: 'checkout/address', children: [] },
+        { path: 'auth/login', component: TestHomePage },
+        { path: 'auth/register', component: TestHomePage },
+      ]), cartServiceStub],
     }).compileComponents();
     auth = TestBed.inject(AuthService);
     fixture = TestBed.createComponent(StorefrontHeader);
@@ -35,6 +49,22 @@ describe('StorefrontHeader account menu', () => {
     await openMenu();
     const links = Array.from(root.querySelectorAll('#account-menu a')).map((a) => a.textContent?.trim());
     expect(links).toEqual(['Login', 'Register']);
+  });
+
+  it('navigates to Login from the account menu', async () => {
+    await openMenu();
+    (root.querySelector('#account-menu a[href="/auth/login"]') as HTMLAnchorElement).click();
+    await fixture.whenStable();
+
+    expect(TestBed.inject(Router).url).toBe('/auth/login');
+  });
+
+  it('navigates to Register from the account menu', async () => {
+    await openMenu();
+    (root.querySelector('#account-menu a[href="/auth/register"]') as HTMLAnchorElement).click();
+    await fixture.whenStable();
+
+    expect(TestBed.inject(Router).url).toBe('/auth/register');
   });
 
   describe('when signed in', () => {
@@ -79,6 +109,46 @@ describe('StorefrontHeader account menu', () => {
   });
 });
 
+describe('StorefrontHeader auth navigation integration', () => {
+  let fixture: ComponentFixture<TestStorefrontShell>;
+  let root: HTMLElement;
+
+  beforeEach(async () => {
+    localStorage.clear();
+    await TestBed.configureTestingModule({
+      imports: [TestStorefrontShell],
+      providers: [provideRouter(appRoutes), cartServiceStub],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(TestStorefrontShell);
+    root = fixture.nativeElement as HTMLElement;
+    await TestBed.inject(Router).navigateByUrl('/');
+    await fixture.whenStable();
+  });
+
+  afterEach(() => localStorage.clear());
+
+  it('opens the real Login screen inside AuthLayout from the account menu', async () => {
+    (root.querySelector('.store-header__account-trigger') as HTMLButtonElement).click();
+    await fixture.whenStable();
+    (root.querySelector('#account-menu a[href="/auth/login"]') as HTMLAnchorElement).click();
+    await fixture.whenStable();
+
+    expect(TestBed.inject(Router).url).toBe('/auth/login');
+    expect(root.querySelector('.auth.auth--login app-login')).not.toBeNull();
+  });
+
+  it('opens the real Registration screen inside AuthLayout from the account menu', async () => {
+    (root.querySelector('.store-header__account-trigger') as HTMLButtonElement).click();
+    await fixture.whenStable();
+    (root.querySelector('#account-menu a[href="/auth/register"]') as HTMLAnchorElement).click();
+    await fixture.whenStable();
+
+    expect(TestBed.inject(Router).url).toBe('/auth/register');
+    expect(root.querySelector('.auth.auth--register app-register')).not.toBeNull();
+  });
+});
+
 describe('StorefrontHeader Browse All Products menu', () => {
   let fixture: ComponentFixture<StorefrontHeader>;
   let root: HTMLElement;
@@ -86,7 +156,7 @@ describe('StorefrontHeader Browse All Products menu', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [StorefrontHeader],
-      providers: [provideRouter([{ path: 'products', children: [] }])],
+      providers: [provideRouter([{ path: 'products', children: [] }]), cartServiceStub],
     }).compileComponents();
     fixture = TestBed.createComponent(StorefrontHeader);
     root = fixture.nativeElement as HTMLElement;
@@ -142,7 +212,7 @@ describe('StorefrontHeader mobile category popup', () => {
       providers: [provideRouter([
         { path: '', pathMatch: 'full', component: TestHomePage },
         { path: 'products', children: [] },
-      ])],
+      ]), cartServiceStub],
     }).compileComponents();
     fixture = TestBed.createComponent(StorefrontHeader);
     root = fixture.nativeElement as HTMLElement;

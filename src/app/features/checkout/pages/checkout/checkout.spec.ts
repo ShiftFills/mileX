@@ -1,3 +1,5 @@
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { WritableSignal } from '@angular/core';
 import { provideRouter } from '@angular/router';
@@ -38,15 +40,23 @@ interface CheckoutHarness {
 describe('Checkout card editing', () => {
   let fixture: ComponentFixture<Checkout>;
   let component: CheckoutHarness;
+  let http: HttpTestingController;
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [Checkout],
-      providers: [provideRouter([])],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
     }).compileComponents();
+    http = TestBed.inject(HttpTestingController);
     fixture = TestBed.createComponent(Checkout);
+    http.expectOne((request) => request.url.endsWith('/products/get')).flush({
+      status: 'SUCCESS',
+      data: [],
+    });
     component = fixture.componentInstance as unknown as CheckoutHarness;
   });
+
+  afterEach(() => http.verify());
 
   it('prefills customer details, saves edits, and leaves cancelled changes unapplied', () => {
     const original = component.customer();
