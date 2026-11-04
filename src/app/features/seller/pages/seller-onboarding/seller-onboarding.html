@@ -21,8 +21,8 @@
         </svg>
       </div>
       <div class="seller-dialog__heading">
-        <h1 id="seller-title">Sell on Milex</h1>
-        <p>Provide your business details to get started as a seller on our marketplace.</p>
+        <h1 id="seller-title">{{ isEditing() ? 'Edit Seller Details' : 'Sell on Milex' }}</h1>
+        <p>{{ isEditing() ? 'Update the seller details and records one step at a time.' : 'Provide your business details to get started as a seller on our marketplace.' }}</p>
       </div>
       <app-button
         class="seller-dialog__close"
@@ -40,7 +40,7 @@
           [class.is-active]="activeStep() === index + 1"
           [class.is-complete]="activeStep() > index + 1"
           [attr.aria-current]="activeStep() === index + 1 ? 'step' : null"
-          [disabled]="submitted()"
+          [disabled]="submitted() || isSubmitting() || index + 1 >= activeStep()"
           (click)="goToStep(index + 1)"
         >
           <span class="seller-steps__number">0{{ index + 1 }}</span><span class="seller-steps__label">{{ step }}</span>
@@ -52,8 +52,8 @@
       @if (submitted()) {
         <section class="seller-complete" aria-live="polite">
           <div class="seller-complete__check" aria-hidden="true">✓</div>
-          <h2>Application submitted</h2>
-          <p>Your seller application was submitted successfully. We’ll review your details and contact you with an update.</p>
+          <h2>{{ isEditing() ? 'Seller details updated' : 'Application submitted' }}</h2>
+          <p>{{ submissionSuccess() || 'Your seller application was submitted successfully. We’ll review your details and contact you with an update.' }}</p>
           <app-button variant="secondary" (clicked)="close()">Back to Milex</app-button>
         </section>
       } @else if (activeStep() === 1) {
@@ -234,6 +234,7 @@
                 <div><dt>Account Holder Name</dt><dd>{{ valueFor('accountHolder') }}</dd></div>
                 <div><dt>Bank Name</dt><dd>{{ valueFor('bankName') }}</dd></div>
                 <div><dt>Branch Name</dt><dd>{{ valueFor('branchName') }}</dd></div>
+                <div><dt>IFSC Code</dt><dd>{{ valueFor('ifscCode').toUpperCase() }}</dd></div>
                 <div><dt>Account Number</dt><dd>{{ maskedAccountNumber() }}</dd></div>
                 <div><dt>Account Type</dt><dd>{{ displayValueFor('accountType', accountTypes) }}</dd></div>
               </dl>
@@ -275,9 +276,6 @@
         >
           I confirm that the information provided is accurate and complete.
         </app-checkbox>
-        @if (submissionError(); as message) {
-          <p class="seller-field__error" role="alert">{{ message }}</p>
-        }
       }
     </div>
 
@@ -295,7 +293,7 @@
           <app-button class="seller-dialog__cancel" variant="outline" size="small" (clicked)="cancel()">Cancel</app-button>
         }
         <app-button class="seller-dialog__next" variant="accent" size="small" [disabled]="isSubmitting()" [loading]="isSubmitting()" (clicked)="continue()">
-          {{ isSubmitting() ? 'Submitting…' : activeStep() === 4 ? 'Submit Application' : 'Next' }}
+          {{ isSubmitting() ? 'Saving…' : activeStep() === 4 && shouldSubmitUpdates() ? 'Submit Updates' : activeStep() === 4 ? 'Submit Application' : isEditing() ? 'Continue' : 'Next' }}
           @if (activeStep() < 4) { <span aria-hidden="true">→</span> }
         </app-button>
       }
@@ -392,7 +390,7 @@
             class="seller-field__input"
             [inputId]="fieldId(field.name)"
             [name]="field.name"
-            [placeholder]="field.placeholder"
+            [placeholder]="isEditing() && field.name === 'userPassword' ? 'Enter password to save changes' : field.placeholder"
             [value]="valueFor(field.name)"
             [required]="true"
             [rows]="4"

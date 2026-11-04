@@ -40,8 +40,17 @@
       </div>
     </div>
 
-    <app-table class="admin-list-table sellers-table" ariaLabel="Sellers" [columns]="tableColumns()"
-      [rows]="visibleRows()" emptyMessage="No sellers match these filters." />
+    @if (loadStatus() === 'loading') {
+      <div class="seller-verification-state" role="status"><app-loading-spinner /> Loading seller details…</div>
+    } @else if (loadStatus() === 'error') {
+      <div class="seller-verification-state seller-verification-state--error" role="alert">
+        <p>{{ loadError() }}</p>
+        <app-button variant="outline" size="compact" (clicked)="retryLoad()">Try again</app-button>
+      </div>
+    } @else {
+      <app-table class="admin-list-table sellers-table" ariaLabel="Sellers" [columns]="tableColumns()"
+        [rows]="visibleRows()" emptyMessage="No sellers are available for verification." />
+    }
 
     <ng-template #selectAllHeader>
       <app-checkbox [checked]="allVisibleSelected()" ariaLabel="Select all sellers on this page"
@@ -55,8 +64,8 @@
       <app-button variant="outline" size="dense" (clicked)="openDetails(seller)">View Details</app-button>
     </ng-template>
 
-    <app-pagination ariaLabel="Seller pages" itemLabel="products" [page]="page()" [pageSize]="pageSize"
-      [total]="filteredRows().length" (pageChange)="page.set($event)" />
+    <app-pagination ariaLabel="Seller pages" itemLabel="sellers" [page]="page()" [pageSize]="pageSize"
+      [total]="totalCount()" [hasNext]="hasNextPage()" (pageChange)="page.set($event)" />
   </section>
 </main>
 
@@ -130,6 +139,7 @@
 
     <footer class="seller-dialog__actions">
       <app-button variant="outline" size="small" (clicked)="closeDetails()">Cancel</app-button>
+      <app-button variant="outline" size="small" (clicked)="editSeller(seller)">Edit Seller</app-button>
       <app-button variant="outline-danger" size="small" (clicked)="reject()">Reject</app-button>
       <app-button variant="accent" size="small" (clicked)="approve()">Approve</app-button>
     </footer>

@@ -20,11 +20,13 @@
             </div>
             <div class="col-12 col-md-4">
               <label class="product-label" for="product-category">Category <b>*</b></label>
-              <app-select class="product-control" inputId="product-category" name="category" size="compact" [value]="valueFor('category')" [ariaInvalid]="!!fieldError('category')" (valueChange)="updateValue('category', $event)">
-                <option value="" disabled>Select category</option>
-                @for (category of categories; track category) { <option [value]="category">{{ category }}</option> }
+              <app-select class="product-control" inputId="product-category" name="category" size="compact" [value]="valueFor('category')" [disabled]="lookupDisabled(categoryLookup())" [ariaInvalid]="!!fieldError('category')" (valueChange)="updateValue('category', $event)">
+                <option value="" disabled>{{ categoryLookup().status === 'loading' ? 'Loading categories…' : 'Select category' }}</option>
+                @for (category of categoryLookup().options; track category.id) { <option [value]="category.id">{{ category.label }}</option> }
               </app-select>
               @if (fieldError('category'); as error) { <span class="product-error">{{ error }}</span> }
+              @if (categoryLookup().status === 'error') { <span class="product-error" role="alert">{{ categoryLookup().error }} <button type="button" class="product-lookup-retry" (click)="retryLookup('category')">Retry</button></span> }
+              @else if (categoryLookup().status === 'success' && !categoryLookup().options.length) { <span class="product-error" role="status">No categories available.</span> }
             </div>
             <div class="col-12 col-md-4">
               <label class="product-label" for="product-subcategory">Sub Category <b>*</b></label>
@@ -36,11 +38,13 @@
             </div>
             <div class="col-12 col-md-4">
               <label class="product-label" for="product-brand">Brand <b>*</b></label>
-              <app-select class="product-control" inputId="product-brand" name="brand" size="compact" [value]="valueFor('brand')" [ariaInvalid]="!!fieldError('brand')" (valueChange)="updateValue('brand', $event)">
-                <option value="" disabled>Select brand</option>
-                @for (brand of brands; track brand) { <option [value]="brand">{{ brand }}</option> }
+              <app-select class="product-control" inputId="product-brand" name="brand" size="compact" [value]="valueFor('brand')" [disabled]="lookupDisabled(brandLookup())" [ariaInvalid]="!!fieldError('brand')" (valueChange)="updateValue('brand', $event)">
+                <option value="" disabled>{{ brandLookup().status === 'loading' ? 'Loading brands…' : 'Select brand' }}</option>
+                @for (brand of brandLookup().options; track brand.id) { <option [value]="brand.id">{{ brand.label }}</option> }
               </app-select>
               @if (fieldError('brand'); as error) { <span class="product-error">{{ error }}</span> }
+              @if (brandLookup().status === 'error') { <span class="product-error" role="alert">{{ brandLookup().error }} <button type="button" class="product-lookup-retry" (click)="retryLookup('brand')">Retry</button></span> }
+              @else if (brandLookup().status === 'success' && !brandLookup().options.length) { <span class="product-error" role="status">No active brands available.</span> }
             </div>
             <div class="col-12">
               <label class="product-label" for="product-description">Product Description <b>*</b></label>
@@ -101,8 +105,10 @@
                 </div>
                 <div class="col-12 col-sm-6">
                   <label class="product-label" for="product-tax">Tax Rate <b>*</b></label>
-                  <app-select class="product-control" inputId="product-tax" name="taxRate" size="compact" [required]="true" [value]="valueFor('taxRate')" [ariaInvalid]="!!fieldError('taxRate')" [ariaDescribedBy]="fieldError('taxRate') ? 'product-tax-error' : null" (valueChange)="updateValue('taxRate', $event)"><option value="" disabled>Select tax rate</option>@for (rate of taxRates; track rate) { <option [value]="rate">{{ rate }}</option> }</app-select>
+                  <app-select class="product-control" inputId="product-tax" name="taxRate" size="compact" [required]="true" [value]="valueFor('taxRate')" [disabled]="lookupDisabled(taxRateLookup())" [ariaInvalid]="!!fieldError('taxRate')" [ariaDescribedBy]="fieldError('taxRate') ? 'product-tax-error' : null" (valueChange)="updateValue('taxRate', $event)"><option value="" disabled>{{ taxRateLookup().status === 'loading' ? 'Loading tax rates…' : 'Select tax rate' }}</option>@for (rate of taxRateLookup().options; track rate.id) { <option [value]="rate.id">{{ rate.label }}</option> }</app-select>
                   @if (fieldError('taxRate'); as error) { <span class="product-error" id="product-tax-error">{{ error }}</span> }
+                  @if (taxRateLookup().status === 'error') { <span class="product-error" role="alert">{{ taxRateLookup().error }} <button type="button" class="product-lookup-retry" (click)="retryLookup('taxRate')">Retry</button></span> }
+                  @else if (taxRateLookup().status === 'success' && !taxRateLookup().options.length) { <span class="product-error" role="status">No tax rates available.</span> }
                 </div>
                 <div class="col-12 col-sm-6">
                   <label class="product-label" for="product-price">Selling Price <b>*</b></label>

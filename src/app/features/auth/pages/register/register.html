@@ -28,15 +28,16 @@
         <p>Join MileX and start your shopping journey today.</p>
       </header>
 
-      <form class="register-form" (submit)="register($event)">
+      <form class="register-form" novalidate (submit)="register($event)">
         <div class="row g-2">
           <div class="col-12 col-sm-6">
             <div class="register-field">
               <label for="register-first-name">First Name <b>*</b></label>
               <span class="register-input-wrap">
                 <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5" r="2.5"/><path d="M3 14c.3-2.5 2.2-4 5-4s4.7 1.5 5 4"/></svg>
-                <app-input class="register-field__input" inputId="register-first-name" name="firstName" autocomplete="given-name" placeholder="Enter your first name" size="compact" [value]="firstName()" [required]="true" [ariaInvalid]="attemptedSubmit() && !firstName().trim()" (valueInput)="updateField('firstName', $event)" />
+                <app-input class="register-field__input" inputId="register-first-name" name="firstName" autocomplete="given-name" placeholder="Enter your first name" size="compact" [value]="firstName()" [required]="true" [ariaInvalid]="!!errorFor('firstName')" ariaDescribedBy="register-first-name-error" (valueInput)="updateField('firstName', $event)" />
               </span>
+                @if (errorFor('firstName')) { <p id="register-first-name-error" class="register-field-message" role="alert">{{ errorFor('firstName') }}</p> }
             </div>
           </div>
           <div class="col-12 col-sm-6">
@@ -44,8 +45,9 @@
               <label for="register-last-name">Last Name <b>*</b></label>
               <span class="register-input-wrap">
                 <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5" r="2.5"/><path d="M3 14c.3-2.5 2.2-4 5-4s4.7 1.5 5 4"/></svg>
-                <app-input class="register-field__input" inputId="register-last-name" name="lastName" autocomplete="family-name" placeholder="Enter your last name" size="compact" [value]="lastName()" [required]="true" [ariaInvalid]="attemptedSubmit() && !lastName().trim()" (valueInput)="updateField('lastName', $event)" />
+                <app-input class="register-field__input" inputId="register-last-name" name="lastName" autocomplete="family-name" placeholder="Enter your last name" size="compact" [value]="lastName()" [required]="true" [ariaInvalid]="!!errorFor('lastName')" ariaDescribedBy="register-last-name-error" (valueInput)="updateField('lastName', $event)" />
               </span>
+                @if (errorFor('lastName')) { <p id="register-last-name-error" class="register-field-message" role="alert">{{ errorFor('lastName') }}</p> }
             </div>
           </div>
         </div>
@@ -55,10 +57,11 @@
           <div class="register-verified-field">
             <span class="register-input-wrap">
               <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="m3 5 5 4 5-4"/></svg>
-              <app-input class="register-field__input" inputId="register-email" name="email" type="email" autocomplete="email" placeholder="Enter your email address" size="compact" [value]="email()" [required]="true" [ariaInvalid]="attemptedSubmit() && !email()" (valueInput)="updateField('email', $event)" />
+              <app-input class="register-field__input" inputId="register-email" name="email" type="email" autocomplete="email" placeholder="Enter your email address" size="compact" [value]="email()" [required]="true" [ariaInvalid]="!!errorFor('email')" ariaDescribedBy="register-email-error" (valueInput)="updateField('email', $event)" />
             </span>
             <app-button class="register-verify" variant="accent" size="small" type="button" (clicked)="verifyEmail()">Verify</app-button>
           </div>
+          @if (errorFor('email')) { <p id="register-email-error" class="register-field-message" role="alert">{{ errorFor('email') }}</p> }
           @if (emailMessage()) { <p class="register-field-message" role="status">{{ emailMessage() }}</p> }
         </div>
 
@@ -67,37 +70,50 @@
           <div class="register-verified-field">
             <span class="register-input-wrap">
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2h2l1 3-1.4 1.2a10 10 0 0 0 4.2 4.2L11 9l3 1v2c0 .8-.7 1.5-1.5 1.5A10.5 10.5 0 0 1 2.5 3.5C2.5 2.7 3.2 2 4 2Z"/></svg>
-              <app-input class="register-field__input" inputId="register-mobile" name="mobile" type="tel" autocomplete="tel" placeholder="Enter your mobile number" size="compact" [value]="mobile()" [required]="true" [ariaInvalid]="attemptedSubmit() && !mobile()" (valueInput)="updateField('mobile', $event)" />
+              <app-input class="register-field__input" inputId="register-mobile" name="mobile" type="tel" autocomplete="tel" placeholder="Enter your mobile number" size="compact" [value]="mobile()" [required]="true" [ariaInvalid]="!!errorFor('mobile')" ariaDescribedBy="register-mobile-error" (valueInput)="updateField('mobile', $event)" />
             </span>
             <app-button class="register-verify" variant="accent" size="small" type="button" (clicked)="verifyMobile()">Verify</app-button>
           </div>
+          @if (errorFor('mobile')) { <p id="register-mobile-error" class="register-field-message" role="alert">{{ errorFor('mobile') }}</p> }
           @if (mobileMessage()) { <p class="register-field-message" role="status">{{ mobileMessage() }}</p> }
+        </div>
+
+        <div class="register-field">
+          <label for="register-username">Username <b>*</b></label>
+          <span class="register-input-wrap">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5" r="2.5"/><path d="M3 14c.3-2.5 2.2-4 5-4s4.7 1.5 5 4"/></svg>
+            <app-input class="register-field__input" inputId="register-username" name="userName" autocomplete="username" placeholder="Choose a username" size="compact" [value]="userName()" [required]="true" [ariaInvalid]="!!errorFor('userName')" ariaDescribedBy="register-username-error" (valueInput)="updateField('userName', $event)" />
+          </span>
+          @if (errorFor('userName')) { <p id="register-username-error" class="register-field-message" role="alert">{{ errorFor('userName') }}</p> }
         </div>
 
         <div class="register-field">
           <label for="register-password">Password <b>*</b></label>
           <span class="register-input-wrap">
             <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.2"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></svg>
-            <app-input class="register-field__input" inputId="register-password" name="password" [type]="passwordVisible() ? 'text' : 'password'" autocomplete="new-password" placeholder="Create your password" size="compact" [value]="password()" [required]="true" [ariaInvalid]="attemptedSubmit() && password().length < 8" (valueInput)="updateField('password', $event)" />
+            <app-input class="register-field__input" inputId="register-password" name="password" [type]="passwordVisible() ? 'text' : 'password'" autocomplete="new-password" placeholder="Create your password" size="compact" [value]="password()" [required]="true" [ariaInvalid]="!!errorFor('password')" ariaDescribedBy="register-password-error" (valueInput)="updateField('password', $event)" />
             <button class="register-password-toggle" type="button" [attr.aria-label]="passwordVisible() ? 'Hide password' : 'Show password'" (click)="togglePasswordVisibility('password')">
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8s2-4 6-4 6 4 6 4-2 4-6 4-6-4-6-4Z"/><circle cx="8" cy="8" r="1.7"/></svg>
             </button>
           </span>
+          @if (errorFor('password')) { <p id="register-password-error" class="register-field-message" role="alert">{{ errorFor('password') }}</p> }
         </div>
 
         <div class="register-field">
           <label for="register-confirm-password">Confirm Password <b>*</b></label>
           <span class="register-input-wrap">
             <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.2"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></svg>
-            <app-input class="register-field__input" inputId="register-confirm-password" name="confirmPassword" [type]="confirmPasswordVisible() ? 'text' : 'password'" autocomplete="new-password" placeholder="Confirm your password" size="compact" [value]="confirmPassword()" [required]="true" [ariaInvalid]="attemptedSubmit() && confirmPassword() !== password()" (valueInput)="updateField('confirmPassword', $event)" />
+            <app-input class="register-field__input" inputId="register-confirm-password" name="confirmPassword" [type]="confirmPasswordVisible() ? 'text' : 'password'" autocomplete="new-password" placeholder="Confirm your password" size="compact" [value]="confirmPassword()" [required]="true" [ariaInvalid]="!!errorFor('confirmPassword')" ariaDescribedBy="register-confirm-password-error" (valueInput)="updateField('confirmPassword', $event)" />
             <button class="register-password-toggle" type="button" [attr.aria-label]="confirmPasswordVisible() ? 'Hide password' : 'Show password'" (click)="togglePasswordVisibility('confirmPassword')">
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8s2-4 6-4 6 4 6 4-2 4-6 4-6-4-6-4Z"/><circle cx="8" cy="8" r="1.7"/></svg>
             </button>
           </span>
+          @if (errorFor('confirmPassword')) { <p id="register-confirm-password-error" class="register-field-message" role="alert">{{ errorFor('confirmPassword') }}</p> }
         </div>
 
-        @if (formMessage()) { <p class="register-message" role="status">{{ formMessage() }}</p> }
-        <app-button class="register-submit" variant="accent" size="small" type="submit">Register</app-button>
+        <app-button class="register-submit" variant="accent" size="small" type="submit" [disabled]="isSubmitting()" [loading]="isSubmitting()">
+          {{ isSubmitting() ? 'Registering…' : 'Register' }}
+        </app-button>
       </form>
 
       <p class="register-legal">By creating an account, you agree to our <a href="#terms">Terms &amp; Conditions</a> and <a href="#privacy">Privacy Policy</a>.</p>

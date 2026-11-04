@@ -1,15 +1,77 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
+import { Observable, map } from 'rxjs';
 import { User } from '@shared/models';
+import { API_ENDPOINTS } from '../constants/api-endpoints';
 import { STORAGE_KEYS } from '../constants/storage-keys';
+import { ApiService } from './api.service';
 import { StorageService } from './storage.service';
 
-/**
- * Session state only (who is signed in, and their token).
- * Login/register API calls will be added with the `auth` feature.
- */
+export interface CustomerRegistrationPayload {
+  FIRST_NAME: string;
+  LAST_NAME: string;
+  EMAIL: string;
+  MOBILE_NUMBER: string;
+  USER_NAME: string;
+  USER_PASSWORD: string;
+  CONFIRM_PASSWORD: string;
+  CREATED_BY: number;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function responseMessage(response: Record<string, unknown>): string | undefined {
+  const message = response['MESSAGE'] ?? response['message'];
+  if (typeof message === 'string' && message.trim()) return message.trim();
+  const error = response['error'] ?? response['ERROR'];
+  if (typeof error === 'string' && error.trim()) return error.trim();
+  const errors = response['errors'] ?? response['ERRORS'];
+  const messages = Array.isArray(errors)
+    ? errors.filter((entry): entry is string => typeof entry === 'string' && !!entry.trim())
+    : isRecord(errors)
+      ? Object.values(errors)
+          .flatMap((value) => Array.isArray(value) ? value : [value])
+          .filter((entry): entry is string => typeof entry === 'string' && !!entry.trim())
+      : [];
+  return messages.length ? messages.join(' ') : undefined;
+}
+
+function validateRegistrationResponse(response: unknown): string {
+  if (!isRecord(response)) {
+    if (typeof response === 'string' && /^(FAILURE|FAILED|ERROR)\b/i.test(response.trim())) {
+      throw new Error(response.trim());
+    }
+    return typeof response === 'string' && response.trim()
+      ? response.trim()
+      : 'Your account was created successfully.';
+  }
+
+  const status = response['STATUS'] ?? response['status'];
+  const normalizedStatus =
+    typeof status === 'string' || typeof status === 'number'
+      ? String(status).trim().toUpperCase()
+      : undefined;
+  const message = responseMessage(response);
+  if (
+    (status !== undefined &&
+      status !== null &&
+      !['SUCCESS', 'OK', '200', '201'].includes(normalizedStatus ?? '')) ||
+    response['SUCCESS'] === false ||
+    response['success'] === false ||
+    response['ERROR'] === true ||
+    (typeof response['error'] === 'string' && response['error'].trim() !== '')
+  ) {
+    throw new Error(message ?? 'Registration could not be completed.');
+  }
+  return message ?? 'Your account was created successfully.';
+}
+
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly storage = inject(StorageService);
+  private readonly api = inject(ApiService);
 
   private readonly _user = signal<User | null>(this.storage.get<User>(STORAGE_KEYS.user));
   private readonly _token = signal<string | null>(
@@ -19,6 +81,28 @@ export class AuthService {
   readonly user = this._user.asReadonly();
   readonly token = this._token.asReadonly();
   readonly isAuthenticated = computed(() => !!this._token() && !!this._user());
+
+  registerCustomer(payload: CustomerRegistrationPayload): Observable<string> {
+    return this.api
+      .post<unknown>(API_ENDPOINTS.customerRegistration.insert, payload)
+      .pipe(map(validateRegistrationResponse));
+  }
+
+  getErrorMessage(error: unknown): string {
+    if (error instanceof HttpErrorResponse) {
+      const body = error.error;
+      if (isRecord(body)) {
+        const message = responseMessage(body);
+        if (message) return message;
+      } else if (typeof body === 'string' && body.trim()) {
+        return body.trim();
+      }
+      return error.status
+        ? `Registration failed (HTTP ${error.status}).`
+        : 'Registration failed. Check your connection and try again.';
+    }
+    return error instanceof Error ? error.message : 'Registration failed. Please try again.';
+  }
 
   setSession(user: User, token: string): void {
     this._user.set(user);

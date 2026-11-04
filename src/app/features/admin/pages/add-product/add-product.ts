@@ -1,15 +1,28 @@
-import { ChangeDetectionStrategy, Component, computed, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { EMPTY, Observable, catchError } from 'rxjs';
 import { Button } from '@shared/components/button/button';
 import { Card } from '@shared/components/card/card';
 import { FileUpload } from '@shared/components/file-upload/file-upload';
 import { Input } from '@shared/components/input/input';
 import { Select } from '@shared/components/select/select';
 import { Textarea } from '@shared/components/textarea/textarea';
+import { ProductCatalogService, ProductLookupOption } from '@core/services/product-catalog.service';
+import { ToastService } from '@core/services/toast.service';
 
 export const REQUIRED_FIELDS = [
   'productName', 'sku', 'category', 'subcategory', 'brand', 'description', 'hsnCode', 'taxRate',
   'sellingPrice', 'mrp', 'stockQuantity', 'minimumOrderQuantity', 'maximumOrderQuantity',
 ] as const;
+
+type ProductLookupName = 'category' | 'brand' | 'taxRate';
+type ProductLookupStatus = 'loading' | 'success' | 'error';
+
+interface ProductLookupState {
+  status: ProductLookupStatus;
+  options: ProductLookupOption[];
+  error: string | null;
+}
 
 @Component({
   selector: 'app-add-product',
@@ -18,7 +31,11 @@ export const REQUIRED_FIELDS = [
   styleUrl: './add-product.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AddProduct {
+export class AddProduct implements OnInit {
+  private readonly productCatalog = inject(ProductCatalogService);
+  private readonly toast = inject(ToastService);
+  private readonly dropdownDestroyRef = inject(DestroyRef);
+  protected readonly loadDropdownLookups: boolean = true;
   protected readonly values = signal<Record<string, string>>({});
   protected readonly attemptedSave = signal(false);
   protected readonly saved = signal(false);
@@ -28,11 +45,34 @@ export class AddProduct {
   protected readonly productVideo = signal<File | null>(null);
   protected readonly imageError = signal('');
   protected readonly videoError = signal('');
+  protected readonly categoryLookup = signal<ProductLookupState>({
+    status: 'loading',
+    options: [],
+    error: null,
+  });
+  protected readonly brandLookup = signal<ProductLookupState>({
+    status: 'loading',
+    options: [],
+    error: null,
+  });
+  protected readonly taxRateLookup = signal<ProductLookupState>({
+    status: 'loading',
+    options: [],
+    error: null,
+  });
 
+  // Retained for the existing Edit Product screen, which reuses this component's validation.
   protected readonly categories = ['Electronics', 'Fashion', 'Home & Living', 'Beauty & Personal Care'];
   protected readonly subCategories = ['Mobile Phones', 'Laptops', 'Accessories', 'Wearables', 'Audio'];
   protected readonly brands = ['MileX', 'Samsung', 'Apple', 'Other'];
   protected readonly taxRates = ['0%', '5%', '12%', '18%', '28%'];
+
+  ngOnInit(): void {
+    if (!this.loadDropdownLookups) return;
+    this.loadLookup('category');
+    this.loadLookup('brand');
+    this.loadLookup('taxRate');
+  }
 
   protected valueFor(name: string): string {
     return this.values()[name] ?? '';
@@ -55,12 +95,24 @@ export class AddProduct {
     const validNumber = Number.isFinite(number);
 
     switch (name) {
+      case 'category':
+        return this.loadDropdownLookups
+          ? this.validLookupId(this.categoryLookup().options, value)
+          : null;
+      case 'brand':
+        return this.loadDropdownLookups
+          ? this.validLookupId(this.brandLookup().options, value)
+          : null;
       case 'hsnCode':
         return /^(?:\d{4}|\d{6}|\d{8})$/.test(value)
           ? null
           : 'Enter a valid 4, 6, or 8 digit HSN code.';
       case 'taxRate':
-        return this.taxRates.includes(value) ? null : 'Please select a valid tax rate.';
+        return this.loadDropdownLookups
+          ? this.taxRateLookup().options.some((option) => option.id === value)
+            ? null
+            : 'Please select a valid tax rate.'
+          : this.taxRates.includes(value) ? null : 'Please select a valid tax rate.';
       case 'sellingPrice':
         if (!validNumber || number <= 0) return 'Enter a valid selling price greater than 0.';
         return this.isValidPositiveNumber(this.valueFor('mrp')) && number > Number(this.valueFor('mrp'))
@@ -104,6 +156,53 @@ export class AddProduct {
 
   protected selectedFileName(file: File | null): string {
     return file?.name ?? '';
+  }
+
+  protected lookupDisabled(state: ProductLookupState): boolean {
+    return state.status !== 'success' || state.options.length === 0;
+  }
+
+  protected retryLookup(name: ProductLookupName): void {
+    this.loadLookup(name);
+  }
+
+  private validLookupId(options: readonly ProductLookupOption[], id: string): string | null {
+    return options.some((option) => option.id === id)
+      ? null
+      : 'Please select a valid option.';
+  }
+
+  private loadLookup(name: ProductLookupName): void {
+    const state = this.lookupStateFor(name);
+    state.set({ ...state(), status: 'loading', error: null });
+    const request = this.lookupRequest(name);
+    request
+      .pipe(
+        catchError((error: unknown) => {
+          const message = this.productCatalog.getErrorMessage(error);
+          state.set({ status: 'error', options: [], error: message });
+          this.toast.showError(message);
+          return EMPTY;
+        }),
+        takeUntilDestroyed(this.dropdownDestroyRef),
+      )
+      .subscribe((options) => state.set({ status: 'success', options, error: null }));
+  }
+
+  private lookupStateFor(name: ProductLookupName) {
+    switch (name) {
+      case 'category': return this.categoryLookup;
+      case 'brand': return this.brandLookup;
+      case 'taxRate': return this.taxRateLookup;
+    }
+  }
+
+  private lookupRequest(name: ProductLookupName): Observable<ProductLookupOption[]> {
+    switch (name) {
+      case 'category': return this.productCatalog.loadCategories();
+      case 'brand': return this.productCatalog.loadBrands();
+      case 'taxRate': return this.productCatalog.loadTaxRates();
+    }
   }
 
   protected addProductImage(file: File): void {

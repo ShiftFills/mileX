@@ -1,9 +1,39 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { Router } from '@angular/router';
+import { provideRouter } from '@angular/router';
+import { of } from 'rxjs';
 import { SellerVerification } from './seller-verification';
+import { SellerVerificationService } from '../../services/seller-verification.service';
 
 describe('SellerVerification', () => {
   let fixture: ComponentFixture<SellerVerification>;
   let root: HTMLElement;
+
+  const sellers = Array.from({ length: 6 }, (_, index) => ({
+    id: index + 1,
+    sellerId: index + 101,
+    documentId: index === 0 ? 201 : undefined,
+    bankDetailId: index === 0 ? 301 : undefined,
+    sellerName: `Seller ${index + 1}`,
+    businessName: index === 0 ? 'GreenMart Supplies' : `Business ${index + 1}`,
+    businessType: 'Partnership',
+    sellerCode: `SELLER-${index + 1}`,
+    email: `seller${index + 1}@example.com`,
+    mobile: '9876543210',
+    gstNumber: 'GST123',
+    panNumber: 'ABCDE1234F',
+    status: 'Pending' as const,
+    remarks: '',
+    documents:
+      index === 0
+        ? [
+            { name: 'GST Certificate', fileName: 'GST_Certificate.pdf', url: '' },
+            { name: 'PAN Card', fileName: 'PAN_Card.pdf', url: '' },
+            { name: 'Address Proof', fileName: 'Address_Proof.pdf', url: '' },
+            { name: 'Bank Proof', fileName: 'Bank_Proof.pdf', url: '' },
+          ]
+        : [],
+  }));
 
   const openFirstSeller = async () => {
     const viewDetails = root.querySelector('tbody app-button button') as HTMLButtonElement;
@@ -19,7 +49,19 @@ describe('SellerVerification', () => {
   };
 
   beforeEach(async () => {
-    await TestBed.configureTestingModule({ imports: [SellerVerification] }).compileComponents();
+    await TestBed.configureTestingModule({
+      imports: [SellerVerification],
+      providers: [
+        provideRouter([]),
+        {
+          provide: SellerVerificationService,
+          useValue: {
+            getSellers: () => of({ items: sellers, total: sellers.length, hasNext: false }),
+            getErrorMessage: () => 'Seller details could not be loaded.',
+          },
+        },
+      ],
+    }).compileComponents();
     fixture = TestBed.createComponent(SellerVerification);
     await fixture.whenStable();
     root = fixture.nativeElement as HTMLElement;
@@ -68,6 +110,18 @@ describe('SellerVerification', () => {
   it('approves a seller and closes the dialog', async () => {
     await openFirstSeller();
     await clickDialogButton('Approve');
+    expect(root.querySelector('.seller-dialog')).toBeNull();
+  });
+
+  it('opens the seller onboarding form in edit mode for the selected seller', async () => {
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+    await openFirstSeller();
+    await clickDialogButton('Edit Seller');
+
+    expect(navigate).toHaveBeenCalledWith(['/sell'], {
+      queryParams: { sellerId: 101, documentId: 201, bankDetailId: 301 },
+    });
     expect(root.querySelector('.seller-dialog')).toBeNull();
   });
 });

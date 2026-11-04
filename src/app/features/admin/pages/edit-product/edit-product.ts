@@ -33,6 +33,8 @@ interface GalleryImage {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class EditProduct extends AddProduct {
+  protected override readonly loadDropdownLookups = false;
+
   /** Bound from the `:id` route param (withComponentInputBinding). */
   readonly id = input.required<string>();
 

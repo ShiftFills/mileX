@@ -10,6 +10,20 @@ export type ProductCatalogStatus = 'idle' | 'loading' | 'success' | 'error';
 const FALLBACK_IMAGE = '/images/latest-gadgets.svg';
 const MAX_CACHED_PRODUCT_PAGES = 20;
 
+export interface ProductLookupOption {
+  id: string;
+  label: string;
+}
+
+interface ProductLookupDefinition {
+  path: string;
+  idParameter: string;
+  idField: string;
+  labelField: string;
+  labelSuffix?: string;
+  isActive?: (record: Record<string, unknown>) => boolean;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -229,6 +243,104 @@ function offsetForPage(page: number, pageSize: number): number {
   return (page - 1) * pageSize;
 }
 
+function lookupEntries(response: unknown, resource: string): readonly unknown[] {
+  if (!isRecord(response)) {
+    throw new Error(`The ${resource} API returned an invalid response.`);
+  }
+  const status = response['status'] ?? response['STATUS'];
+  const message = response['message'] ?? response['MESSAGE'];
+  if (
+    status !== undefined &&
+    status !== true &&
+    (typeof status !== 'string' ||
+      !['SUCCESS', 'OK', '200', '201'].includes(status.trim().toUpperCase()))
+  ) {
+    throw new Error(
+      typeof message === 'string' && message.trim()
+        ? message.trim()
+        : `The ${resource} could not be loaded.`,
+    );
+  }
+
+  const data = response['data'] ?? response['DATA'];
+  if (!Array.isArray(data)) {
+    throw new Error(`The ${resource} API returned an invalid list.`);
+  }
+  return data;
+}
+
+function mapLookupOptions(
+  response: unknown,
+  resource: string,
+  definition: ProductLookupDefinition,
+): ProductLookupOption[] {
+  return lookupEntries(response, resource)
+    .filter((entry) => {
+      if (!isRecord(entry) || !definition.isActive) return true;
+      return definition.isActive(entry);
+    })
+    .map((entry) => {
+      if (!isRecord(entry)) {
+        throw new Error(`The ${resource} API returned an invalid option.`);
+      }
+      const rawId = entry[definition.idField];
+      const rawLabel = entry[definition.labelField];
+      const id = numericValue(rawId);
+      if (
+        id === undefined ||
+        !Number.isSafeInteger(id) ||
+        id <= 0 ||
+        (typeof rawLabel !== 'string' && typeof rawLabel !== 'number') ||
+        !String(rawLabel).trim()
+      ) {
+        throw new Error(`The ${resource} API returned an option with missing or invalid fields.`);
+      }
+      const label = String(rawLabel).trim();
+      const formattedLabel = definition.labelSuffix
+        ? `${Number(label)}${definition.labelSuffix}`
+        : label;
+      if (definition.labelSuffix && !Number.isFinite(Number(label))) {
+        throw new Error(`The ${resource} API returned an option with an invalid percentage.`);
+      }
+      return {
+        id: String(id),
+        label: formattedLabel,
+      };
+    });
+}
+
+function isActiveBrand(record: Record<string, unknown>): boolean {
+  const status = record['STATUS'];
+  if (status === undefined || status === null || status === '') return false;
+  if (status === true || status === 1) return true;
+  return typeof status === 'string' && ['ACTIVE', '1', 'TRUE'].includes(status.trim().toUpperCase());
+}
+
+const PRODUCT_LOOKUP_DEFINITIONS: Readonly<
+  Record<'categories' | 'brands' | 'taxRates', ProductLookupDefinition>
+> = {
+  categories: {
+    path: API_ENDPOINTS.productLookups.categories,
+    idParameter: 'CATEGORY_ID',
+    idField: 'CATEGORY_ID',
+    labelField: 'CATEGORY_NAME',
+  },
+  brands: {
+    path: API_ENDPOINTS.productLookups.brands,
+    idParameter: 'BRAND_ID',
+    idField: 'BRAND_ID',
+    labelField: 'BRAND_NAME',
+    isActive: isActiveBrand,
+  },
+  taxRates: {
+    path: API_ENDPOINTS.productLookups.taxRates,
+    idParameter: 'TAX_RATE_ID',
+    idField: 'TAX_RATE_ID',
+    labelField: 'TAX_PERCENTAGE',
+    labelSuffix: '%',
+  },
+};
+
 @Injectable({ providedIn: 'root' })
 export class ProductCatalogService {
   private readonly api = inject(ApiService);
@@ -237,6 +349,7 @@ export class ProductCatalogService {
   private readonly _error = signal<string | null>(null);
   private readonly productsLoaded = new ReplaySubject<readonly Product[]>(1);
   private readonly pageRequests = new Map<string, Observable<PaginatedResponse<Product>>>();
+  private readonly lookupRequests = new Map<string, Observable<ProductLookupOption[]>>();
 
   readonly products = this._products.asReadonly();
   readonly status = this._status.asReadonly();
@@ -262,6 +375,18 @@ export class ProductCatalogService {
           this._error.set(this.getErrorMessage(error));
         },
       });
+  }
+
+  loadCategories(): Observable<ProductLookupOption[]> {
+      return this.loadLookup('categories');
+  }
+
+  loadBrands(): Observable<ProductLookupOption[]> {
+      return this.loadLookup('brands');
+  }
+
+  loadTaxRates(): Observable<ProductLookupOption[]> {
+      return this.loadLookup('taxRates');
   }
 
   loadPage(page: number, pageSize: number): Observable<PaginatedResponse<Product>> {
@@ -324,5 +449,25 @@ export class ProductCatalogService {
         : 'Products could not be loaded. Check your connection and try again.';
     }
     return error instanceof Error ? error.message : 'Products could not be loaded. Please try again.';
+  }
+
+  private loadLookup(key: keyof typeof PRODUCT_LOOKUP_DEFINITIONS): Observable<ProductLookupOption[]> {
+    const cached = this.lookupRequests.get(key);
+    if (cached) return cached;
+
+    const definition = PRODUCT_LOOKUP_DEFINITIONS[key];
+    let request: Observable<ProductLookupOption[]>;
+    request = this.api
+      .get<unknown>(definition.path, { [definition.idParameter]: -1 })
+      .pipe(
+        map((response) => mapLookupOptions(response, key, definition)),
+        catchError((error: unknown) => {
+          if (this.lookupRequests.get(key) === request) this.lookupRequests.delete(key);
+          return throwError(() => error);
+        }),
+        shareReplay({ bufferSize: 1, refCount: false }),
+      );
+    this.lookupRequests.set(key, request);
+    return request;
   }
 }

@@ -1,4 +1,8 @@
-import { ChangeDetectionStrategy, Component, TemplateRef, computed, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, TemplateRef, computed, inject, signal, viewChild } from '@angular/core';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { Router } from '@angular/router';
+import { EMPTY, catchError, distinctUntilChanged, switchMap, tap } from 'rxjs';
+import { LoadingSpinner } from '@shared/components/loading-spinner/loading-spinner';
 import { Badge, BadgeTone } from '@shared/components/badge/badge';
 import { Button } from '@shared/components/button/button';
 import { Card } from '@shared/components/card/card';
@@ -14,31 +18,11 @@ import { StatCard, StatCardIcon, StatCardTone } from '@shared/components/stat-ca
 import { Table, TableCellContext, TableColumn, TableHeaderContext } from '@shared/components/table/table';
 import { Textarea } from '@shared/components/textarea/textarea';
 import { eventValue } from '@shared/utils/form-events';
+import { SellerVerificationRecord, SellerVerificationService, SellerVerificationStatus } from '../../services/seller-verification.service';
 
-type VerificationStatus = 'Pending' | 'Approved' | 'Rejected';
 type BusinessType = 'Private Limited Company' | 'Partnership' | 'Sole Proprietorship';
-
-interface SellerDocument {
-  name: string;
-  fileName: string;
-  /** Download/preview URL; empty until the backend provides one. */
-  url: string;
-}
-
-interface SellerRow {
-  id: number;
-  sellerName: string;
-  businessName: string;
-  businessType: BusinessType;
-  sellerCode: string;
-  email: string;
-  mobile: string;
-  gstNumber: string;
-  panNumber: string;
-  status: VerificationStatus;
-  remarks: string;
-  documents: SellerDocument[];
-}
+type SellerRow = SellerVerificationRecord;
+type SellerDocument = SellerRow['documents'][number];
 
 interface SellerStat {
   label: string;
@@ -52,51 +36,38 @@ interface SellerStat {
 }
 
 const PAGE_SIZE = 6;
-const STATUS_OPTIONS: readonly VerificationStatus[] = ['Pending', 'Approved', 'Rejected'];
-const BUSINESS_TYPES: readonly BusinessType[] = ['Private Limited Company', 'Partnership', 'Sole Proprietorship'];
-const STATUS_TONES: Record<VerificationStatus, BadgeTone> = { Pending: 'warning', Approved: 'success', Rejected: 'danger' };
+const STATUS_OPTIONS: readonly SellerVerificationStatus[] = ['Pending', 'Approved', 'Rejected'];
+const BUSINESS_TYPES: readonly (BusinessType | '—')[] = ['Private Limited Company', 'Partnership', 'Sole Proprietorship', '—'];
+const STATUS_TONES: Record<SellerVerificationStatus, BadgeTone> = { Pending: 'warning', Approved: 'success', Rejected: 'danger' };
 
 const STATS: readonly SellerStat[] = [
-  { label: 'Total Sellers', value: '342', trend: '%+8.2', trendDirection: 'up', trendTone: 'positive', icon: 'sellers', tone: 'indigo' },
-  { label: 'Pending Verification', value: '128', trend: '%+18.7', trendDirection: 'up', trendTone: 'positive', icon: 'pending', iconImage: '/images/returnRequest-Pending.svg', tone: 'amber' },
-  { label: 'Approved Sellers', value: '39', trend: '%+12.5', trendDirection: 'up', trendTone: 'positive', icon: 'approved', tone: 'green' },
-  { label: 'Rejected Sellers', value: '54', trend: '%+12.5', trendDirection: 'down', trendTone: 'negative', icon: 'rejected', tone: 'red' },
+  { label: 'Total Sellers', value: '—', trend: '', trendDirection: 'up', trendTone: 'positive', icon: 'sellers', tone: 'indigo' },
+  { label: 'Pending Verification', value: '—', trend: '', trendDirection: 'up', trendTone: 'positive', icon: 'pending', iconImage: '/images/returnRequest-Pending.svg', tone: 'amber' },
+  { label: 'Approved Sellers', value: '—', trend: '', trendDirection: 'up', trendTone: 'positive', icon: 'approved', tone: 'green' },
+  { label: 'Rejected Sellers', value: '—', trend: '', trendDirection: 'down', trendTone: 'negative', icon: 'rejected', tone: 'red' },
 ];
-
-const SELLER_FIXTURE: SellerRow[] = Array.from({ length: 128 }, (_, index) => ({
-  id: index + 1,
-  sellerName: 'Ragupathi',
-  businessName: 'GreenMart Supplies',
-  businessType: BUSINESS_TYPES[index % BUSINESS_TYPES.length],
-  sellerCode: `MLX-SLR-${String(248 + index).padStart(5, '0')}`,
-  email: 'priya@greenmart.com',
-  mobile: '+91 9876543210',
-  gstNumber: '33AABCG1234F1Z5',
-  panNumber: 'AABCG1234F',
-  status: index < 6 ? 'Pending' : STATUS_OPTIONS[index % STATUS_OPTIONS.length],
-  remarks: '',
-  documents: [
-    { name: 'GST Certificate', fileName: 'GST_Certificate.pdf', url: '' },
-    { name: 'PAN Card', fileName: 'PAN_Card.pdf', url: '' },
-    { name: 'Business Registration Certificate', fileName: 'Business_Registration.pdf', url: '' },
-    { name: 'Bank Proof / Cancelled Cheque', fileName: 'Bank_Proof.pdf', url: '' },
-  ],
-}));
 
 @Component({
   selector: 'app-admin-seller-verification',
-  imports: [Badge, Button, Card, Checkbox, DateRangeFilter, Dialog, ExportButton, Input, PageHeading, Pagination, Select, StatCard, Table, Textarea],
+  imports: [Badge, Button, Card, Checkbox, DateRangeFilter, Dialog, ExportButton, Input, LoadingSpinner, PageHeading, Pagination, Select, StatCard, Table, Textarea],
   templateUrl: './seller-verification.html',
   styleUrl: './seller-verification.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SellerVerification {
+  private readonly verificationService = inject(SellerVerificationService);
+  private readonly router = inject(Router);
   protected readonly pageSize = PAGE_SIZE;
   protected readonly stats = STATS;
   protected readonly statusOptions = STATUS_OPTIONS;
   protected readonly businessTypes = BUSINESS_TYPES;
 
-  protected readonly sellers = signal(SELLER_FIXTURE);
+  protected readonly sellers = signal<SellerRow[]>([]);
+  protected readonly loadStatus = signal<'loading' | 'success' | 'error'>('loading');
+  protected readonly loadError = signal('');
+  private readonly retryCount = signal(0);
+  private readonly totalSellers = signal<number | undefined>(undefined);
+  private readonly hasNextPage = signal(false);
   protected readonly query = signal('');
   protected readonly status = signal('');
   protected readonly businessType = signal('');
@@ -107,6 +78,42 @@ export class SellerVerification {
   protected readonly activeSellerId = signal<number | null>(null);
   protected readonly remarks = signal('');
   protected readonly remarksError = signal('');
+
+  protected readonly totalCount = computed(() => this.totalSellers());
+  private readonly pageRequest = computed(() => ({ page: this.page(), retry: this.retryCount() }));
+
+  constructor() {
+    toObservable(this.pageRequest)
+      .pipe(
+        distinctUntilChanged((previous, current) => previous.page === current.page && previous.retry === current.retry),
+        switchMap(({ page }) => {
+          this.sellers.set([]);
+          this.totalSellers.set(undefined);
+          this.hasNextPage.set(false);
+          this.loadStatus.set('loading');
+          this.loadError.set('');
+          return this.verificationService.getSellers(page, PAGE_SIZE).pipe(
+            tap((result) => {
+              this.sellers.set(result.items);
+              this.totalSellers.set(result.total);
+              this.hasNextPage.set(result.hasNext);
+              this.loadStatus.set('success');
+            }),
+            catchError((error: unknown) => {
+              this.loadError.set(this.verificationService.getErrorMessage(error));
+              this.loadStatus.set('error');
+              return EMPTY;
+            }),
+          );
+        }),
+        takeUntilDestroyed(),
+      )
+      .subscribe();
+  }
+
+  protected retryLoad(): void {
+    this.retryCount.update((count) => count + 1);
+  }
 
   private readonly selectAllHeader = viewChild<TemplateRef<TableHeaderContext<SellerRow>>>('selectAllHeader');
   private readonly selectRowCell = viewChild<TemplateRef<TableCellContext<SellerRow>>>('selectRowCell');
@@ -147,8 +154,7 @@ export class SellerVerification {
   });
 
   protected readonly visibleRows = computed(() => {
-    const start = (this.page() - 1) * PAGE_SIZE;
-    return this.filteredRows().slice(start, start + PAGE_SIZE);
+    return this.filteredRows();
   });
 
   protected readonly allVisibleSelected = computed(() => {
@@ -158,7 +164,7 @@ export class SellerVerification {
 
   protected readonly activeSeller = computed(() => this.sellers().find((seller) => seller.id === this.activeSellerId()) ?? null);
 
-  protected statusTone(status: VerificationStatus): BadgeTone {
+  protected statusTone(status: SellerVerificationStatus): BadgeTone {
     return STATUS_TONES[status];
   }
 
@@ -179,6 +185,7 @@ export class SellerVerification {
       else next.delete(id);
       return next;
     });
+
   }
 
   protected toggleAllVisible(checked: boolean): void {
@@ -204,6 +211,17 @@ export class SellerVerification {
     this.remarksError.set('');
   }
 
+  protected editSeller(seller: SellerVerificationRecord): void {
+    this.closeDetails();
+    void this.router.navigate(['/sell'], {
+      queryParams: {
+        sellerId: seller.sellerId,
+        ...(seller.documentId !== undefined ? { documentId: seller.documentId } : {}),
+        ...(seller.bankDetailId !== undefined ? { bankDetailId: seller.bankDetailId } : {}),
+      },
+    });
+  }
+
   protected setRemarks(event: Event): void {
     this.remarks.set(eventValue(event) ?? '');
     this.remarksError.set('');
@@ -226,7 +244,7 @@ export class SellerVerification {
     this.decide('Rejected');
   }
 
-  private decide(status: VerificationStatus): void {
+  private decide(status: SellerVerificationStatus): void {
     const id = this.activeSellerId();
     if (id === null) return;
     const remarks = this.remarks().trim();

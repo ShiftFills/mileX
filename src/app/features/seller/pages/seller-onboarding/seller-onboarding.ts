@@ -1,7 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, OnDestroy, signal } from '@angular/core';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { NgTemplateOutlet } from '@angular/common';
-import { Subscription } from 'rxjs';
+import { EMPTY, Observable, Subscription, catchError, concatMap, finalize, forkJoin, map, of, switchMap, tap } from 'rxjs';
+import { ToastService } from '@core/services/toast.service';
 import { Button } from '@shared/components/button/button';
 import { Badge } from '@shared/components/badge/badge';
 import { Card } from '@shared/components/card/card';
@@ -14,9 +15,14 @@ import { Textarea } from '@shared/components/textarea/textarea';
 import { Home } from '@features/home/pages/home/home';
 import { DocumentPreview } from '../../components/document-preview/document-preview';
 import {
+  SellerBankDetails,
+  SellerBankDetailsUpdatePayload,
+  SellerDocumentsUpdatePayload,
   SellerLookupOption,
   SellerOnboardingPayload,
+  SellerOnboardingUpdatePayload,
   SellerOnboardingService,
+  SELLER_CREATED_BY,
 } from '../../services/seller-onboarding.service';
 
 interface SellerFieldOption {
@@ -48,6 +54,16 @@ interface SellerFieldDefinition {
 type LookupName = 'businessType' | 'country' | 'state';
 type LookupStatus = 'loading' | 'success' | 'error';
 
+const DOCUMENT_FIELD_MAP = {
+  gstCertificate: 'GST_CERTIFICATE',
+  panCard: 'PAN_CARD',
+  registrationCertificate: 'BUSINESS_REGISTRATION_CERTIFICATE',
+  addressProof: 'ADDRESS_PROOF',
+  ownerIdProof: 'OWNER_DIRECTOR_ID_PROOF',
+  bankProof: 'BANK_PROOF',
+  supportingDocument: 'OTHER_SUPPORTING_DOCUMENT',
+} as const;
+
 @Component({
   selector: 'app-seller-onboarding',
   imports: [
@@ -72,9 +88,11 @@ export class SellerOnboarding implements OnDestroy {
   protected readonly activeStep = signal(1);
   protected readonly submitted = signal(false);
   protected readonly isSubmitting = signal(false);
-  protected readonly submissionError = signal<string | null>(null);
+  protected readonly submissionSuccess = signal('');
   protected readonly values = signal<Record<string, string>>({});
   protected readonly uploadedDocuments = signal<Record<string, File>>({});
+  protected readonly existingDocuments = signal<Record<string, string | null>>({});
+  protected readonly isEditing = signal(false);
   protected readonly attemptedNext = signal(false);
   /** Name of the document currently shown in the Step 2 preview panel (null = document list). */
   protected readonly previewDocument = signal<string | null>(null);
@@ -91,6 +109,19 @@ export class SellerOnboarding implements OnDestroy {
   protected readonly lookupErrors = signal<Partial<Record<LookupName, string>>>({});
   private readonly lookupSubscriptions = new Map<LookupName, Subscription>();
   private submissionSubscription: Subscription | null = null;
+  private createdSeller: {
+    sellerId: number;
+    userId: number;
+    documentId?: number;
+    bankDetailId?: number;
+  } | null = null;
+  private editIdentity: { sellerId: number; userId: number; documentId: number; bankDetailId: number } | null = null;
+  private reviewEditRequested = false;
+  private requestedDocumentId: number | undefined;
+  private requestedBankDetailId: number | undefined;
+  private existingSellerPassword = '';
+  private documentsUploaded = false;
+  private bankDetailsSaved = false;
   private readonly router: Router;
 
   protected readonly previewedDocument = computed(() => {
@@ -264,6 +295,12 @@ export class SellerOnboarding implements OnDestroy {
       icon: 'business',
     },
     {
+      name: 'ifscCode',
+      label: 'IFSC Code',
+      placeholder: 'Enter IFSC code',
+      icon: 'card',
+    },
+    {
       name: 'accountNumber',
       label: 'Account Number',
       placeholder: 'Enter bank account number',
@@ -318,6 +355,7 @@ export class SellerOnboarding implements OnDestroy {
       'accountHolder',
       'bankName',
       'branchName',
+      'ifscCode',
       'accountNumber',
       'confirmAccountNumber',
       'accountType',
@@ -346,59 +384,45 @@ export class SellerOnboarding implements OnDestroy {
     accountHolder: 'Account holder name is required.',
     bankName: 'Bank name is required.',
     branchName: 'Branch name is required.',
+    ifscCode: 'IFSC code is required.',
     accountNumber: 'Account number is required.',
     confirmAccountNumber: 'Please confirm your account number.',
     accountType: 'Please select an account type.',
   };
 
-  private readonly gstinStateCodes = new Set([
-    '01',
-    '02',
-    '03',
-    '04',
-    '05',
-    '06',
-    '07',
-    '08',
-    '09',
-    '10',
-    '11',
-    '12',
-    '13',
-    '14',
-    '15',
-    '16',
-    '17',
-    '18',
-    '19',
-    '20',
-    '21',
-    '22',
-    '23',
-    '24',
-    '26',
-    '27',
-    '29',
-    '30',
-    '31',
-    '32',
-    '33',
-    '34',
-    '35',
-    '36',
-    '37',
-    '38',
-    '97',
-    '99',
-  ]);
-
   constructor(
     router: Router,
     private readonly sellerOnboarding: SellerOnboardingService,
+    private readonly toast: ToastService,
+    route?: ActivatedRoute,
   ) {
     this.router = router;
-    this.loadLookup('businessType');
-    this.loadLookup('country');
+    const sellerIdValue = route?.snapshot.queryParamMap.get('sellerId');
+    const sellerId = sellerIdValue === null || sellerIdValue === undefined ? NaN : Number(sellerIdValue);
+    if (sellerIdValue !== null && sellerIdValue !== undefined) {
+      this.isEditing.set(true);
+    }
+    try {
+      const documentId = route?.snapshot.queryParamMap.get('documentId');
+      const bankDetailId = route?.snapshot.queryParamMap.get('bankDetailId');
+      if (documentId !== null && documentId !== undefined) {
+        this.requestedDocumentId = this.toPositiveId(documentId, 'DOCUMENT_ID');
+      }
+      if (bankDetailId !== null && bankDetailId !== undefined) {
+        this.requestedBankDetailId = this.toPositiveId(bankDetailId, 'BANK_DETAIL_ID');
+      }
+    } catch (error: unknown) {
+      this.toast.showError(this.sellerOnboarding.getErrorMessage(error));
+      return;
+    }
+    if (Number.isSafeInteger(sellerId) && sellerId > 0) {
+      this.loadExistingSeller(sellerId);
+    } else if (sellerIdValue !== null && sellerIdValue !== undefined) {
+      this.toast.showError('The seller edit link contains an invalid SELLER_ID.');
+    } else {
+      this.loadLookup('businessType');
+      this.loadLookup('country');
+    }
   }
 
   ngOnDestroy(): void {
@@ -421,11 +445,11 @@ export class SellerOnboarding implements OnDestroy {
   }
 
   protected documentFileNameFor(name: string): string {
-    return this.uploadedDocuments()[name]?.name ?? '';
+    return this.uploadedDocuments()[name]?.name ?? this.existingDocuments()[name] ?? '';
   }
 
   protected documentStatusFor(name: string): 'uploaded' | null {
-    return this.uploadedDocuments()[name] ? 'uploaded' : null;
+    return this.documentFileNameFor(name) ? 'uploaded' : null;
   }
 
   protected fieldId(name: string): string {
@@ -433,6 +457,7 @@ export class SellerOnboarding implements OnDestroy {
   }
 
   protected errorFor(name: string): string | null {
+    if (this.isEditing() && name === 'userPassword') return null;
     if (!this.attemptedNext() && !this.touchedFields()[name] && !this.valueFor(name).trim())
       return null;
     return this.errorForStep(name, this.activeStep());
@@ -461,25 +486,35 @@ export class SellerOnboarding implements OnDestroy {
           : 'Please enter a valid 10-digit mobile number.';
       case 'pincode':
         return /^[1-9]\d{5}$/.test(value) ? null : 'Please enter a valid 6-digit PIN code.';
-      case 'gstNumber':
-        return this.isValidGstin(value)
-          ? null
-          : 'Please enter a valid GST number (e.g., 27AAPFU0939F1ZV).';
       case 'panNumber':
         return this.isValidPan(value)
           ? null
           : 'Please enter a valid PAN number (e.g., ABCDE1234F).';
-      case 'businessType':
+      case 'businessType': {
+        const id = Number(value);
+        return this.isValidOption(name, value) && Number.isSafeInteger(id) && id > 0
+          ? null
+          : 'Please select a valid option.';
+      }
       case 'country':
-      case 'state':
       case 'accountType':
         return this.isValidOption(name, value) ? null : 'Please select a valid option.';
+      case 'state': {
+        const id = Number(value);
+        return this.isValidOption(name, value) && Number.isSafeInteger(id) && id > 0
+          ? null
+          : 'Please select a valid option.';
+      }
       case 'accountNumber':
         return /^\d+$/.test(value) ? null : 'Account number must contain digits only.';
       case 'confirmAccountNumber':
         return this.valueFor('accountNumber').trim() === value
           ? null
           : 'Account numbers do not match.';
+      case 'ifscCode':
+        return /^[A-Z]{4}0[A-Z0-9]{6}$/.test(value.toUpperCase())
+          ? null
+          : 'Please enter a valid 11-character IFSC code.';
       case 'registrationNumber':
         return null;
       default:
@@ -500,24 +535,6 @@ export class SellerOnboarding implements OnDestroy {
   private isValidPan(value: string): boolean {
     const normalized = value.toUpperCase();
     return /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(normalized);
-  }
-
-  private isValidGstin(value: string): boolean {
-    const normalized = value.toUpperCase();
-    if (!/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(normalized)) return false;
-    if (!this.gstinStateCodes.has(normalized.slice(0, 2))) return false;
-
-    const embeddedPan = normalized.slice(2, 12);
-    if (!this.isValidPan(embeddedPan)) return false;
-
-    const alphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    let sum = 0;
-    for (let index = 0; index < 14; index += 1) {
-      const product = alphabet.indexOf(normalized[index]) * (index % 2 === 0 ? 1 : 2);
-      sum += Math.floor(product / 36) + (product % 36);
-    }
-    const checkCharacter = alphabet[(36 - (sum % 36)) % 36];
-    return normalized[14] === checkCharacter;
   }
 
   private isValidOption(name: string, value: string): boolean {
@@ -559,7 +576,10 @@ export class SellerOnboarding implements OnDestroy {
           : this.sellerOnboarding.getStates(countryId);
     const subscription = request.subscribe({
       next: (options) => {
-        const mapped = this.toFieldOptions(options, name === 'country');
+        const mapped = this.toFieldOptions(
+          options,
+          name === 'businessType' || name === 'country' || name === 'state',
+        );
         if (name === 'businessType') this.businessTypes.set(mapped);
         else if (name === 'country') this.countries.set(mapped);
         else this.states.set(mapped);
@@ -574,6 +594,145 @@ export class SellerOnboarding implements OnDestroy {
       },
     });
     this.lookupSubscriptions.set(name, subscription);
+  }
+
+  private loadExistingSeller(sellerId: number): void {
+    this.editIdentity = null;
+    this.createdSeller = null;
+    this.reviewEditRequested = false;
+    this.values.set({});
+    this.existingDocuments.set({});
+    this.isSubmitting.set(true);
+    this.submissionSubscription?.unsubscribe();
+    this.submissionSubscription = this.sellerOnboarding
+      .getSeller(sellerId)
+      .pipe(
+        switchMap((seller) =>
+          forkJoin({
+            seller: of(seller),
+            documents: this.sellerOnboarding.getSellerDocumentsForSeller(
+              sellerId,
+              this.requestedDocumentId ?? this.optionalRecordId(seller, 'DOCUMENT_ID'),
+            ),
+            bank: this.sellerOnboarding.getSellerBankDetailsForSeller(
+              sellerId,
+              this.requestedBankDetailId ?? this.optionalRecordId(seller, 'BANK_DETAIL_ID'),
+            ),
+            businessTypes: this.sellerOnboarding.getBusinessTypes(),
+            countries: this.sellerOnboarding.getCountries(),
+          }),
+        ),
+        switchMap((records) => {
+          const businessTypes = this.toFieldOptions(records.businessTypes, true);
+          const countries = this.toFieldOptions(records.countries, true);
+          const countryId = this.matchOptionValue(records.seller['COUNTRY'], countries, 'country');
+          return this.sellerOnboarding.getStates(countryId).pipe(
+            map((states) => ({
+              ...records,
+              businessTypes,
+              countries,
+              states: this.toFieldOptions(states, true),
+            })),
+          );
+        }),
+        tap(({ seller, documents, bank, businessTypes, countries, states }) => {
+          const sellerIdFromRecord = this.toPositiveId(seller['SELLER_ID'], 'SELLER_ID');
+          const userId = this.toPositiveId(seller['USER_ID'], 'USER_ID');
+          const documentId = this.toPositiveId(documents['DOCUMENT_ID'], 'DOCUMENT_ID');
+          const bankDetailId = this.toPositiveId(bank['BANK_DETAIL_ID'], 'BANK_DETAIL_ID');
+          this.businessTypes.set(businessTypes);
+          this.countries.set(countries);
+          this.states.set(states);
+          this.lookupStatus.set({ businessType: 'success', country: 'success', state: 'success' });
+
+          const values: Record<string, string> = {
+            businessName: this.recordText(seller, 'BUSINESS_NAME'),
+            sellerName: this.recordText(seller, 'SELLER_NAME'),
+            businessType: this.matchOptionValue(seller['BUSINESS_TYPE'], businessTypes, 'business type'),
+            email: this.recordText(seller, 'EMAIL'),
+            mobileNumber: this.recordText(seller, 'MOBILE_NUMBER'),
+            businessAddress: this.recordText(seller, 'BUSINESS_ADDRESS'),
+            city: this.recordText(seller, 'CITY'),
+            state: this.matchOptionValue(seller['STATE'], states, 'state'),
+            country: this.matchOptionValue(seller['COUNTRY'], countries, 'country'),
+            pincode: this.recordText(seller, 'PINCODE'),
+            gstNumber: this.recordText(seller, 'GST_NUMBER'),
+            panNumber: this.recordText(seller, 'PAN_NUMBER'),
+            registrationNumber: this.recordText(seller, 'BUSINESS_REGISTRATION_NUMBER'),
+            contactPersonName: this.recordText(seller, 'CONTACT_PERSON_NAME'),
+            contactPersonMobile: this.recordText(seller, 'CONTACT_PERSON_MOBILE'),
+            contactEmail: this.recordText(seller, 'CONTACT_PERSON_EMAIL'),
+            userName: this.recordText(seller, 'USER_NAME'),
+            userPassword: '',
+            accountHolder: this.recordText(bank, 'ACCOUNT_HOLDER_NAME'),
+            bankName: this.recordText(bank, 'BANK_NAME'),
+            branchName: this.recordText(bank, 'BRANCH_NAME'),
+            accountNumber: this.recordText(bank, 'ACCOUNT_NUMBER'),
+            confirmAccountNumber: this.recordText(bank, 'ACCOUNT_NUMBER'),
+            ifscCode: this.recordText(bank, 'IFSC_CODE'),
+            accountType: this.mapAccountType(bank['ACCOUNT_TYPE']),
+          };
+          const existingDocuments = Object.fromEntries(
+            Object.entries(DOCUMENT_FIELD_MAP).map(([field, key]) => {
+              const filename = this.recordText(documents, key);
+              return [field, filename || null];
+            }),
+          );
+          for (const [field, filename] of Object.entries(existingDocuments)) {
+            if (filename) values[field] = filename;
+          }
+          this.values.set(values);
+          this.existingDocuments.set(existingDocuments);
+          this.lookupErrors.set({});
+          this.editIdentity = { sellerId: sellerIdFromRecord, userId, documentId, bankDetailId };
+          this.existingSellerPassword = this.recordText(seller, 'USER_PASSWORD');
+          this.createdSeller = { sellerId: sellerIdFromRecord, userId, documentId, bankDetailId };
+          this.documentsUploaded = true;
+          this.bankDetailsSaved = true;
+          this.isEditing.set(true);
+        }        ),
+        catchError((error: unknown) => {
+          this.toast.showError(this.sellerOnboarding.getErrorMessage(error));
+          return EMPTY;
+        }),
+        finalize(() => this.isSubmitting.set(false)),
+      )
+      .subscribe();
+  }
+
+  private recordText(record: Record<string, unknown>, key: string): string {
+    const value = record[key];
+    return typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+  }
+
+  private toPositiveId(value: unknown, key: string): number {
+    const id = typeof value === 'number' || typeof value === 'string' ? Number(value) : NaN;
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      throw new Error(`The seller edit response is missing a valid ${key}.`);
+    }
+    return id;
+  }
+
+  private optionalRecordId(record: Record<string, unknown>, key: string): number | undefined {
+    const value = record[key];
+    if (value === undefined || value === null || value === '') return undefined;
+    return this.toPositiveId(value, key);
+  }
+
+  private matchOptionValue(value: unknown, options: readonly SellerFieldOption[], label: string): string {
+    const candidate = typeof value === 'string' || typeof value === 'number' ? String(value).trim() : '';
+    const match = options.find(
+      (option) => option.value === candidate || option.label.toLowerCase() === candidate.toLowerCase(),
+    );
+    if (!match) throw new Error(`The seller edit response contains an unknown ${label}.`);
+    return match.value;
+  }
+
+  private mapAccountType(value: unknown): string {
+    const normalized = String(value ?? '').trim().toLowerCase();
+    if (normalized === '2' || normalized === 'current') return 'current';
+    if (normalized === '1' || normalized === 'savings') return 'savings';
+    throw new Error('The seller edit response contains an unknown account type.');
   }
 
   protected isLookupDisabled(fieldName: string): boolean {
@@ -625,6 +784,7 @@ export class SellerOnboarding implements OnDestroy {
   }
 
   protected updateValue(name: string, event: Event): void {
+    if (this.isSubmitting()) return;
     const element = event.target;
     if (
       element instanceof HTMLInputElement ||
@@ -635,7 +795,12 @@ export class SellerOnboarding implements OnDestroy {
         element instanceof HTMLInputElement && element.type === 'file'
           ? (element.files?.[0]?.name ?? '')
           : element.value;
+      const previousValue = this.valueFor(name);
       this.values.update((current) => ({ ...current, [name]: value }));
+      if (previousValue !== value) {
+        if (this.hasPersistedField(name)) this.reviewEditRequested = true;
+        if (this.bankFields.some((field) => field.name === name)) this.bankDetailsSaved = false;
+      }
       if (name === 'country') {
         this.values.update((current) => ({ ...current, state: '' }));
         this.states.set([]);
@@ -645,19 +810,18 @@ export class SellerOnboarding implements OnDestroy {
   }
 
   protected updateSearchableValue(name: string, value: string): void {
+    if (this.isSubmitting()) return;
+    if (this.valueFor(name) !== value && this.hasPersistedField(name)) this.reviewEditRequested = true;
     this.values.update((current) => ({ ...current, [name]: value }));
     this.markTouched(name);
-    this.submissionError.set(null);
-  }
-
-  private lookupName(name: LookupName, id: string): string {
-    return this.lookupOptions(name).find((option) => option.value === id)?.label ?? '';
   }
 
   protected updateDocument(name: string, file: File): void {
+    if (this.isSubmitting()) return;
     this.uploadedDocuments.update((current) => ({ ...current, [name]: file }));
     this.values.update((current) => ({ ...current, [name]: file.name }));
-    this.previewDocument.set(name);
+    this.documentsUploaded = false;
+    if (this.createdSeller?.documentId) this.reviewEditRequested = true;
   }
 
   protected openPreview(name: string): void {
@@ -665,18 +829,31 @@ export class SellerOnboarding implements OnDestroy {
   }
 
   protected removeDocument(name: string): void {
+    if (this.isSubmitting()) return;
     this.uploadedDocuments.update(({ [name]: _removed, ...rest }) => rest);
+    this.existingDocuments.update((current) => ({ ...current, [name]: null }));
     this.values.update(({ [name]: _removed, ...rest }) => rest);
+    this.documentsUploaded = false;
+    if (this.createdSeller?.documentId) this.reviewEditRequested = true;
     this.markTouched(name);
     this.previewDocument.set(null);
   }
 
   protected continue(): void {
     if (this.isSubmitting()) return;
+    if (this.isEditing() && !this.createdSeller) {
+      this.toast.showError('Existing seller details could not be loaded. Check the seller record IDs and try again.');
+      return;
+    }
     this.attemptedNext.set(true);
     this.previewDocument.set(null);
     for (let step = 1; step <= this.activeStep(); step += 1) {
-      const hasErrors = (this.requiredFieldsByStep[step] ?? []).some(
+      const requiredFields = (this.requiredFieldsByStep[step] ?? []).filter(
+        (name) =>
+          !(this.isEditing() && step === 1 && name === 'userPassword') &&
+          !(this.isEditing() && step === 2 && name in DOCUMENT_FIELD_MAP),
+      );
+      const hasErrors = requiredFields.some(
         (name) => this.errorForStep(name, step) !== null,
       );
       if (hasErrors) {
@@ -685,26 +862,222 @@ export class SellerOnboarding implements OnDestroy {
       }
     }
     if (this.activeStep() === 4 && !this.accuracyConfirmed()) return;
-    if (this.activeStep() < this.steps.length) {
-      this.activeStep.update((step) => step + 1);
-      this.attemptedNext.set(false);
+    if (this.activeStep() === 1) {
+      this.submitOnboarding();
+      return;
+    }
+    if (this.activeStep() === 2) {
+      this.submitDocuments();
+      return;
+    }
+    if (this.activeStep() === 3) {
+      this.saveBankDetails();
       return;
     }
     this.submitApplication();
   }
 
+  private submitOnboarding(): void {
+    if (this.isEditing()) {
+      this.advanceStep();
+      return;
+    }
+    if (this.createdSeller) {
+      this.advanceStep();
+      return;
+    }
+    this.runStepRequest(
+      this.sellerOnboarding.submitWithResult(this.createOnboardingPayload()),
+      (result) => {
+        this.createdSeller = result;
+        this.syncEditIdentity();
+        this.advanceStep();
+      },
+      () => 'Seller onboarding details saved successfully.',
+    );
+  }
+
+  private submitDocuments(): void {
+    if (!this.createdSeller) {
+      this.toast.showError('Complete seller onboarding before submitting documents.');
+      return;
+    }
+    if (this.isEditing()) {
+      this.advanceStep();
+      return;
+    }
+    if (this.createdSeller.documentId !== undefined) {
+      this.documentsUploaded = true;
+      this.advanceStep();
+      return;
+    }
+    if (this.documentsUploaded) {
+      this.advanceStep();
+      return;
+    }
+    const { sellerId } = this.createdSeller;
+    this.runStepRequest(
+      this.sellerOnboarding.uploadDocuments(this.uploadedDocuments(), sellerId),
+      (result) => {
+        this.createdSeller = { ...this.createdSeller!, documentId: result.documentId };
+        this.documentsUploaded = true;
+        this.syncEditIdentity();
+        this.advanceStep();
+      },
+      (result) => result.message,
+    );
+  }
+
+  private saveBankDetails(): void {
+    if (!this.createdSeller || (!this.isEditing() && !this.documentsUploaded)) {
+      this.toast.showError('Complete seller onboarding and document submission first.');
+      return;
+    }
+    if (this.isEditing()) {
+      this.advanceStep();
+      return;
+    }
+    if (this.createdSeller.bankDetailId !== undefined) {
+      this.bankDetailsSaved = true;
+      this.advanceStep();
+      return;
+    }
+    if (this.bankDetailsSaved) {
+      this.advanceStep();
+      return;
+    }
+    const { sellerId } = this.createdSeller;
+    this.runStepRequest(
+      this.sellerOnboarding.saveBankDetails(this.createBankDetails(), sellerId),
+      (result) => {
+        this.createdSeller = { ...this.createdSeller!, bankDetailId: result.bankDetailId };
+        this.bankDetailsSaved = true;
+        this.syncEditIdentity();
+        this.advanceStep();
+      },
+      (result) => result.message,
+    );
+  }
+
   private submitApplication(): void {
+    const updating = this.shouldSubmitUpdates();
+    if (
+      !this.createdSeller ||
+      (!updating && (!this.documentsUploaded || !this.bankDetailsSaved))
+    ) {
+      if (this.isEditing()) {
+        this.toast.showError('Existing seller details could not be loaded. Check the seller record IDs and try again.');
+      }
+      return;
+    }
+    if (updating) {
+      this.submitEditUpdates();
+      return;
+    }
+    this.values.update(({ userPassword: _password, ...remaining }) => remaining);
+    this.existingSellerPassword = '';
+    this.submissionSuccess.set('Your seller application was submitted successfully.');
+    this.submitted.set(true);
+  }
+
+  private submitEditUpdates(): void {
+    if (!this.editIdentity) {
+      this.toast.showError(
+        'The seller USER_ID or seller, document, or bank record IDs are missing; updates cannot be submitted.',
+      );
+      return;
+    }
+
+    const updates = this.sellerOnboarding.updateSeller(this.createSellerUpdatePayload()).pipe(
+      concatMap(() => this.sellerOnboarding.updateDocuments(this.createDocumentsUpdatePayload())),
+      concatMap(() => this.sellerOnboarding.updateBankDetails(this.createBankUpdatePayload())),
+      map(() => 'Seller, documents, and bank details were updated successfully.'),
+    );
+
+    this.runStepRequest(
+      updates,
+      () => {
+        this.values.update(({ userPassword: _password, ...remaining }) => remaining);
+        this.existingSellerPassword = '';
+        this.submissionSuccess.set('Seller, documents, and bank details were updated successfully.');
+        this.submitted.set(true);
+      },
+      (message) => message,
+    );
+  }
+
+  private runStepRequest<T>(
+    request: Observable<T>,
+    onSuccess: (result: T) => void,
+    successMessage: (result: T) => string,
+  ): void {
+    if (this.isSubmitting()) return;
+    this.isSubmitting.set(true);
+    this.submissionSubscription?.unsubscribe();
+    this.submissionSubscription = request
+      .pipe(
+        tap((result) => this.toast.showSuccess(successMessage(result))),
+        catchError((error: unknown) => {
+          this.toast.showError(this.sellerOnboarding.getErrorMessage(error));
+          return EMPTY;
+        }),
+        finalize(() => this.isSubmitting.set(false)),
+      )
+      .subscribe(onSuccess);
+  }
+
+  private advanceStep(): void {
+    this.attemptedNext.set(false);
+    this.activeStep.update((step) => Math.min(step + 1, this.steps.length));
+  }
+
+  private syncEditIdentity(): void {
+    const seller = this.createdSeller;
+    if (
+      seller &&
+      Number.isSafeInteger(seller.userId) &&
+      seller.userId > 0 &&
+      typeof seller.documentId === 'number' &&
+      Number.isSafeInteger(seller.documentId) &&
+      seller.documentId > 0 &&
+      typeof seller.bankDetailId === 'number' &&
+      Number.isSafeInteger(seller.bankDetailId) &&
+      seller.bankDetailId > 0
+    ) {
+      this.editIdentity = {
+        sellerId: seller.sellerId,
+        userId: seller.userId,
+        documentId: seller.documentId,
+        bankDetailId: seller.bankDetailId,
+      };
+    }
+  }
+
+  private hasPersistedField(name: string): boolean {
+    if (!this.createdSeller) return false;
+    if (this.bankFields.some((field) => field.name === name)) {
+      return this.createdSeller.bankDetailId !== undefined;
+    }
+    if (name in DOCUMENT_FIELD_MAP) return this.createdSeller.documentId !== undefined;
+    return true;
+  }
+
+  protected shouldSubmitUpdates(): boolean {
+    return this.isEditing() || this.reviewEditRequested;
+  }
+
+  private createOnboardingPayload(): SellerOnboardingPayload {
     const value = (name: string) => this.valueFor(name).trim();
-    const payload: SellerOnboardingPayload = {
+    return {
       BUSINESS_NAME: value('businessName'),
       SELLER_NAME: value('sellerName'),
-      BUSINESS_TYPE: this.lookupName('businessType', value('businessType')),
+      BUSINESS_TYPE: Number(value('businessType')),
       EMAIL: value('email'),
       MOBILE_NUMBER: Number(value('mobileNumber')),
       BUSINESS_ADDRESS: value('businessAddress'),
       CITY: value('city'),
-      STATE: this.lookupName('state', value('state')),
-      COUNTRY: this.lookupName('country', value('country')),
+      STATE: Number(value('state')),
+      COUNTRY: Number(value('country')),
       PINCODE: value('pincode'),
       GST_NUMBER: value('gstNumber').toUpperCase(),
       PAN_NUMBER: value('panNumber').toUpperCase(),
@@ -714,28 +1087,102 @@ export class SellerOnboarding implements OnDestroy {
       CONTACT_PERSON_EMAIL: value('contactEmail'),
       USER_NAME: value('userName'),
       USER_PASSWORD: value('userPassword'),
-      CREATED_BY: 1,
+      CREATED_BY: SELLER_CREATED_BY,
     };
+  }
 
-    this.isSubmitting.set(true);
-    this.submissionError.set(null);
-    this.submissionSubscription?.unsubscribe();
-    this.submissionSubscription = this.sellerOnboarding.submit(payload).subscribe({
-      next: () => {
-        this.isSubmitting.set(false);
-        this.values.update(({ userPassword: _password, ...remaining }) => remaining);
-        this.submitted.set(true);
-      },
-      error: (error: unknown) => {
-        this.isSubmitting.set(false);
-        this.submissionError.set(this.sellerOnboarding.getErrorMessage(error));
-      },
-    });
+  private createSellerUpdatePayload(): SellerOnboardingUpdatePayload {
+    const identity = this.editIdentity;
+    if (!identity) throw new Error('Seller edit identifiers are unavailable.');
+    const value = (name: string) => this.valueFor(name).trim();
+    const businessTypeId = Number(value('businessType'));
+    if (!Number.isSafeInteger(businessTypeId) || businessTypeId <= 0) {
+      throw new Error('Select a valid business type before submitting seller details.');
+    }
+    const stateId = Number(value('state'));
+    if (!this.isValidOption('state', value('state')) || !Number.isSafeInteger(stateId) || stateId <= 0) {
+      throw new Error('Select a valid state before submitting seller details.');
+    }
+    const countryId = Number(value('country'));
+    if (
+      !this.isValidOption('country', value('country')) ||
+      !Number.isSafeInteger(countryId) ||
+      countryId <= 0
+    ) {
+      throw new Error('Select a valid country before submitting seller details.');
+    }
+    return {
+      SELLER_ID: identity.sellerId,
+      BUSINESS_NAME: value('businessName'),
+      SELLER_NAME: value('sellerName'),
+      BUSINESS_TYPE: businessTypeId,
+      EMAIL: value('email'),
+      MOBILE_NUMBER: Number(value('mobileNumber')),
+      BUSINESS_ADDRESS: value('businessAddress'),
+      CITY: value('city'),
+      STATE: stateId,
+      COUNTRY: countryId,
+      PINCODE: value('pincode'),
+      GST_NUMBER: value('gstNumber').toUpperCase(),
+      PAN_NUMBER: value('panNumber').toUpperCase(),
+      BUSINESS_REGISTRATION_NUMBER: value('registrationNumber'),
+      CONTACT_PERSON_NAME: value('contactPersonName'),
+      CONTACT_PERSON_MOBILE: Number(value('contactPersonMobile')),
+      CONTACT_PERSON_EMAIL: value('contactEmail'),
+      USER_ID: identity.userId,
+      USER_NAME: value('userName'),
+      USER_PASSWORD: value('userPassword') || this.existingSellerPassword,
+      UPDATED_BY: SELLER_CREATED_BY,
+    };
+  }
+
+  private createDocumentsUpdatePayload(): SellerDocumentsUpdatePayload {
+    const identity = this.editIdentity;
+    if (!identity) throw new Error('Document edit identifiers are unavailable.');
+    const valueForDocument = (field: keyof typeof DOCUMENT_FIELD_MAP) =>
+      this.uploadedDocuments()[field]?.name ?? this.existingDocuments()[field] ?? null;
+    return {
+      DOCUMENT_ID: identity.documentId,
+      GST_CERTIFICATE: valueForDocument('gstCertificate'),
+      PAN_CARD: valueForDocument('panCard'),
+      BUSINESS_REGISTRATION_CERTIFICATE: valueForDocument('registrationCertificate'),
+      ADDRESS_PROOF: valueForDocument('addressProof'),
+      OWNER_DIRECTOR_ID_PROOF: valueForDocument('ownerIdProof'),
+      BANK_PROOF: valueForDocument('bankProof'),
+      OTHER_SUPPORTING_DOCUMENT: valueForDocument('supportingDocument'),
+      SELLER_ID: identity.sellerId,
+      UPDATED_BY: SELLER_CREATED_BY,
+    };
+  }
+
+  private createBankDetails(): SellerBankDetails {
+    const value = (name: string) => this.valueFor(name).trim();
+    return {
+      ACCOUNT_HOLDER_NAME: value('accountHolder'),
+      BANK_NAME: value('bankName'),
+      BRANCH_NAME: value('branchName'),
+      ACCOUNT_NUMBER: value('accountNumber'),
+      CONFIRM_ACCOUNT_NUMBER: value('confirmAccountNumber'),
+      IFSC_CODE: value('ifscCode').toUpperCase(),
+      ACCOUNT_TYPE: value('accountType') === 'current' ? 2 : 1,
+    };
+  }
+
+  private createBankUpdatePayload(): SellerBankDetailsUpdatePayload {
+    const identity = this.editIdentity;
+    if (!identity) throw new Error('Bank detail edit identifiers are unavailable.');
+    return {
+      ...this.createBankDetails(),
+      BANK_DETAIL_ID: identity.bankDetailId,
+      SELLER_ID: identity.sellerId,
+      UPDATED_BY: SELLER_CREATED_BY,
+    };
   }
 
   protected goToStep(step: number): void {
-    if (this.submitted() || step < 1 || step > this.steps.length || step === this.activeStep())
+    if (this.submitted() || this.isSubmitting() || step < 1 || step >= this.activeStep())
       return;
+    if (this.activeStep() === 4 && this.createdSeller) this.reviewEditRequested = true;
     this.activeStep.set(step);
     this.attemptedNext.set(false);
     this.previewDocument.set(null);
@@ -747,6 +1194,7 @@ export class SellerOnboarding implements OnDestroy {
       return;
     }
     if (this.activeStep() > 1) {
+      if (this.activeStep() === 4 && this.createdSeller) this.reviewEditRequested = true;
       this.activeStep.update((step) => step - 1);
       this.attemptedNext.set(false);
     }

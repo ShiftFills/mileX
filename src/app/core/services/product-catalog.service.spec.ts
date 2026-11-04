@@ -18,6 +18,68 @@ describe('ProductCatalogService', () => {
 
   afterEach(() => http.verify());
 
+  it('loads category, active brand, and tax-rate dropdown options with master IDs', () => {
+    let categories: unknown;
+    let brands: unknown;
+    let taxRates: unknown;
+    catalog.loadCategories().subscribe((options) => (categories = options));
+    catalog.loadBrands().subscribe((options) => (brands = options));
+    catalog.loadTaxRates().subscribe((options) => (taxRates = options));
+
+    http.expectOne(
+      (request) =>
+        request.url.endsWith('/category/get') &&
+        request.params.get('CATEGORY_ID') === '-1' &&
+        request.method === 'GET',
+    ).flush({
+      status: 'SUCCESS',
+      data: [{ CATEGORY_ID: 1, CATEGORY_NAME: 'Electronics' }],
+    });
+    http.expectOne(
+      (request) =>
+        request.url.endsWith('/brand_management/get') &&
+        request.params.get('BRAND_ID') === '-1' &&
+        request.method === 'GET',
+    ).flush({
+      status: 'SUCCESS',
+      data: [
+        { BRAND_ID: 1, BRAND_NAME: 'Samsung', STATUS: 'Active' },
+        { BRAND_ID: 2, BRAND_NAME: 'Inactive Brand', STATUS: 'Inactive' },
+      ],
+    });
+    http.expectOne(
+      (request) =>
+        request.url.endsWith('/tax_rate/get') &&
+        request.params.get('TAX_RATE_ID') === '-1' &&
+        request.method === 'GET',
+    ).flush({
+      status: 'SUCCESS',
+      data: [
+        { TAX_RATE_ID: 4, TAX_PERCENTAGE: 18.0 },
+        { TAX_RATE_ID: 5, TAX_PERCENTAGE: '28.00' },
+      ],
+    });
+
+    expect(categories).toEqual([{ id: '1', label: 'Electronics' }]);
+    expect(brands).toEqual([{ id: '1', label: 'Samsung' }]);
+    expect(taxRates).toEqual([
+      { id: '4', label: '18%' },
+      { id: '5', label: '28%' },
+    ]);
+  });
+
+  it('shares each in-flight and successful master lookup request', () => {
+    catalog.loadCategories().subscribe();
+    catalog.loadCategories().subscribe();
+
+    http
+      .expectOne((request) => request.url.endsWith('/category/get'))
+      .flush({ status: 'SUCCESS', data: [] });
+
+    catalog.loadCategories().subscribe((options) => expect(options).toEqual([]));
+    http.expectNone((request) => request.url.endsWith('/category/get'));
+  });
+
   it('loads and maps API products, using safe defaults for missing optional fields', () => {
     catalog.load();
     catalog.load();

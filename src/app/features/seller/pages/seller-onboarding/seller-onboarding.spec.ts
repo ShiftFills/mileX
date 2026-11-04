@@ -1,9 +1,13 @@
 import type { WritableSignal } from '@angular/core';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { Observable, of, throwError } from 'rxjs';
+import { ToastService } from '@core/services/toast.service';
 import { SellerOnboarding } from './seller-onboarding';
 import {
   SellerOnboardingPayload,
+  SellerOnboardingResult,
+  SellerDocumentsResult,
+  SellerBankDetailsResult,
   SellerOnboardingService,
 } from '../../services/seller-onboarding.service';
 
@@ -13,6 +17,7 @@ type ValidationHarness = {
   touchedFields: WritableSignal<Record<string, boolean>>;
   uploadedDocuments: WritableSignal<Record<string, File>>;
   values: WritableSignal<Record<string, string>>;
+  displayValueFor: (name: string, options?: readonly { label: string; value: string }[]) => string;
   submitted: WritableSignal<boolean>;
   businessTypes: WritableSignal<{ label: string; value: string }[]>;
   states: WritableSignal<{ label: string; value: string }[]>;
@@ -34,7 +39,7 @@ type ValidationHarness = {
   goBack: () => void;
   goToStep: (step: number) => void;
   isSubmitting(): boolean;
-  submissionError(): string | null;
+  isEditing(): boolean;
   isLookupDisabled(fieldName: string): boolean;
   lookupErrorFor(fieldName: string): string | null;
 };
@@ -42,14 +47,26 @@ type ValidationHarness = {
 describe('SellerOnboarding validation', () => {
   let component: ValidationHarness;
   let submittedPayloads: SellerOnboardingPayload[];
-  let submissionResult: Observable<void>;
+  let submissionResult: Observable<SellerOnboardingResult>;
+  let documentResult: Observable<SellerDocumentsResult>;
+  let bankResult: Observable<SellerBankDetailsResult>;
+  let documentUploadCalls: { files: Readonly<Record<string, File>>; sellerId: number }[];
+  let apiCallOrder: string[];
+  let updatePayloads: { seller?: unknown; documents?: unknown; bank?: unknown };
+  let toastMessages: { type: 'success' | 'error'; message: string }[];
   let stateCountryIds: string[];
   let deferStateLookup: boolean;
   let stateLookupUnsubscribed: boolean;
 
   beforeEach(() => {
     submittedPayloads = [];
-    submissionResult = of(undefined);
+    submissionResult = of({ sellerId: 42, userId: 2 });
+    documentResult = of({ documentId: 17, message: 'Seller documents uploaded successfully.' });
+    bankResult = of({ bankDetailId: 24, message: 'Bank details saved successfully.' });
+    documentUploadCalls = [];
+    apiCallOrder = [];
+    updatePayloads = {};
+    toastMessages = [];
     stateCountryIds = [];
     deferStateLookup = false;
     stateLookupUnsubscribed = false;
@@ -78,12 +95,41 @@ describe('SellerOnboarding validation', () => {
       },
       getErrorMessage: (error: unknown) =>
         error instanceof Error ? error.message : 'Request failed',
-      submit: (payload: SellerOnboardingPayload) => {
+      submitWithResult: (payload: SellerOnboardingPayload) => {
         submittedPayloads.push(payload);
+        apiCallOrder.push('onboarding');
         return submissionResult;
       },
+      uploadDocuments: (files: Readonly<Record<string, File>>, sellerId: number) => {
+        documentUploadCalls.push({ files, sellerId });
+        apiCallOrder.push('documents');
+        return documentResult;
+      },
+      saveBankDetails: (_details: unknown, _sellerId: number) => {
+        apiCallOrder.push('bank');
+        return bankResult;
+      },
+      updateSeller: (payload: unknown) => {
+        updatePayloads.seller = payload;
+        apiCallOrder.push('update-seller');
+        return of('Seller updated');
+      },
+      updateDocuments: (payload: unknown) => {
+        updatePayloads.documents = payload;
+        apiCallOrder.push('update-documents');
+        return of('Documents updated');
+      },
+      updateBankDetails: (payload: unknown) => {
+        updatePayloads.bank = payload;
+        apiCallOrder.push('update-bank');
+        return of('Bank details updated');
+      },
     } as unknown as SellerOnboardingService;
-    component = new SellerOnboarding(router, sellerOnboarding) as unknown as ValidationHarness;
+    const toast = {
+      showSuccess: (message: string) => toastMessages.push({ type: 'success', message }),
+      showError: (message: string) => toastMessages.push({ type: 'error', message }),
+    } as unknown as ToastService;
+    component = new SellerOnboarding(router, sellerOnboarding, toast) as unknown as ValidationHarness;
     component.attemptedNext.set(true);
   });
 
@@ -96,6 +142,513 @@ describe('SellerOnboarding validation', () => {
     select.value = countryId;
     component.updateValue('country', { target: select } as unknown as Event);
   }
+
+  function setValidSellerDetails(): void {
+    chooseCountry();
+    component.values.set({
+      businessName: 'Example Business',
+      businessType: '1',
+      mobileNumber: '9876543210',
+      city: 'Chennai',
+      country: '1',
+      gstNumber: 'GST123',
+      registrationNumber: 'REG-123',
+      contactEmail: 'contact@example.com',
+      sellerName: 'Seller',
+      email: 'seller@example.com',
+      businessAddress: '1 Market Road',
+      state: '1',
+      pincode: '600001',
+      panNumber: 'ABCDE1234F',
+      contactPersonName: 'Contact Person',
+      contactPersonMobile: '9876543210',
+      userName: 'seller_user',
+      userPassword: 'Seller@123',
+      gstCertificate: 'gst.pdf',
+      panCard: 'pan.pdf',
+      registrationCertificate: 'registration.pdf',
+      addressProof: 'address.pdf',
+      ownerIdProof: 'id.pdf',
+      bankProof: 'bank.pdf',
+    });
+  }
+
+  it('does not advance or call Documents when onboarding fails', () => {
+    setValidSellerDetails();
+    submissionResult = throwError(() => new Error('Onboarding unavailable'));
+
+    component.continue();
+
+    expect(apiCallOrder).toEqual(['onboarding']);
+    expect(component.activeStep()).toBe(1);
+    expect(component.isSubmitting()).toBe(false);
+    expect(toastMessages.at(-1)).toEqual({
+      type: 'error',
+      message: 'Onboarding unavailable',
+    });
+  });
+
+  it('keeps the loader active and ignores repeated clicks during an API request', () => {
+    let finishRequest: (() => void) | undefined;
+    submissionResult = new Observable((subscriber) => {
+      finishRequest = () => {
+        subscriber.next({ sellerId: 42, userId: 2 });
+        subscriber.complete();
+      };
+    });
+    setValidSellerDetails();
+
+    component.continue();
+    component.continue();
+
+    expect(component.isSubmitting()).toBe(true);
+    expect(apiCallOrder).toEqual(['onboarding']);
+    finishRequest?.();
+
+    expect(component.isSubmitting()).toBe(false);
+    expect(component.activeStep()).toBe(2);
+  });
+
+  it('does not call Bank Details when document insertion fails', () => {
+    setValidSellerDetails();
+    component.continue();
+    documentResult = throwError(() => new Error('Documents unavailable'));
+
+    component.continue();
+
+    expect(apiCallOrder).toEqual(['onboarding', 'documents']);
+    expect(component.activeStep()).toBe(2);
+    expect(component.isSubmitting()).toBe(false);
+    expect(toastMessages.at(-1)).toEqual({
+      type: 'error',
+      message: 'Documents unavailable',
+    });
+  });
+
+  it('automatically navigates to Bank Details after Documents confirms success', () => {
+    setValidSellerDetails();
+    component.continue();
+    let finishRequest: (() => void) | undefined;
+    documentResult = new Observable((subscriber) => {
+      finishRequest = () => {
+        subscriber.next({ documentId: 17, message: 'Documents inserted.' });
+        subscriber.complete();
+      };
+    });
+
+    component.continue();
+    component.continue();
+
+    expect(apiCallOrder).toEqual(['onboarding', 'documents']);
+    expect(component.activeStep()).toBe(2);
+    expect(component.isSubmitting()).toBe(true);
+
+    finishRequest?.();
+
+    expect(component.activeStep()).toBe(3);
+    expect(component.isSubmitting()).toBe(false);
+    expect(toastMessages.at(-1)).toEqual({
+      type: 'success',
+      message: 'Documents inserted.',
+    });
+  });
+
+  it('loads an existing seller and runs all UPDATE APIs in order on final submission', () => {
+    const updatedSeller: unknown[] = [];
+    const updatedDocuments: unknown[] = [];
+    const updatedBankDetails: unknown[] = [];
+    const apiOrder: string[] = [];
+    const relatedGetIds: (number | string | undefined)[][] = [];
+    const existingSellerService = {
+      getSeller: () =>
+        of({
+          SELLER_ID: 42,
+          USER_ID: 2,
+          BUSINESS_NAME: 'Example Business',
+          SELLER_NAME: 'Seller',
+          BUSINESS_TYPE: 5,
+          EMAIL: 'seller@example.com',
+          MOBILE_NUMBER: 9876543210,
+          BUSINESS_ADDRESS: '1 Market Road',
+          CITY: 'Chennai',
+          STATE: 'Tamil Nadu',
+          COUNTRY: 'India',
+          PINCODE: '600001',
+          GST_NUMBER: 'GST123',
+          PAN_NUMBER: 'ABCDE1234F',
+          BUSINESS_REGISTRATION_NUMBER: 'REG-123',
+          CONTACT_PERSON_NAME: 'Contact Person',
+          CONTACT_PERSON_MOBILE: 9876543210,
+          CONTACT_PERSON_EMAIL: 'contact@example.com',
+          USER_NAME: 'seller_user',
+        }),
+      getSellerDocumentsForSeller: (sellerId: number, documentId?: number) => {
+        relatedGetIds.push(['documents', sellerId, documentId]);
+        return of({
+          DOCUMENT_ID: 7,
+          SELLER_ID: 42,
+          GST_CERTIFICATE: 'gst.pdf',
+          PAN_CARD: 'pan.pdf',
+          BUSINESS_REGISTRATION_CERTIFICATE: 'registration.pdf',
+          ADDRESS_PROOF: 'address.pdf',
+          OWNER_DIRECTOR_ID_PROOF: 'id.pdf',
+          BANK_PROOF: 'bank.pdf',
+          OTHER_SUPPORTING_DOCUMENT: null,
+        });
+      },
+      getSellerBankDetailsForSeller: (sellerId: number, bankDetailId?: number) => {
+        relatedGetIds.push(['bank', sellerId, bankDetailId]);
+        return of({
+          BANK_DETAIL_ID: 9,
+          SELLER_ID: 42,
+          ACCOUNT_HOLDER_NAME: 'Contact Person',
+          BANK_NAME: 'Example Bank',
+          BRANCH_NAME: 'Central',
+          ACCOUNT_NUMBER: '123456789',
+          IFSC_CODE: 'ABCD0123456',
+          ACCOUNT_TYPE: 1,
+        });
+      },
+      getBusinessTypes: () => of([{ id: '5', name: 'Retail Business' }]),
+      getCountries: () => of([{ id: '1', name: 'India' }]),
+      getStates: () => of([{ id: '33', name: 'Tamil Nadu' }]),
+      updateSeller: (payload: unknown) => {
+        updatedSeller.push(payload);
+        apiOrder.push('seller');
+        return of('Seller updated successfully.');
+      },
+      updateDocuments: (payload: unknown) => {
+        updatedDocuments.push(payload);
+        apiOrder.push('documents');
+        return of('Documents updated successfully.');
+      },
+      updateBankDetails: (payload: unknown) => {
+        updatedBankDetails.push(payload);
+        apiOrder.push('bank');
+        return of('Bank details updated successfully.');
+      },
+      getErrorMessage: (error: unknown) =>
+        error instanceof Error ? error.message : 'Request failed',
+    } as unknown as SellerOnboardingService;
+    const route = {
+      snapshot: {
+        queryParamMap: {
+          get: (name: string) =>
+            name === 'sellerId' ? '42' : name === 'documentId' ? '7' : name === 'bankDetailId' ? '9' : null,
+        },
+      },
+    } as unknown as ActivatedRoute;
+    const router = { navigateByUrl: vi.fn() } as unknown as Router;
+    const toast = {
+      showSuccess: vi.fn(),
+      showError: vi.fn(),
+    } as unknown as ToastService;
+    const edit = new SellerOnboarding(router, existingSellerService, toast, route) as unknown as ValidationHarness;
+    const setInput = (name: string, value: string) => {
+      const input = document.createElement('input');
+      input.value = value;
+      edit.updateValue(name, { target: input } as unknown as Event);
+    };
+
+    expect(edit.isEditing()).toBe(true);
+    expect(edit.values()).toMatchObject({
+      businessName: 'Example Business',
+      businessType: '5',
+      country: '1',
+      state: '33',
+      gstCertificate: 'gst.pdf',
+      bankName: 'Example Bank',
+    });
+    expect(edit.displayValueFor('businessType', edit.businessTypes())).toBe('Retail Business');
+    expect(relatedGetIds).toEqual([
+      ['documents', 42, 7],
+      ['bank', 42, 9],
+    ]);
+
+    setInput('userPassword', 'Seller@123');
+    setInput('businessName', 'Temporary Business Name');
+    setInput('businessName', 'Example Business');
+    edit.continue();
+    expect(edit.activeStep()).toBe(2);
+    expect(updatedSeller).toHaveLength(0);
+
+    edit.goToStep(1);
+    setInput('businessName', 'Example Business Updated');
+    edit.continue();
+    expect(edit.activeStep()).toBe(2);
+    expect(updatedSeller).toHaveLength(0);
+
+    edit.updateDocument('gstCertificate', new File(['new-gst'], 'gst-updated.pdf'));
+    edit.continue();
+    expect(edit.activeStep()).toBe(3);
+    expect(updatedDocuments).toHaveLength(0);
+
+    setInput('bankName', 'Updated Bank');
+    expect(edit.bankFields.map((field) => [field.name, edit.errorFor(field.name)])).toEqual(
+      edit.bankFields.map((field) => [field.name, null]),
+    );
+    edit.continue();
+    expect(edit.activeStep()).toBe(4);
+    expect(updatedBankDetails).toHaveLength(0);
+
+    edit.continue();
+    expect(edit.submitted()).toBe(true);
+    expect(updatedBankDetails).toHaveLength(1);
+
+    expect(updatedSeller).toHaveLength(1);
+    expect(updatedSeller[0]).toMatchObject({
+      SELLER_ID: 42,
+      USER_ID: 2,
+      BUSINESS_NAME: 'Example Business Updated',
+      BUSINESS_TYPE: 5,
+      STATE: 33,
+      COUNTRY: 1,
+      USER_PASSWORD: 'Seller@123',
+      UPDATED_BY: 1,
+    });
+    expect(updatedDocuments).toHaveLength(1);
+    expect(updatedDocuments[0]).toMatchObject({
+      DOCUMENT_ID: 7,
+      SELLER_ID: 42,
+      GST_CERTIFICATE: 'gst-updated.pdf',
+      PAN_CARD: 'pan.pdf',
+      UPDATED_BY: 1,
+    });
+    expect(updatedBankDetails[0]).toMatchObject({
+      BANK_DETAIL_ID: 9,
+      SELLER_ID: 42,
+      BANK_NAME: 'Updated Bank',
+      UPDATED_BY: 1,
+    });
+    expect(apiOrder).toEqual(['seller', 'documents', 'bank']);
+    expect(toast.showSuccess).toHaveBeenCalledTimes(1);
+    expect(toast.showError).not.toHaveBeenCalled();
+  });
+
+  it('updates all existing records even when their details are unchanged', () => {
+    const apiOrder: string[] = [];
+    let updatePayload: unknown;
+    const service = {
+      getSeller: () =>
+        of({
+          SELLER_ID: 42,
+          USER_ID: 2,
+          BUSINESS_NAME: 'Example Business',
+          SELLER_NAME: 'Seller',
+          BUSINESS_TYPE: 'Retail Business',
+          EMAIL: 'seller@example.com',
+          MOBILE_NUMBER: 9876543210,
+          BUSINESS_ADDRESS: '1 Market Road',
+          CITY: 'Chennai',
+          STATE: 'Tamil Nadu',
+          COUNTRY: 'India',
+          PINCODE: '600001',
+          GST_NUMBER: 'GST123',
+          PAN_NUMBER: 'ABCDE1234F',
+          BUSINESS_REGISTRATION_NUMBER: 'REG-123',
+          CONTACT_PERSON_NAME: 'Contact Person',
+          CONTACT_PERSON_MOBILE: 9876543210,
+          CONTACT_PERSON_EMAIL: 'contact@example.com',
+          USER_NAME: 'seller_user',
+          USER_PASSWORD: 'Existing@123',
+        }),
+      getSellerDocumentsForSeller: () =>
+        of({
+          DOCUMENT_ID: 7,
+          SELLER_ID: 42,
+          GST_CERTIFICATE: 'gst.pdf',
+          PAN_CARD: 'pan.pdf',
+          BUSINESS_REGISTRATION_CERTIFICATE: 'registration.pdf',
+          ADDRESS_PROOF: 'address.pdf',
+          OWNER_DIRECTOR_ID_PROOF: 'id.pdf',
+          BANK_PROOF: 'bank.pdf',
+          OTHER_SUPPORTING_DOCUMENT: null,
+        }),
+      getSellerBankDetailsForSeller: () =>
+        of({
+          BANK_DETAIL_ID: 9,
+          SELLER_ID: 42,
+          ACCOUNT_HOLDER_NAME: 'Contact Person',
+          BANK_NAME: 'Example Bank',
+          BRANCH_NAME: 'Central',
+          ACCOUNT_NUMBER: '123456789',
+          IFSC_CODE: 'ABCD0123456',
+          ACCOUNT_TYPE: 1,
+        }),
+      getBusinessTypes: () => of([{ id: '5', name: 'Retail Business' }]),
+      getCountries: () => of([{ id: '1', name: 'India' }]),
+      getStates: () => of([{ id: '33', name: 'Tamil Nadu' }]),
+      updateSeller: (payload: unknown) => {
+        apiOrder.push('seller');
+        updatePayload = payload;
+        return of('Seller updated');
+      },
+      updateDocuments: () => {
+        apiOrder.push('documents');
+        return of('Documents updated');
+      },
+      updateBankDetails: () => {
+        apiOrder.push('bank');
+        return of('Bank updated');
+      },
+      getErrorMessage: () => 'Update failed',
+    } as unknown as SellerOnboardingService;
+    const route = {
+      snapshot: { queryParamMap: { get: (name: string) => (name === 'sellerId' ? '42' : null) } },
+    } as unknown as ActivatedRoute;
+    const toast = { showSuccess: vi.fn(), showError: vi.fn() } as unknown as ToastService;
+    const edit = new SellerOnboarding(
+      { navigateByUrl: vi.fn() } as unknown as Router,
+      service,
+      toast,
+      route,
+    ) as unknown as ValidationHarness;
+    edit.continue();
+    edit.continue();
+    edit.continue();
+    expect(edit.activeStep()).toBe(4);
+    expect(apiOrder).toEqual([]);
+
+    edit.continue();
+
+    expect(apiOrder).toEqual(['seller', 'documents', 'bank']);
+    expect(updatePayload).toMatchObject({ USER_PASSWORD: 'Existing@123' });
+    expect(edit.submitted()).toBe(true);
+    expect(toast.showSuccess).toHaveBeenCalledTimes(1);
+    expect(toast.showError).not.toHaveBeenCalled();
+  });
+
+  it('stops the edit update sequence on failure without overall success', () => {
+    const apiOrder: string[] = [];
+    const failure = new Error('Documents update failed');
+    const service = {
+      getSeller: () =>
+        of({
+          SELLER_ID: 42,
+          USER_ID: 2,
+          BUSINESS_NAME: 'Example Business',
+          SELLER_NAME: 'Seller',
+          BUSINESS_TYPE: 'Retail Business',
+          EMAIL: 'seller@example.com',
+          MOBILE_NUMBER: 9876543210,
+          BUSINESS_ADDRESS: '1 Market Road',
+          CITY: 'Chennai',
+          STATE: 'Tamil Nadu',
+          COUNTRY: 'India',
+          PINCODE: '600001',
+          GST_NUMBER: 'GST123',
+          PAN_NUMBER: 'ABCDE1234F',
+          BUSINESS_REGISTRATION_NUMBER: 'REG-123',
+          CONTACT_PERSON_NAME: 'Contact Person',
+          CONTACT_PERSON_MOBILE: 9876543210,
+          CONTACT_PERSON_EMAIL: 'contact@example.com',
+          USER_NAME: 'seller_user',
+        }),
+      getSellerDocumentsForSeller: () =>
+        of({
+          DOCUMENT_ID: 7,
+          SELLER_ID: 42,
+          GST_CERTIFICATE: 'gst.pdf',
+          PAN_CARD: 'pan.pdf',
+          BUSINESS_REGISTRATION_CERTIFICATE: 'registration.pdf',
+          ADDRESS_PROOF: 'address.pdf',
+          OWNER_DIRECTOR_ID_PROOF: 'id.pdf',
+          BANK_PROOF: 'bank.pdf',
+          OTHER_SUPPORTING_DOCUMENT: null,
+        }),
+      getSellerBankDetailsForSeller: () =>
+        of({
+          BANK_DETAIL_ID: 9,
+          SELLER_ID: 42,
+          ACCOUNT_HOLDER_NAME: 'Contact Person',
+          BANK_NAME: 'Example Bank',
+          BRANCH_NAME: 'Central',
+          ACCOUNT_NUMBER: '123456789',
+          IFSC_CODE: 'ABCD0123456',
+          ACCOUNT_TYPE: 1,
+        }),
+      getBusinessTypes: () => of([{ id: '5', name: 'Retail Business' }]),
+      getCountries: () => of([{ id: '1', name: 'India' }]),
+      getStates: () => of([{ id: '33', name: 'Tamil Nadu' }]),
+      updateSeller: () => {
+        apiOrder.push('seller');
+        return of('Seller updated');
+      },
+      updateDocuments: () => {
+        apiOrder.push('documents');
+        return throwError(() => failure);
+      },
+      updateBankDetails: () => {
+        apiOrder.push('bank');
+        return of('Bank updated');
+      },
+      getErrorMessage: (error: unknown) => error instanceof Error ? error.message : 'Update failed',
+    } as unknown as SellerOnboardingService;
+    const route = {
+      snapshot: { queryParamMap: { get: (name: string) => (name === 'sellerId' ? '42' : null) } },
+    } as unknown as ActivatedRoute;
+    const toast = { showSuccess: vi.fn(), showError: vi.fn() } as unknown as ToastService;
+    const edit = new SellerOnboarding(
+      { navigateByUrl: vi.fn() } as unknown as Router,
+      service,
+      toast,
+      route,
+    ) as unknown as ValidationHarness;
+    const password = document.createElement('input');
+    password.value = 'Seller@123';
+    edit.updateValue('userPassword', { target: password } as unknown as Event);
+
+    edit.continue();
+    edit.continue();
+    edit.continue();
+    edit.continue();
+
+    expect(apiOrder).toEqual(['seller', 'documents']);
+    expect(edit.submitted()).toBe(false);
+    expect(edit.isSubmitting()).toBe(false);
+    expect(toast.showSuccess).not.toHaveBeenCalled();
+    expect(toast.showError).toHaveBeenCalledWith(failure.message);
+  });
+
+  it('does not attempt updates when loading returns related records for a different seller', () => {
+    const updateSeller = vi.fn(() => of('Seller updated'));
+    const updateDocuments = vi.fn(() => of('Documents updated'));
+    const updateBankDetails = vi.fn(() => of('Bank details updated'));
+    const loadError = new Error(
+      'The seller documents API returned SELLER_ID 49 for the requested SELLER_ID 42.',
+    );
+    const service = {
+      getSeller: () => of({ SELLER_ID: 42, USER_ID: 2, COUNTRY: 'India' }),
+      getSellerDocumentsForSeller: () => throwError(() => loadError),
+      getSellerBankDetailsForSeller: () =>
+        of({ BANK_DETAIL_ID: 9, SELLER_ID: 42, ACCOUNT_TYPE: 1 }),
+      getBusinessTypes: () => of([{ id: '5', name: 'Retail Business' }]),
+      getCountries: () => of([{ id: '1', name: 'India' }]),
+      getStates: () => of([{ id: '33', name: 'Tamil Nadu' }]),
+      updateSeller,
+      updateDocuments,
+      updateBankDetails,
+      getErrorMessage: (error: unknown) => error instanceof Error ? error.message : 'Update failed',
+    } as unknown as SellerOnboardingService;
+    const route = {
+      snapshot: { queryParamMap: { get: (name: string) => (name === 'sellerId' ? '42' : null) } },
+    } as unknown as ActivatedRoute;
+    const toast = { showSuccess: vi.fn(), showError: vi.fn() } as unknown as ToastService;
+    const edit = new SellerOnboarding(
+      { navigateByUrl: vi.fn() } as unknown as Router,
+      service,
+      toast,
+      route,
+    ) as unknown as ValidationHarness;
+
+    expect(edit.isEditing()).toBe(true);
+    expect(edit.values()).toEqual({});
+    expect(toast.showError).toHaveBeenCalledWith(loadError.message);
+    edit.continue();
+    expect(updateSeller).not.toHaveBeenCalled();
+    expect(updateDocuments).not.toHaveBeenCalled();
+    expect(updateBankDetails).not.toHaveBeenCalled();
+  });
 
   it.each([
     ['businessName', 'Business name is required.'],
@@ -139,12 +692,6 @@ describe('SellerOnboarding validation', () => {
     ['contactEmail', 'person@invalid', 'Please enter a valid email address.'],
     ['email', 'not-an-email', 'Please enter a valid email address.'],
     ['email', 'person..name@example.com', 'Please enter a valid email address.'],
-    ['gstNumber', '29ABCDE1234F1Z8', 'Please enter a valid GST number (e.g., 27AAPFU0939F1ZV).'],
-    ['gstNumber', '29ABCDE1234F0Z7', 'Please enter a valid GST number (e.g., 27AAPFU0939F1ZV).'],
-    ['gstNumber', '27AAACR5055K1Z', 'Please enter a valid GST number (e.g., 27AAPFU0939F1ZV).'],
-    ['gstNumber', '27AAACR5055K1@7', 'Please enter a valid GST number (e.g., 27AAPFU0939F1ZV).'],
-    ['gstNumber', '56AAHFG9837H2ZW', 'Please enter a valid GST number (e.g., 27AAPFU0939F1ZV).'],
-    ['gstNumber', '33AAHDG9837H2VG', 'Please enter a valid GST number (e.g., 27AAPFU0939F1ZV).'],
     ['panNumber', 'ABCDE1234', 'Please enter a valid PAN number (e.g., ABCDE1234F).'],
     ['panNumber', '12345ABCDE', 'Please enter a valid PAN number (e.g., ABCDE1234F).'],
     ['pincode', '56000', 'Please enter a valid 6-digit PIN code.'],
@@ -189,31 +736,13 @@ describe('SellerOnboarding validation', () => {
     expect(component.errorFor('panNumber')).toBeNull();
   });
 
-  it('clears the GSTIN format error as a valid GSTIN is typed, including lowercase input', () => {
-    component.values.set({ gstNumber: '27AAACR5055K1Z' });
-    expect(component.errorFor('gstNumber')).toBe(
-      'Please enter a valid GST number (e.g., 27AAPFU0939F1ZV).',
-    );
-
+  it('accepts non-empty GST values without format validation', () => {
     const input = document.createElement('input');
-    input.value = '27aaacr5055k1z7';
+    input.value = '33AABCS1234F1Z5';
     component.updateValue('gstNumber', { target: input } as unknown as Event);
 
     expect(component.errorFor('gstNumber')).toBeNull();
-    expect(component.values()['gstNumber']).toBe('27aaacr5055k1z7');
-  });
-
-  it('keeps the reported GSTIN invalid and clears the message for a corrected structure and checksum', () => {
-    component.values.set({ gstNumber: '33AAHDG9837H2VG' });
-    expect(component.errorFor('gstNumber')).toBe(
-      'Please enter a valid GST number (e.g., 27AAPFU0939F1ZV).',
-    );
-
-    const input = document.createElement('input');
-    input.value = '33AAHFG9837H2Z4';
-    component.updateValue('gstNumber', { target: input } as unknown as Event);
-
-    expect(component.errorFor('gstNumber')).toBeNull();
+    expect(component.values()['gstNumber']).toBe('33AABCS1234F1Z5');
   });
 
   it('shows only the required GST message for an empty value after validation is attempted', () => {
@@ -224,12 +753,10 @@ describe('SellerOnboarding validation', () => {
     expect(component.errorFor('gstNumber')).toBeNull();
   });
 
-  it('shows format errors as the user types and required errors after a field is blurred', () => {
+  it('shows a required GST message only after the field is blurred', () => {
     component.attemptedNext.set(false);
     component.values.set({ gstNumber: 'not-a-gstin' });
-    expect(component.errorFor('gstNumber')).toBe(
-      'Please enter a valid GST number (e.g., 27AAPFU0939F1ZV).',
-    );
+    expect(component.errorFor('gstNumber')).toBeNull();
 
     component.values.set({ gstNumber: '' });
     expect(component.errorFor('gstNumber')).toBeNull();
@@ -263,9 +790,9 @@ describe('SellerOnboarding validation', () => {
   });
 
   it('accepts dropdown values from the configured options', () => {
-    component.values.set({ businessType: 'partnership' });
+    component.values.set({ businessType: '1' });
     chooseCountry();
-    component.values.update((values) => ({ ...values, state: 'karnataka' }));
+    component.values.update((values) => ({ ...values, state: '1' }));
     expect(component.errorFor('businessType')).toBeNull();
     expect(component.errorFor('country')).toBeNull();
     expect(component.errorFor('state')).toBeNull();
@@ -277,7 +804,7 @@ describe('SellerOnboarding validation', () => {
 
   it('loads states using the selected country ID and clears state on country changes', () => {
     chooseCountry('1');
-    component.values.update((values) => ({ ...values, state: 'karnataka' }));
+    component.values.update((values) => ({ ...values, state: '1' }));
     chooseCountry('2');
 
     expect(stateCountryIds).toEqual(['1', '2']);
@@ -325,7 +852,7 @@ describe('SellerOnboarding validation', () => {
   });
 
   it('blocks continuing when a non-empty field has an invalid format', () => {
-    component.values.set({ gstNumber: '29ABCDE1234F1Z8' });
+    component.values.set({ panNumber: 'ABCDE1234' });
     component.continue();
 
     expect(component.activeStep()).toBe(1);
@@ -412,7 +939,7 @@ describe('SellerOnboarding validation', () => {
     chooseCountry();
     component.values.set({
       businessName: 'Example Business',
-      businessType: 'partnership',
+      businessType: '1',
       mobileNumber: '9876543210',
       city: 'Bengaluru',
       country: '1',
@@ -422,7 +949,7 @@ describe('SellerOnboarding validation', () => {
       sellerName: 'Seller',
       email: 'seller@example.com',
       businessAddress: '1 Market Road',
-      state: 'karnataka',
+      state: '1',
       pincode: '560001',
       panNumber: 'ABCDE1234F',
       contactPersonName: 'Contact Person',
@@ -442,25 +969,81 @@ describe('SellerOnboarding validation', () => {
       confirmAccountNumber: '123456780',
       accountType: 'current',
     });
-
     component.continue();
 
     expect(component.activeStep()).toBe(3);
     expect(component.errorFor('confirmAccountNumber')).toBe('Account numbers do not match.');
   });
 
+  it('uploads documents after onboarding succeeds before saving bank details', () => {
+    component.activeStep.set(1);
+    chooseCountry();
+    component.values.set({
+      businessName: 'Example Business',
+      businessType: '1',
+      mobileNumber: '9876543210',
+      city: 'Chennai',
+      country: '1',
+      gstNumber: 'GST123',
+      registrationNumber: 'REG-123',
+      contactEmail: 'contact@example.com',
+      sellerName: 'Seller',
+      email: 'seller@example.com',
+      businessAddress: '1 Market Road',
+      state: '1',
+      pincode: '600001',
+      panNumber: 'ABCDE1234F',
+      contactPersonName: 'Contact Person',
+      contactPersonMobile: '9876543210',
+      userName: 'seller_user',
+      userPassword: 'Seller@123',
+      gstCertificate: 'gst.pdf',
+      panCard: 'pan.pdf',
+      registrationCertificate: 'registration.pdf',
+      addressProof: 'address.pdf',
+      ownerIdProof: 'id.pdf',
+      bankProof: 'bank.pdf',
+      accountHolder: 'Seller',
+      bankName: 'Example Bank',
+      branchName: 'Central',
+      ifscCode: 'ABCD0123456',
+      accountNumber: '123456789',
+      confirmAccountNumber: '123456789',
+      accountType: 'current',
+    });
+    const gstCertificate = new File(['certificate'], 'gst.pdf', { type: 'application/pdf' });
+    component.uploadedDocuments.set({ gstCertificate });
+
+    component.continue();
+    expect(apiCallOrder).toEqual(['onboarding']);
+    expect(component.activeStep()).toBe(2);
+
+    component.continue();
+    expect(apiCallOrder).toEqual(['onboarding', 'documents']);
+    expect(component.activeStep()).toBe(3);
+
+    component.continue();
+
+    expect(apiCallOrder).toEqual(['onboarding', 'documents', 'bank']);
+    expect(documentUploadCalls).toEqual([
+      { files: { gstCertificate }, sellerId: 42 },
+    ]);
+    expect(component.activeStep()).toBe(4);
+    expect(toastMessages.map(({ type }) => type)).toEqual(['success', 'success', 'success']);
+  });
+
   it('submits the mapped seller details and waits for API success before completing', () => {
-    component.activeStep.set(4);
+    component.activeStep.set(1);
     chooseCountry();
     component.values.set({
       businessName: 'ABC Electronics',
       sellerName: 'Arun Kumar',
-      businessType: 'Retail Business',
+      businessType: '5',
       email: 'arun@example.com',
       mobileNumber: '9675433210',
       businessAddress: 'Anna Salai',
       city: 'Chennai',
-      state: 'Tamil Nadu',
+      state: '2',
       country: '1',
       pincode: '600002',
       gstNumber: '33AAHFG9837H2Z4',
@@ -480,27 +1063,33 @@ describe('SellerOnboarding validation', () => {
       accountHolder: 'Arun Kumar',
       bankName: 'Example Bank',
       branchName: 'Chennai',
+      ifscCode: 'ABCD0123456',
       accountNumber: '123456789',
       confirmAccountNumber: '123456789',
       accountType: 'current',
     });
 
+    const gstCertificate = new File(['certificate'], 'gst.pdf', { type: 'application/pdf' });
+    component.uploadedDocuments.set({ gstCertificate });
+
+    component.continue();
+    component.continue();
+    component.continue();
     component.continue();
 
     expect(component.submitted()).toBe(true);
     expect(component.isSubmitting()).toBe(false);
-    expect(component.submissionError()).toBeNull();
     expect(submittedPayloads).toEqual([
       {
         BUSINESS_NAME: 'ABC Electronics',
         SELLER_NAME: 'Arun Kumar',
-        BUSINESS_TYPE: 'Retail Business',
+        BUSINESS_TYPE: 5,
         EMAIL: 'arun@example.com',
         MOBILE_NUMBER: 9675433210,
         BUSINESS_ADDRESS: 'Anna Salai',
         CITY: 'Chennai',
-        STATE: 'Tamil Nadu',
-        COUNTRY: 'India',
+        STATE: 2,
+        COUNTRY: 1,
         PINCODE: '600002',
         GST_NUMBER: '33AAHFG9837H2Z4',
         PAN_NUMBER: 'AAHFG9837H',
@@ -513,20 +1102,66 @@ describe('SellerOnboarding validation', () => {
         CREATED_BY: 1,
       },
     ]);
+    expect(apiCallOrder).toEqual(['onboarding', 'documents', 'bank']);
+    expect(documentUploadCalls).toEqual([
+      { files: { gstCertificate }, sellerId: 42 },
+    ]);
   });
 
-  it('keeps the review step open and reports a submission error', () => {
-    component.activeStep.set(4);
+  it('retains all INSERT IDs, avoids duplicate INSERTs, and updates after Review edits', () => {
+    setValidSellerDetails();
+    component.values.update((current) => ({
+      ...current,
+      accountHolder: 'Seller',
+      bankName: 'Example Bank',
+      branchName: 'Central',
+      accountNumber: '123456789',
+      confirmAccountNumber: '123456789',
+      ifscCode: 'ABCD0123456',
+      accountType: 'current',
+    }));
+
+    component.continue();
+    component.continue();
+    component.continue();
+    expect(apiCallOrder).toEqual(['onboarding', 'documents', 'bank']);
+    expect(component.activeStep()).toBe(4);
+    expect(updatePayloads).toEqual({});
+
+    component.goToStep(1);
+    component.continue();
+    component.continue();
+    component.continue();
+    expect(apiCallOrder).toEqual(['onboarding', 'documents', 'bank']);
+    expect(component.activeStep()).toBe(4);
+
+    component.continue();
+    expect(apiCallOrder).toEqual([
+      'onboarding',
+      'documents',
+      'bank',
+      'update-seller',
+      'update-documents',
+      'update-bank',
+    ]);
+    expect(updatePayloads.seller).toMatchObject({ SELLER_ID: 42, USER_ID: 2 });
+    expect(updatePayloads.documents).toMatchObject({ DOCUMENT_ID: 17, SELLER_ID: 42 });
+    expect(updatePayloads.bank).toMatchObject({ BANK_DETAIL_ID: 24, SELLER_ID: 42 });
+    expect(component.submitted()).toBe(true);
+  });
+
+  it('stops at the bank step and shows an error toast when the bank API fails', () => {
+    component.activeStep.set(1);
     chooseCountry();
     component.values.set({
       businessName: 'ABC Electronics',
       sellerName: 'Arun Kumar',
-      businessType: 'Retail Business',
+      businessType: '5',
       email: 'arun@example.com',
       mobileNumber: '9675433210',
       businessAddress: 'Anna Salai',
       city: 'Chennai',
-      state: 'Tamil Nadu',
+      state: '2',
       country: '1',
       pincode: '600002',
       gstNumber: '33AAHFG9837H2Z4',
@@ -546,26 +1181,69 @@ describe('SellerOnboarding validation', () => {
       accountHolder: 'Arun Kumar',
       bankName: 'Example Bank',
       branchName: 'Chennai',
+      ifscCode: 'ABCD0123456',
       accountNumber: '123456789',
       confirmAccountNumber: '123456789',
       accountType: 'current',
     });
-    submissionResult = throwError(() => new Error('Seller service unavailable'));
+    bankResult = throwError(() => new Error('Bank service unavailable'));
 
+    component.continue();
+    component.continue();
     component.continue();
 
     expect(component.submitted()).toBe(false);
     expect(component.isSubmitting()).toBe(false);
-    expect(component.submissionError()).toBe('Seller service unavailable');
+    expect(component.activeStep()).toBe(3);
+    expect(apiCallOrder).toEqual(['onboarding', 'documents', 'bank']);
+    expect(toastMessages.at(-1)).toEqual({
+      type: 'error',
+      message: 'Bank service unavailable',
+    });
   });
 
   describe('document preview', () => {
     const pdf = () => new File(['gst'], 'gst.pdf', { type: 'application/pdf' });
 
-    it('opens the preview for a document right after it is uploaded', () => {
-      component.activeStep.set(2);
-      component.updateDocument('gstCertificate', pdf());
+    it('continues from Documents without visiting Preview or issuing duplicate requests', () => {
+      setValidSellerDetails();
+      component.continue();
+      expect(component.activeStep()).toBe(2);
 
+      for (const name of [
+        'gstCertificate',
+        'panCard',
+        'registrationCertificate',
+        'addressProof',
+        'ownerIdProof',
+        'bankProof',
+      ]) {
+        component.updateDocument(name, pdf());
+      }
+
+      expect(component.previewDocument()).toBeNull();
+      component.continue();
+
+      expect(component.activeStep()).toBe(3);
+      expect(component.previewDocument()).toBeNull();
+      expect(apiCallOrder).toEqual(['onboarding', 'documents']);
+      expect(documentUploadCalls).toHaveLength(1);
+      expect(component.uploadedDocuments()).toHaveProperty('gstCertificate');
+    });
+
+    it('keeps the document list open after upload until the user requests preview', () => {
+      component.activeStep.set(2);
+      const file = pdf();
+      component.updateDocument('gstCertificate', file);
+
+      expect(component.activeStep()).toBe(2);
+      expect(component.previewDocument()).toBeNull();
+      expect(component.documentFileNameFor('gstCertificate')).toBe(file.name);
+      expect(component.values()).toMatchObject({ gstCertificate: file.name });
+
+      component.openPreview('gstCertificate');
+
+      expect(component.activeStep()).toBe(2);
       expect(component.previewDocument()).toBe('gstCertificate');
       expect(component.previewedDocument()).toEqual(
         expect.objectContaining({ name: 'gstCertificate', label: 'GST Certificate' }),
@@ -577,7 +1255,7 @@ describe('SellerOnboarding validation', () => {
       expect(component.previewDocument()).toBeNull();
 
       component.updateDocument('panCard', pdf());
-      component.previewDocument.set(null);
+      expect(component.previewDocument()).toBeNull();
       component.openPreview('panCard');
       expect(component.previewDocument()).toBe('panCard');
     });
@@ -596,6 +1274,7 @@ describe('SellerOnboarding validation', () => {
     it('returns from the preview to the document list before leaving the step', () => {
       component.activeStep.set(2);
       component.updateDocument('gstCertificate', pdf());
+      component.openPreview('gstCertificate');
 
       component.goBack();
       expect(component.previewDocument()).toBeNull();
@@ -608,9 +1287,11 @@ describe('SellerOnboarding validation', () => {
     it('closes the preview when navigating to another step', () => {
       component.activeStep.set(2);
       component.updateDocument('gstCertificate', pdf());
-      component.goToStep(3);
+      component.openPreview('gstCertificate');
+      component.goToStep(1);
 
       expect(component.previewDocument()).toBeNull();
+      expect(component.activeStep()).toBe(1);
     });
   });
 });
