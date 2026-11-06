@@ -61,6 +61,38 @@ function mapDocuments(value: unknown): SellerVerificationDocument[] {
   }));
 }
 
+const SELLER_DOCUMENT_FIELDS = [
+  { field: 'GST_CERTIFICATE', name: 'GST Certificate' },
+  { field: 'PAN_CARD', name: 'PAN Card' },
+  { field: 'BUSINESS_REGISTRATION_CERTIFICATE', name: 'Business Registration Certificate' },
+  { field: 'ADDRESS_PROOF', name: 'Address Proof' },
+  { field: 'OWNER_DIRECTOR_ID_PROOF', name: 'Owner / Director ID Proof' },
+  { field: 'BANK_PROOF', name: 'Bank Proof' },
+  { field: 'OTHER_SUPPORTING_DOCUMENT', name: 'Other Supporting Document' },
+] as const;
+
+function documentUrl(fileName: string): string {
+  if (/^https?:\/\//i.test(fileName)) return fileName;
+  const path = fileName.replace(/^\/+/, '');
+  const uploadPath = path.startsWith('uploads/') ? path : `uploads/${path}`;
+  return `/${uploadPath.split('/').map((part) => encodeURIComponent(part)).join('/')}`;
+}
+
+function mapSellerDocuments(value: Record<string, unknown>): SellerVerificationDocument[] {
+  const hasDocumentFields = SELLER_DOCUMENT_FIELDS.some(({ field }) => field in value);
+  if (!hasDocumentFields) return mapDocuments(value['SUBMITTED_DOCUMENTS']);
+
+  return SELLER_DOCUMENT_FIELDS.map(({ field, name }) => {
+    const rawFileName = value[field];
+    const fileName = typeof rawFileName === 'string' ? rawFileName.trim() : '';
+    return {
+      name,
+      fileName: fileName || 'Not Available',
+      url: fileName ? documentUrl(fileName) : '',
+    };
+  });
+}
+
 function mapSeller(value: unknown): SellerVerificationRecord {
   if (!isRecord(value)) throw new Error('The seller verification API returned an invalid seller.');
   const sellerId = Number(value['SELLER_ID']);
@@ -88,19 +120,28 @@ function mapSeller(value: unknown): SellerVerificationRecord {
     panNumber: text(value, 'PAN_NUMBER'),
     status: mapStatus(value['VERIFICATION_STATUS']),
     remarks: text(value, 'VERIFICATION_REMARKS', ''),
-    documents: mapDocuments(value['SUBMITTED_DOCUMENTS']),
+    documents: mapSellerDocuments(value),
   };
 }
 
 function mapResponse(response: unknown, limit: number, offset: number): SellerVerificationPage {
-  if (!isRecord(response) || !Array.isArray(response['data'])) {
+  if (!isRecord(response)) {
     throw new Error('The seller verification API returned an invalid response.');
   }
-  if (typeof response['status'] === 'string' && response['status'].toUpperCase() !== 'SUCCESS') {
-    throw new Error(typeof response['message'] === 'string' ? response['message'] : 'Seller details could not be loaded.');
+  const status = response['status'] ?? response['STATUS'];
+  const message = response['message'] ?? response['MESSAGE'];
+  if (
+    status !== undefined &&
+    status !== true &&
+    !(typeof status === 'string' && ['SUCCESS', 'OK', '200', '201'].includes(status.trim().toUpperCase()))
+  ) {
+    throw new Error(typeof message === 'string' ? message : 'Seller details could not be loaded.');
   }
-  const items = response['data'].map(mapSeller);
-  const data = response['data'];
+  const data = response['data'] ?? response['DATA'];
+  if (!Array.isArray(data)) {
+    throw new Error('The seller verification API returned an invalid response.');
+  }
+  const items = data.map(mapSeller);
   const metadataSources = [
     isRecord(response['pagination']) ? response['pagination'] : undefined,
     isRecord(response['meta']) ? response['meta'] : undefined,
@@ -126,25 +167,70 @@ function mapResponse(response: unknown, limit: number, offset: number): SellerVe
   };
 }
 
+function mapDetailResponse(response: unknown, sellerId: number): SellerVerificationRecord | null {
+  if (!isRecord(response)) {
+    throw new Error('The seller verification API returned an invalid response.');
+  }
+  const status = response['status'] ?? response['STATUS'];
+  const message = response['message'] ?? response['MESSAGE'];
+  if (
+    status !== undefined &&
+    status !== true &&
+    !(typeof status === 'string' && ['SUCCESS', 'OK', '200', '201'].includes(status.trim().toUpperCase()))
+  ) {
+    throw new Error(typeof message === 'string' ? message : 'Seller details could not be loaded.');
+  }
+
+  const data = response['data'] ?? response['DATA'];
+  if (data === null || data === undefined || (Array.isArray(data) && data.length === 0)) return null;
+  const entries = Array.isArray(data) ? data : [data];
+  const selected = entries.map(mapSeller).find((seller) => seller.sellerId === sellerId);
+  return selected ?? null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class SellerVerificationService {
   private readonly api = inject(ApiService);
 
-  getSellers(page: number, limit: number): Observable<SellerVerificationPage> {
+  getSellers(page: number, limit: number, verificationStatus = 'PENDING'): Observable<SellerVerificationPage> {
     if (!Number.isSafeInteger(page) || page < 1 || !Number.isSafeInteger(limit) || limit < 1) {
       throw new RangeError('Page and page size must be positive safe integers.');
     }
     const offset = (page - 1) * limit;
     if (!Number.isSafeInteger(offset)) throw new RangeError('The requested page offset is outside the supported range.');
     return this.api
-      .get<unknown>(API_ENDPOINTS.sellerVerification.get, { LIMIT: limit, OFFSET: offset })
+      .get<unknown>(API_ENDPOINTS.sellerVerification.get, {
+        SELLER_ID: -1,
+        VERIFICATION_STATUS: verificationStatus.trim().toUpperCase() || 'PENDING',
+        LIMIT: limit,
+        OFFSET: offset,
+      })
       .pipe(map((response) => mapResponse(response, limit, offset)));
+  }
+
+  getSellerDetails(sellerId: number, verificationStatus: string): Observable<SellerVerificationRecord | null> {
+    if (!Number.isSafeInteger(sellerId) || sellerId <= 0) {
+      throw new RangeError('Seller ID must be a positive safe integer.');
+    }
+    const status = verificationStatus.trim().toUpperCase();
+    if (!['PENDING', 'APPROVED', 'REJECTED'].includes(status)) {
+      throw new RangeError('A valid verification status is required.');
+    }
+    return this.api
+      .get<unknown>(API_ENDPOINTS.sellerVerification.get, {
+        SELLER_ID: sellerId,
+        VERIFICATION_STATUS: status,
+      })
+      .pipe(map((response) => mapDetailResponse(response, sellerId)));
   }
 
   getErrorMessage(error: unknown): string {
     if (error instanceof HttpErrorResponse) {
       const body = error.error;
-      if (isRecord(body) && typeof body['message'] === 'string') return body['message'];
+      if (isRecord(body)) {
+        const message = body['message'] ?? body['MESSAGE'] ?? body['error'] ?? body['ERROR'];
+        if (typeof message === 'string' && message.trim()) return message.trim();
+      }
       return error.status
         ? `Seller details could not be loaded (HTTP ${error.status}).`
         : 'Seller details could not be loaded. Check your connection and try again.';

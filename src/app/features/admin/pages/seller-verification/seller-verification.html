@@ -41,7 +41,7 @@
     </div>
 
     @if (loadStatus() === 'loading') {
-      <div class="seller-verification-state" role="status"><app-loading-spinner /> Loading seller details…</div>
+      <div class="seller-verification-state seller-verification-state--loading" role="status"><app-loading-spinner /> Loading seller details…</div>
     } @else if (loadStatus() === 'error') {
       <div class="seller-verification-state seller-verification-state--error" role="alert">
         <p>{{ loadError() }}</p>
@@ -82,6 +82,16 @@
       </button>
     </header>
 
+    @if (detailStatus() === 'loading') {
+      <div class="seller-verification-state seller-verification-state--loading" role="status"><app-loading-spinner /> Loading seller details…</div>
+    } @else if (detailStatus() === 'error') {
+      <div class="seller-verification-state seller-verification-state--error" role="alert">
+        <p>{{ detailError() }}</p>
+        <app-button variant="outline" size="compact" (clicked)="retryDetails()">Try again</app-button>
+      </div>
+    } @else if (detailStatus() === 'empty') {
+      <p class="seller-verification-state" role="status">No verification details were returned for this seller.</p>
+    } @else {
     <h3 class="seller-dialog__section">Seller Information</h3>
     <dl class="seller-info row g-0 row-cols-1 row-cols-sm-2">
       <div class="col">
@@ -136,6 +146,23 @@
           }}</p> }
       </div>
     </div>
+    }
+
+    @if (actionNotice()) {
+      <p class="seller-dialog__notice" role="status">{{ actionNotice() }}</p>
+    }
+    @if (pendingDecision(); as decision) {
+      <section class="seller-decision-confirm" role="alertdialog" aria-modal="true"
+        aria-labelledby="seller-decision-title">
+        <h3 id="seller-decision-title">Confirm {{ decision === 'approve' ? 'approval' : 'denial' }}?</h3>
+        <p>{{ decision === 'approve' ? 'Approve this seller?' : 'Deny this seller with the remarks provided?' }}</p>
+        <div class="seller-decision-confirm__actions">
+          <app-button variant="outline" size="small" (clicked)="cancelDecision()">Cancel</app-button>
+          <app-button [variant]="decision === 'approve' ? 'accent' : 'outline-danger'" size="small"
+            (clicked)="confirmDecision()">Confirm {{ decision === 'approve' ? 'Approve' : 'Deny' }}</app-button>
+        </div>
+      </section>
+    }
 
     <footer class="seller-dialog__actions">
       <app-button variant="outline" size="small" (clicked)="closeDetails()">Cancel</app-button>
@@ -145,6 +172,74 @@
     </footer>
   </section>
 </app-dialog>
+}
+
+@if (previewDocument(); as document) {
+  <app-dialog (closed)="closeDocumentPreview()">
+    <section class="seller-document-preview" role="dialog" aria-modal="true"
+      [attr.aria-labelledby]="'seller-preview-title'" (click)="$event.stopPropagation()">
+      <header class="seller-document-preview__heading">
+        <div class="seller-document-preview__title-group">
+          <h2 id="seller-preview-title">{{ document.name }}</h2>
+          <p>{{ document.fileName }}</p>
+        </div>
+        <app-button variant="plain" size="compact" ariaLabel="Close document preview"
+          (clicked)="closeDocumentPreview()">×</app-button>
+      </header>
+      <app-document-preview [src]="document.url" [title]="document.name" [readOnly]="true" />
+      @if (remarksError()) {
+        <p class="seller-document-preview__error" role="alert">{{ remarksError() }}</p>
+      }
+      @if (actionNotice()) {
+        <p class="seller-document-preview__notice" role="status">{{ actionNotice() }}</p>
+      }
+      @if (pendingDecision(); as decision) {
+        <section class="seller-document-preview__confirmation" role="alertdialog" aria-modal="true"
+          aria-labelledby="seller-preview-decision-title">
+          <h3 id="seller-preview-decision-title">Confirm {{ decision === 'approve' ? 'approval' : 'denial' }}?</h3>
+          <p>{{ decision === 'approve' ? 'Approve this seller?' : 'Reject this seller with the remarks provided?' }}</p>
+          <div class="seller-document-preview__decision-actions">
+            <app-button variant="outline" size="small" (clicked)="cancelDecision()">Cancel</app-button>
+            <app-button [variant]="decision === 'approve' ? 'success' : 'danger'" size="small"
+              (clicked)="confirmDecision()">
+              @if (decision === 'approve') {
+                <svg class="seller-document-preview__decision-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                  <circle cx="10" cy="10" r="8" /><path d="m6 10 2.5 2.5L14 7" />
+                </svg>
+                Confirm Approve
+              } @else {
+                <svg class="seller-document-preview__decision-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                  <circle cx="10" cy="10" r="8" /><path d="m7 7 6 6m0-6-6 6" />
+                </svg>
+                Confirm Reject
+              }
+            </app-button>
+          </div>
+        </section>
+      }
+      <footer class="seller-document-preview__footer">
+        <a class="seller-document-preview__open" [href]="document.url" target="_blank" rel="noopener">
+          Open document in a new tab
+        </a>
+        <div class="seller-document-preview__decision-actions">
+          <app-button class="seller-document-preview__decision seller-document-preview__deny" variant="danger" size="small"
+            [disabled]="!!pendingDecision()" (clicked)="reject()">
+            <svg class="seller-document-preview__decision-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <circle cx="10" cy="10" r="8" /><path d="m7 7 6 6m0-6-6 6" />
+            </svg>
+            Reject
+          </app-button>
+          <app-button class="seller-document-preview__decision" variant="success" size="small"
+            [disabled]="!!pendingDecision()" (clicked)="approve()">
+            <svg class="seller-document-preview__decision-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <circle cx="10" cy="10" r="8" /><path d="m6 10 2.5 2.5L14 7" />
+            </svg>
+            Approve
+          </app-button>
+        </div>
+      </footer>
+    </section>
+  </app-dialog>
 }
 
 <ng-template #documentNameCell let-doc>
@@ -157,17 +252,21 @@
     {{ doc.name }}
   </span>
 </ng-template>
-<ng-template #documentStatusCell>
+<ng-template #documentStatusCell let-doc>
   <span class="seller-doc-status">
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <circle cx="8" cy="8" r="6.5" />
-      <path d="m5.3 8.2 1.8 1.8 3.6-3.8" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round"
-        stroke-linejoin="round" />
-    </svg>
-    Uploaded
+    @if (doc.url) {
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <circle cx="8" cy="8" r="6.5" />
+        <path d="m5.3 8.2 1.8 1.8 3.6-3.8" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round"
+          stroke-linejoin="round" />
+      </svg>
+      Uploaded
+    } @else {
+      Not Available
+    }
   </span>
 </ng-template>
 <ng-template #documentActionCell let-doc>
-  <app-button variant="outline" size="dense" [ariaLabel]="'View ' + doc.name"
+  <app-button variant="outline" size="dense" [disabled]="!doc.url" [ariaLabel]="'View ' + doc.name"
     (clicked)="viewDocument(doc)">View</app-button>
 </ng-template>

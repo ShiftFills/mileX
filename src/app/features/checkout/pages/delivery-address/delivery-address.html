@@ -4,7 +4,7 @@
   </app-page-heading>
 
   @if (catalog.status() === 'loading' || catalog.status() === 'idle') {
-    <div role="status"><app-loading-spinner /> Loading your cart…</div>
+    <div class="address-loading-state" role="status"><app-loading-spinner /> Loading your cart…</div>
   } @else if (catalog.status() === 'error') {
     <app-alert tone="danger" role="alert">
       {{ catalog.error() }}

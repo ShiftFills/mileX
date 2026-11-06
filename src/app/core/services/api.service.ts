@@ -1,4 +1,4 @@
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { API_BASE_URL } from '../config/api.config';
@@ -19,8 +19,22 @@ export class ApiService {
     return this.http.post<T>(this.url(path), body);
   }
 
+  postText(path: string, body: unknown): Observable<string> {
+    return this.http.post(this.url(path), body, {
+      responseType: 'text',
+      headers: new HttpHeaders({ 'Content-Type': 'application/json' }),
+    });
+  }
+
   put<T>(path: string, body: unknown): Observable<T> {
     return this.http.put<T>(this.url(path), body);
+  }
+
+  putText(path: string, body: unknown): Observable<string> {
+    return this.http.put(this.url(path), body, {
+      responseType: 'text',
+      headers: new HttpHeaders({ 'Content-Type': 'application/json' }),
+    });
   }
 
   delete<T>(path: string): Observable<T> {

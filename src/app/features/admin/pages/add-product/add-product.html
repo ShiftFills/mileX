@@ -13,14 +13,9 @@
               <app-input class="product-control" inputId="product-name" name="productName" placeholder="Enter product name" size="compact" [value]="valueFor('productName')" [ariaInvalid]="!!fieldError('productName')" (valueInput)="updateValue('productName', $event)" />
               @if (fieldError('productName'); as error) { <span class="product-error">{{ error }}</span> }
             </div>
-            <div class="col-12 col-md-6">
-              <label class="product-label" for="product-sku">Product Code / SKU <b>*</b></label>
-              <app-input class="product-control" inputId="product-sku" name="sku" placeholder="Enter SKU / product code" size="compact" [value]="valueFor('sku')" [ariaInvalid]="!!fieldError('sku')" (valueInput)="updateValue('sku', $event)" />
-              @if (fieldError('sku'); as error) { <span class="product-error">{{ error }}</span> }
-            </div>
             <div class="col-12 col-md-4">
               <label class="product-label" for="product-category">Category <b>*</b></label>
-              <app-select class="product-control" inputId="product-category" name="category" size="compact" [value]="valueFor('category')" [disabled]="lookupDisabled(categoryLookup())" [ariaInvalid]="!!fieldError('category')" (valueChange)="updateValue('category', $event)">
+              <app-select class="product-control" inputId="product-category" name="category" size="compact" [value]="valueFor('category')" [disabled]="lookupDisabled(categoryLookup())" [ariaInvalid]="!!fieldError('category')" (valueChange)="updateCategory($event)">
                 <option value="" disabled>{{ categoryLookup().status === 'loading' ? 'Loading categories…' : 'Select category' }}</option>
                 @for (category of categoryLookup().options; track category.id) { <option [value]="category.id">{{ category.label }}</option> }
               </app-select>
@@ -30,21 +25,23 @@
             </div>
             <div class="col-12 col-md-4">
               <label class="product-label" for="product-subcategory">Sub Category <b>*</b></label>
-              <app-select class="product-control" inputId="product-subcategory" name="subcategory" size="compact" [value]="valueFor('subcategory')" [ariaInvalid]="!!fieldError('subcategory')" (valueChange)="updateValue('subcategory', $event)">
-                <option value="" disabled>Select sub category</option>
-                @for (subcategory of subCategories; track subcategory) { <option [value]="subcategory">{{ subcategory }}</option> }
+              <app-select class="product-control" inputId="product-subcategory" name="subcategory" size="compact" [value]="valueFor('subcategory')" [disabled]="!valueFor('category') || lookupDisabled(subcategoryLookup())" [ariaInvalid]="!!fieldError('subcategory')" (valueChange)="updateSubcategory($event)">
+                <option value="" disabled>{{ !valueFor('category') ? 'Select category first' : subcategoryLookup().status === 'loading' ? 'Loading subcategories…' : 'Select sub category' }}</option>
+                @for (subcategory of subcategoryLookup().options; track subcategory.id) { <option [value]="subcategory.id">{{ subcategory.label }}</option> }
               </app-select>
               @if (fieldError('subcategory'); as error) { <span class="product-error">{{ error }}</span> }
+              @if (subcategoryLookup().status === 'error') { <span class="product-error" role="alert">{{ subcategoryLookup().error }} <button type="button" class="product-lookup-retry" (click)="retryLookup('subcategory')">Retry</button></span> }
+              @else if (subcategoryLookup().status === 'success' && valueFor('category') && !subcategoryLookup().options.length) { <span class="product-error" role="status">No subcategories available for this category.</span> }
             </div>
             <div class="col-12 col-md-4">
               <label class="product-label" for="product-brand">Brand <b>*</b></label>
-              <app-select class="product-control" inputId="product-brand" name="brand" size="compact" [value]="valueFor('brand')" [disabled]="lookupDisabled(brandLookup())" [ariaInvalid]="!!fieldError('brand')" (valueChange)="updateValue('brand', $event)">
-                <option value="" disabled>{{ brandLookup().status === 'loading' ? 'Loading brands…' : 'Select brand' }}</option>
+              <app-select class="product-control" inputId="product-brand" name="brand" size="compact" [value]="valueFor('brand')" [disabled]="!valueFor('subcategory') || lookupDisabled(brandLookup())" [ariaInvalid]="!!fieldError('brand')" (valueChange)="updateValue('brand', $event)">
+                <option value="" disabled>{{ !valueFor('subcategory') ? 'Select subcategory first' : brandLookup().status === 'loading' ? 'Loading brands…' : 'Select brand' }}</option>
                 @for (brand of brandLookup().options; track brand.id) { <option [value]="brand.id">{{ brand.label }}</option> }
               </app-select>
               @if (fieldError('brand'); as error) { <span class="product-error">{{ error }}</span> }
               @if (brandLookup().status === 'error') { <span class="product-error" role="alert">{{ brandLookup().error }} <button type="button" class="product-lookup-retry" (click)="retryLookup('brand')">Retry</button></span> }
-              @else if (brandLookup().status === 'success' && !brandLookup().options.length) { <span class="product-error" role="status">No active brands available.</span> }
+              @else if (brandLookup().status === 'success' && valueFor('subcategory') && !brandLookup().options.length) { <span class="product-error" role="status">No brands available for this subcategory.</span> }
             </div>
             <div class="col-12">
               <label class="product-label" for="product-description">Product Description <b>*</b></label>
@@ -121,8 +118,8 @@
                   @if (fieldError('mrp'); as error) { <span class="product-error" id="product-mrp-error">{{ error }}</span> }
                 </div>
                 <div class="col-12 col-sm-6">
-                  <label class="product-label" for="product-discount">Discount (%)</label>
-                  <app-input class="product-control" inputId="product-discount" name="discount" type="number" min="0" max="100" placeholder="Enter discount %" size="compact" [value]="valueFor('discount')" [ariaInvalid]="!!fieldError('discount')" [ariaDescribedBy]="fieldError('discount') ? 'product-discount-error' : null" (valueInput)="updateValue('discount', $event)" />
+                  <label class="product-label" for="product-discount">Discount Amount</label>
+                  <app-input class="product-control" inputId="product-discount" name="discount" type="number" min="0" placeholder="Enter discount amount" size="compact" [value]="valueFor('discount')" [ariaInvalid]="!!fieldError('discount')" [ariaDescribedBy]="fieldError('discount') ? 'product-discount-error' : null" (valueInput)="updateValue('discount', $event)" />
                   @if (fieldError('discount'); as error) { <span class="product-error" id="product-discount-error">{{ error }}</span> }
                 </div>
                 <div class="col-12 col-sm-6">
@@ -155,15 +152,10 @@
           </div>
         </section>
 
-        <section appCard class="product-panel variants-panel">
-          <h2>Product Dimensions &amp; Weight</h2>
-          <label class="variants-toggle"><input type="checkbox" [checked]="hasVariants()" (change)="hasVariants.set($any($event.target).checked)" /><span aria-hidden="true"></span>This product has variants</label>
-        </section>
-
-        @if (saved()) { <p class="save-message" role="status">Product details are ready to save.</p> }
+        @if (saved()) { <p class="save-message" role="status">Product added successfully.</p> }
         <footer class="product-actions">
-          <app-button variant="outline" size="small" (clicked)="cancel()">Cancel</app-button>
-          <app-button variant="accent" size="small" (clicked)="saveProduct()">Save Product</app-button>
+          <app-button variant="outline" size="small" [disabled]="isSubmitting()" (clicked)="cancel()">Cancel</app-button>
+          <app-button variant="accent" size="small" [loading]="isSubmitting()" [disabled]="isSubmitting()" (clicked)="saveProduct()">{{ isSubmitting() ? 'Saving…' : 'Save Product' }}</app-button>
         </footer>
       </form>
 </main>

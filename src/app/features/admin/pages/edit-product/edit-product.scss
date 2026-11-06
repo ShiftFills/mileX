@@ -2,6 +2,15 @@
   padding: 1.25rem clamp(1rem, 2.5vw, 1.75rem) 2rem;
 }
 
+.edit-product__state {
+  display: flex;
+  min-height: 14rem;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+}
+
 .edit-product {
   .edit-heading {
     gap: var(--space-4);
@@ -213,6 +222,15 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
+}
+
+.existing-video-preview {
+  display: block;
+  width: min(100%, 13rem);
+  max-height: 8rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: #0f172a;
 }
 
 .video-actions {

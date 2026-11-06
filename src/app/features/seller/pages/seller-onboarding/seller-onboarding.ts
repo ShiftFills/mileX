@@ -137,6 +137,7 @@ export class SellerOnboarding implements OnDestroy {
     'Seller Bank Details',
     'Review & Submit',
   ];
+  
 
   protected readonly leftFields = computed<SellerFieldDefinition[]>(() => [
     {

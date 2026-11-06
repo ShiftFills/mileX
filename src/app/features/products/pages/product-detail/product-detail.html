@@ -129,7 +129,7 @@
     </app-dialog>
   }
 } @else if (catalogStatus() === 'loading' || catalogStatus() === 'idle') {
-  <main class="container product-detail__empty" role="status">
+  <main class="container product-detail__empty product-detail__loading" role="status">
     <app-loading-spinner />
     <p>Loading product…</p>
   </main>

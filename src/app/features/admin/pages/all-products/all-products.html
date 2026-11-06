@@ -22,17 +22,17 @@
       </label>
       <div class="products-filters">
         <label class="visually-hidden" for="admin-product-category">Filter by category</label>
-        <app-select class="admin-list-filter" inputId="admin-product-category" name="category" size="compact" [value]="category()" (valueChange)="setCategory($event)">
+        <app-select class="admin-list-filter" inputId="admin-product-category" name="category" size="compact" [value]="category()" [disabled]="lookupDisabled(categoryLookup())" (valueChange)="setCategory($event)">
           <option value="">All Categories</option>
-          @for (categoryOption of categoryOptions(); track categoryOption) {
-            <option [value]="categoryOption">{{ categoryOption }}</option>
+          @for (categoryOption of categoryLookup().options; track categoryOption.id) {
+            <option [value]="categoryOption.id">{{ categoryOption.label }}</option>
           }
         </app-select>
         <label class="visually-hidden" for="admin-product-brand">Filter by brand</label>
-        <app-select class="admin-list-filter" inputId="admin-product-brand" name="brand" size="compact" [value]="brand()" (valueChange)="setBrand($event)">
+        <app-select class="admin-list-filter" inputId="admin-product-brand" name="brand" size="compact" [value]="brand()" [disabled]="lookupDisabled(brandLookup())" (valueChange)="setBrand($event)">
           <option value="">All Brands</option>
-          @for (brandOption of brandOptions(); track brandOption) {
-            <option [value]="brandOption">{{ brandOption }}</option>
+          @for (brandOption of brandLookup().options; track brandOption.id) {
+            <option [value]="brandOption.id">{{ brandOption.label }}</option>
           }
         </app-select>
         <label class="visually-hidden" for="admin-product-status">Filter by status</label>
@@ -49,6 +49,28 @@
         </app-select>
       </div>
     </div>
+
+    @if (categoryLookup().status === 'loading') {
+      <p class="products-filter-note" role="status">Loading categories…</p>
+    } @else if (categoryLookup().status === 'error') {
+      <p class="products-filter-note products-state--error" role="alert">
+        Categories could not be loaded: {{ categoryLookup().error }}
+        <app-button variant="outline" size="compact" (clicked)="retryCategoryLookup()">Retry</app-button>
+      </p>
+    } @else if (!categoryLookup().options.length) {
+      <p class="products-filter-note" role="status">No categories available.</p>
+    }
+
+    @if (brandLookup().status === 'loading') {
+      <p class="products-filter-note" role="status">Loading brands…</p>
+    } @else if (brandLookup().status === 'error') {
+      <p class="products-filter-note products-state--error" role="alert">
+        Brands could not be loaded: {{ brandLookup().error }}
+        <app-button variant="outline" size="compact" (clicked)="retryBrandLookup()">Retry</app-button>
+      </p>
+    } @else if (!brandLookup().options.length) {
+      <p class="products-filter-note" role="status">No brands available.</p>
+    }
 
     <p class="products-filter-note">Search and filters apply to the currently loaded page; the API supports pagination but no filter parameters.</p>
 

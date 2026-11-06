@@ -68,6 +68,16 @@
     }
   }
 
+  &--success {
+    background: var(--color-success);
+    color: var(--color-primary-contrast);
+
+    &:hover {
+      background: color-mix(in srgb, var(--color-success) 88%, black);
+      color: var(--color-primary-contrast);
+    }
+  }
+
   &--danger {
     background: #dc2626;
     color: var(--color-primary-contrast);

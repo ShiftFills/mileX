@@ -242,6 +242,35 @@ button {
 
 :host(.cart-browse-action) { justify-self: center; }
 
+:host(.seller-document-preview__decision) {
+  display: flex;
+  width: 8rem;
+  flex: 0 0 8rem;
+}
+
+:host(.seller-document-preview__decision) .btn {
+  width: 100%;
+  min-height: 2.3rem;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: var(--radius-md);
+  font-size: 0.75rem;
+  font-weight: var(--weight-bold);
+  line-height: 1.2;
+  box-shadow: var(--shadow-sm);
+}
+
+:host(.seller-document-preview__deny) .btn--danger {
+  background: var(--color-danger);
+  color: var(--color-primary-contrast);
+}
+
+:host(.seller-document-preview__deny) .btn--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-danger) 88%, black);
+  color: var(--color-primary-contrast);
+}
+
 @media (max-width: 575.98px) {
   :host(.tracking-return-button) .btn {
     min-height: 2.75rem;
@@ -254,6 +283,12 @@ button {
   :host(.product-card__wishlist) {
     width: 1.8rem;
     height: 1.8rem;
+  }
+
+  :host(.seller-document-preview__decision) {
+    width: auto;
+    min-width: 0;
+    flex: 1 1 0;
   }
 
 }

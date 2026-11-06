@@ -43,6 +43,13 @@ interface AllProductsHarness {
   openActionMenuId(): number | null;
   saveEdit(): void;
   closeEdit(): void;
+  setQuery(event: Event): void;
+  setCategory(event: Event): void;
+  setBrand(event: Event): void;
+  setStatus(status: 'All' | 'Active' | 'Inactive'): void;
+  categoryLookup(): { status: string; options: { id: string; label: string }[]; error: string | null };
+  brandLookup(): { status: string; options: { id: string; label: string }[]; error: string | null };
+  retryCategoryLookup(): void;
 }
 
 const API_PRODUCTS = [
@@ -56,7 +63,7 @@ const API_PRODUCTS = [
     SELLING_PRICE: '2500.00',
     PRICE: '3000.00',
     STOCK_QUANTITY: 100,
-    IS_ACTIVE: 1,
+    IS_ACTIVE: 'ACTIVE',
     IMAGE_URL: 'https://example.test/galaxy.jpg',
   },
   {
@@ -67,7 +74,7 @@ const API_PRODUCTS = [
     BRAND_ID: 2,
     SELLING_PRICE: '749.00',
     STOCK_QUANTITY: 0,
-    IS_ACTIVE: 0,
+    IS_ACTIVE: 'INACTIVE',
   },
 ];
 
@@ -90,6 +97,21 @@ function response(
   };
 }
 
+function selectEvent(value: string): Event {
+  const select = document.createElement('select');
+  const option = document.createElement('option');
+  option.value = value;
+  select.append(option);
+  select.value = value;
+  return { target: select } as unknown as Event;
+}
+
+function inputEvent(value: string): Event {
+  const input = document.createElement('input');
+  input.value = value;
+  return { target: input } as unknown as Event;
+}
+
 describe('AllProducts', () => {
   let fixture: ComponentFixture<AllProducts>;
   let component: AllProductsHarness;
@@ -107,11 +129,41 @@ describe('AllProducts', () => {
 
   afterEach(() => http.verify());
 
-  function loadFirstPage(total = 12): void {
+  function loadLookups(): void {
     fixture.detectChanges();
+    http.expectOne((req) =>
+      req.url.endsWith('/category/get') &&
+      req.method === 'GET' &&
+      req.params.get('CATEGORY_ID') === '-1',
+    ).flush({
+      status: 'SUCCESS',
+      data: [
+        { CATEGORY_ID: 1, CATEGORY_NAME: 'Electronics' },
+        { CATEGORY_ID: 2, CATEGORY_NAME: 'Home' },
+      ],
+    });
+    http.expectOne((req) =>
+      req.url.endsWith('/brand_management/get') &&
+      req.method === 'GET' &&
+      req.params.get('BRAND_ID') === '-1' &&
+      req.params.get('CATEGORY_ID') === null &&
+      req.params.get('SUB_CATEGORY_ID') === null,
+    ).flush({
+      status: 'SUCCESS',
+      data: [
+        { BRAND_ID: 1, BRAND_NAME: 'Samsung' },
+        { BRAND_ID: 2, BRAND_NAME: 'MileX' },
+      ],
+    });
+    fixture.detectChanges();
+  }
+
+  function loadFirstPage(total = 12): void {
+    loadLookups();
     const request = http.expectOne((req) =>
       req.url.endsWith('/products/get') &&
       req.method === 'GET' &&
+      req.params.get('PRODUCT_ID') === '-1' &&
       req.params.get('LIMIT') === '5' &&
       req.params.get('OFFSET') === '0',
     );
@@ -154,6 +206,70 @@ describe('AllProducts', () => {
     expect(fixture.nativeElement.textContent).toContain('Samsung Galaxy S25');
     expect(fixture.nativeElement.textContent).not.toContain('Wireless Earbuds');
     expect(fixture.nativeElement.textContent).toContain('of 12 products');
+  });
+
+  it('loads category and brand filter options and combines them with search and status filters', () => {
+    loadFirstPage();
+
+    const categorySelect = fixture.nativeElement.querySelector('#admin-product-category') as HTMLSelectElement;
+    const brandSelect = fixture.nativeElement.querySelector('#admin-product-brand') as HTMLSelectElement;
+    expect(Array.from(categorySelect.options).map((option) => [option.value, option.textContent?.trim()])).toEqual([
+      ['', 'All Categories'],
+      ['1', 'Electronics'],
+      ['2', 'Home'],
+    ]);
+    expect(Array.from(brandSelect.options).map((option) => [option.value, option.textContent?.trim()])).toEqual([
+      ['', 'All Brands'],
+      ['1', 'Samsung'],
+      ['2', 'MileX'],
+    ]);
+
+    component.setQuery(inputEvent('Wireless'));
+    component.setCategory(selectEvent('2'));
+    component.setBrand(selectEvent('2'));
+    component.setStatus('Inactive');
+    fixture.detectChanges();
+
+    expect(component.visibleRows().map((row) => row.id)).toEqual([4]);
+  });
+
+  it('shows lookup loading, error, and empty states and allows retrying a failed lookup', () => {
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Loading categories');
+    expect(fixture.nativeElement.textContent).toContain('Loading brands');
+
+    http.expectOne((req) => req.url.endsWith('/category/get')).flush({
+      status: 'ERROR',
+      message: 'Category service unavailable',
+    });
+    http.expectOne((req) => req.url.endsWith('/brand_management/get')).flush({
+      status: 'SUCCESS',
+      data: [],
+    });
+    http.expectOne((req) =>
+      req.url.endsWith('/products/get') && req.params.get('LIMIT') === '5',
+    ).flush(response([], 0));
+    fixture.detectChanges();
+
+    expect(component.categoryLookup()).toMatchObject({
+      status: 'error',
+      error: 'Category service unavailable',
+    });
+    expect(component.brandLookup()).toMatchObject({ status: 'success', options: [] });
+    expect(fixture.nativeElement.textContent).toContain('Categories could not be loaded');
+    expect(fixture.nativeElement.textContent).toContain('No brands available');
+
+    component.retryCategoryLookup();
+    http.expectOne((req) => req.url.endsWith('/category/get')).flush({
+      status: 'SUCCESS',
+      data: [{ CATEGORY_ID: 1, CATEGORY_NAME: 'Electronics' }],
+    });
+    fixture.detectChanges();
+
+    expect(component.categoryLookup()).toMatchObject({
+      status: 'success',
+      options: [{ id: '1', label: 'Electronics' }],
+    });
   });
 
   it('requests the next server page and updates the total/range from response metadata', async () => {
@@ -300,7 +416,7 @@ describe('AllProducts', () => {
       IS_ACTIVE: 1,
     }));
 
-    fixture.detectChanges();
+    loadLookups();
     http.expectOne((req) =>
       req.url.endsWith('/products/get') &&
       req.params.get('LIMIT') === '5' &&
@@ -349,7 +465,7 @@ describe('AllProducts', () => {
   });
 
   it('keeps API errors visible and never restores demo rows', () => {
-    fixture.detectChanges();
+    loadLookups();
     http.expectOne((req) =>
       req.url.endsWith('/products/get') &&
       req.params.get('LIMIT') === '5' &&

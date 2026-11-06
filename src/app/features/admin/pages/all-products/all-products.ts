@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, TemplateRef, computed, inject, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, TemplateRef, computed, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { EMPTY, catchError, distinctUntilChanged, map, switchMap, tap } from 'rxjs';
@@ -13,7 +13,7 @@ import { Pagination } from '@shared/components/pagination/pagination';
 import { Select } from '@shared/components/select/select';
 import { Table, TableCellContext, TableColumn, TableHeaderContext } from '@shared/components/table/table';
 import { ClickOutside } from '@shared/directives/click-outside';
-import { ProductCatalogService } from '@core/services/product-catalog.service';
+import { ProductCatalogService, ProductLookupOption } from '@core/services/product-catalog.service';
 import { Product } from '@shared/models';
 import { AdminProductRow } from '../../data/admin-products';
 
@@ -30,6 +30,12 @@ interface ProductEditForm {
 const DEFAULT_PAGE_SIZE = 5;
 const PAGE_SIZES = [5, 10, 20] as const;
 
+interface ProductFilterLookup {
+  status: 'loading' | 'success' | 'error';
+  options: ProductLookupOption[];
+  error: string | null;
+}
+
 function mapAdminProduct(product: Product): AdminProductRow {
   const id = Number(product.id);
   if (!Number.isSafeInteger(id)) {
@@ -40,6 +46,7 @@ function mapAdminProduct(product: Product): AdminProductRow {
     id,
     name: product.name,
     sku: product.sku || '—',
+    ...(product.productCodeId ? { productCodeId: product.productCodeId } : {}),
     category: product.category,
     brand: product.brand ?? 'Unknown',
     price: `₹${product.price.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
@@ -64,6 +71,7 @@ function mapAdminProduct(product: Product): AdminProductRow {
 export class AllProducts {
   private readonly router = inject(Router);
   private readonly catalog = inject(ProductCatalogService);
+  private readonly destroyRef = inject(DestroyRef);
   protected readonly products = signal<AdminProductRow[]>([]);
   protected readonly loadStatus = signal<'loading' | 'success' | 'error'>('loading');
   protected readonly loadError = signal<string | null>(null);
@@ -89,6 +97,12 @@ export class AllProducts {
   protected readonly editingProduct = signal<AdminProductRow | null>(null);
   protected readonly editForm = signal<ProductEditForm | null>(null);
   protected readonly editError = signal('');
+  protected readonly categoryLookup = signal<ProductFilterLookup>({
+    status: 'loading', options: [], error: null,
+  });
+  protected readonly brandLookup = signal<ProductFilterLookup>({
+    status: 'loading', options: [], error: null,
+  });
   private readonly selectAllHeader = viewChild<TemplateRef<TableHeaderContext<AdminProductRow>>>('selectAllHeader');
   private readonly selectRowCell = viewChild<TemplateRef<TableCellContext<AdminProductRow>>>('selectRowCell');
   private readonly imageCell = viewChild<TemplateRef<TableCellContext<AdminProductRow>>>('imageCell');
@@ -147,16 +161,6 @@ export class AllProducts {
     pageSize: this.pageSize(),
     retry: this.retryCount(),
   }));
-  protected readonly categoryOptions = computed(() => {
-    const categories = new Set(this.products().map((product) => product.category));
-    if (this.category()) categories.add(this.category());
-    return [...categories].sort();
-  });
-  protected readonly brandOptions = computed(() => {
-    const brands = new Set(this.products().map((product) => product.brand));
-    if (this.brand()) brands.add(this.brand());
-    return [...brands].sort();
-  });
   protected readonly activeOnPage = computed(
     () => this.products().filter((product) => product.status === 'Active').length,
   );
@@ -167,8 +171,8 @@ export class AllProducts {
     const query = this.query().trim().toLowerCase();
     return this.products().filter((row) => {
       const matchesQuery = !query || `${row.name} ${row.sku} ${row.category} ${row.brand}`.toLowerCase().includes(query);
-      const matchesCategory = !this.category() || row.category === this.category();
-      const matchesBrand = !this.brand() || row.brand === this.brand();
+      const matchesCategory = !this.category() || row.category === `category-${this.category()}`;
+      const matchesBrand = !this.brand() || row.brand === `brand-${this.brand()}`;
       const matchesStatus = this.statusTab() === 'All' || row.status === this.statusTab();
       return matchesQuery && matchesCategory && matchesBrand && matchesStatus;
     });
@@ -184,6 +188,8 @@ export class AllProducts {
   }
 
   constructor() {
+    this.loadCategoryLookup();
+    this.loadBrandLookup();
     toObservable(this.pageRequest)
       .pipe(
         distinctUntilChanged(
@@ -252,6 +258,50 @@ export class AllProducts {
         takeUntilDestroyed(),
       )
       .subscribe();
+  }
+
+  protected retryCategoryLookup(): void {
+    this.loadCategoryLookup();
+  }
+
+  protected retryBrandLookup(): void {
+    this.loadBrandLookup();
+  }
+
+  protected lookupDisabled(lookup: ProductFilterLookup): boolean {
+    return lookup.status !== 'success' || lookup.options.length === 0;
+  }
+
+  private loadCategoryLookup(): void {
+    this.categoryLookup.set({ status: 'loading', options: [], error: null });
+    this.catalog.loadCategories().pipe(
+      tap((options) => this.categoryLookup.set({ status: 'success', options, error: null })),
+      catchError((error: unknown) => {
+        this.categoryLookup.set({
+          status: 'error',
+          options: [],
+          error: this.catalog.getErrorMessage(error),
+        });
+        return EMPTY;
+      }),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe();
+  }
+
+  private loadBrandLookup(): void {
+    this.brandLookup.set({ status: 'loading', options: [], error: null });
+    this.catalog.loadAllBrands().pipe(
+      tap((options) => this.brandLookup.set({ status: 'success', options, error: null })),
+      catchError((error: unknown) => {
+        this.brandLookup.set({
+          status: 'error',
+          options: [],
+          error: this.catalog.getErrorMessage(error),
+        });
+        return EMPTY;
+      }),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe();
   }
 
   protected setQuery(event: Event): void {

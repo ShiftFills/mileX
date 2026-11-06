@@ -8,6 +8,7 @@ export interface Product {
   category: string;
   inStock: boolean;
   sku?: string;
+  productCodeId?: string;
   brand?: string;
   isActive?: boolean;
   originalPrice?: number;

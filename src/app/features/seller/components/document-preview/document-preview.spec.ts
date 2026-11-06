@@ -38,6 +38,21 @@ describe('DocumentPreview', () => {
     expect((pdf.nativeElement as HTMLElement).querySelector('iframe')).not.toBeNull();
   });
 
+  it('previews remote image URLs in read-only mode without file replacement actions', () => {
+    const fixture = TestBed.createComponent(DocumentPreview);
+    fixture.componentRef.setInput('src', '/uploads/gst-certificate.png');
+    fixture.componentRef.setInput('title', 'GST Certificate');
+    fixture.componentRef.setInput('readOnly', true);
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('img')?.getAttribute('src')).toBe('/uploads/gst-certificate.png');
+    expect(root.querySelector('.document-preview__details')).toBeNull();
+    expect(root.querySelector('.document-preview__toolbar--readonly')).not.toBeNull();
+    expect(root.querySelector('.document-preview__replace')).toBeNull();
+    expect(root.querySelector('.document-preview__remove')).toBeNull();
+  });
+
   it('keeps zoom within 50%-200% in 25% steps', () => {
     const fixture = setup(new File(['x'], 'gst.png', { type: 'image/png' }));
     const component = fixture.componentInstance as unknown as {

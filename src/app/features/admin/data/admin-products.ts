@@ -2,6 +2,7 @@ export interface AdminProductRow {
   id: number;
   name: string;
   sku: string;
+  productCodeId?: string;
   category: string;
   brand: string;
   price: string;

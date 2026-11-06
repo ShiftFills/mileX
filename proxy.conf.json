@@ -3,5 +3,10 @@
     "target": "http://192.168.1.2:80",
     "secure": false,
     "changeOrigin": true
+  },
+  "/uploads/**": {
+    "target": "http://192.168.1.2:80",
+    "secure": false,
+    "changeOrigin": true
   }
 }

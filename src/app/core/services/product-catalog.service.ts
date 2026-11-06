@@ -1,6 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, inject, signal } from '@angular/core';
-import { Observable, ReplaySubject, catchError, map, shareReplay, throwError } from 'rxjs';
+import { Observable, ReplaySubject, catchError, map, shareReplay, tap, throwError } from 'rxjs';
 import { PaginatedResponse, Product } from '@shared/models';
 import { API_ENDPOINTS } from '../constants/api-endpoints';
 import { ApiService } from './api.service';
@@ -15,11 +15,66 @@ export interface ProductLookupOption {
   label: string;
 }
 
+export interface ProductInsertPayload {
+  PRODUCT_NAME: string;
+  CATEGORY_ID: number;
+  SUB_CATEGORY_ID: number;
+  BRAND_ID: number;
+  PRODUCT_IMAGE: string;
+  PRODUCT_VIDEO: string | null;
+  PRODUCT_DESCRIPTION: string;
+  HSN_CODE: string;
+  TAX_RATE: number;
+  SELLING_PRICE: number;
+  PRICE: number;
+  DISCOUNT: number;
+  STOCK_QUANTITY: number;
+  MINIMUM_ORDER_QUANTITY: number;
+  MAXIMUM_ORDER_QUANTITY: number;
+  WEIGHT: number | null;
+  LENGTH: number | null;
+  WIDTH: number | null;
+  HEIGHT: number | null;
+  SELLER_ID: number;
+  CREATED_BY: number;
+}
+
+export interface ProductUpdatePayload extends ProductInsertPayload {
+  PRODUCT_ID: number;
+}
+
+export interface ProductDetails {
+  PRODUCT_ID: number;
+  PRODUCT_NAME: string;
+  CATEGORY_ID: string;
+  SUB_CATEGORY_ID: string;
+  BRAND_ID: string;
+  PRODUCT_CODE_SKU: string;
+  PRODUCT_IMAGE: string | null;
+  PRODUCT_VIDEO: string | null;
+  PRODUCT_DESCRIPTION: string;
+  HSN_CODE: string;
+  TAX_RATE: string;
+  SELLING_PRICE: string;
+  PRICE: string;
+  DISCOUNT: string;
+  STOCK_QUANTITY: string;
+  MINIMUM_ORDER_QUANTITY: string;
+  MAXIMUM_ORDER_QUANTITY: string;
+  WEIGHT: string;
+  LENGTH: string;
+  WIDTH: string;
+  HEIGHT: string;
+  HAS_VARIANTS?: boolean;
+}
+
 interface ProductLookupDefinition {
   path: string;
-  idParameter: string;
+  idParameter?: string;
   idField: string;
+  idAliases?: readonly string[];
   labelField: string;
+  labelAliases?: readonly string[];
   labelSuffix?: string;
   isActive?: (record: Record<string, unknown>) => boolean;
 }
@@ -33,6 +88,25 @@ function numericValue(value: unknown): number | undefined {
   if (typeof value === 'string' && !value.trim()) return undefined;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function productActiveStatus(value: unknown): boolean | undefined {
+  if (value === true || value === 1) return true;
+  if (value === false || value === 0) return false;
+  if (typeof value !== 'string') return undefined;
+
+  switch (value.trim().toUpperCase()) {
+    case '1':
+    case 'TRUE':
+    case 'ACTIVE':
+      return true;
+    case '0':
+    case 'FALSE':
+    case 'INACTIVE':
+      return false;
+    default:
+      return undefined;
+  }
 }
 
 function mapProduct(value: unknown): Product | null {
@@ -56,7 +130,7 @@ function mapProduct(value: unknown): Product | null {
   const maxOrderQuantity = numericValue(value['MAXIMUM_ORDER_QUANTITY']);
   const categoryId = value['CATEGORY_ID'];
   const brandId = value['BRAND_ID'];
-  const active = value['IS_ACTIVE'];
+  const isActive = productActiveStatus(value['IS_ACTIVE']);
   const category =
     typeof categoryId === 'string' || typeof categoryId === 'number'
       ? `category-${categoryId}`
@@ -69,12 +143,6 @@ function mapProduct(value: unknown): Product | null {
     ? [value['IMAGE_URL'].trim()]
     : undefined;
   const hasDiscount = originalPrice !== undefined && originalPrice > price;
-  const isActive =
-    active === true ||
-    active === 1 ||
-    (typeof active === 'string' && active.trim().toUpperCase() === '1') ||
-    (typeof active === 'string' && active.trim().toUpperCase() === 'TRUE');
-
   return {
     id: String(rawId),
     name,
@@ -88,10 +156,12 @@ function mapProduct(value: unknown): Product | null {
     ...(typeof value['PRODUCT_CODE_SKU'] === 'string'
       ? { sku: value['PRODUCT_CODE_SKU'].trim() }
       : {}),
-    ...(brand ? { brand } : {}),
-    ...(active !== undefined && active !== null
-      ? { isActive }
+    ...((typeof value['PRODUCT_CODE_ID'] === 'string' || typeof value['PRODUCT_CODE_ID'] === 'number') &&
+      String(value['PRODUCT_CODE_ID']).trim()
+      ? { productCodeId: String(value['PRODUCT_CODE_ID']).trim() }
       : {}),
+    ...(brand ? { brand } : {}),
+    ...(isActive !== undefined ? { isActive } : {}),
     ...(images ? { images } : {}),
     category,
     inStock: stock !== undefined && stock > 0,
@@ -100,6 +170,65 @@ function mapProduct(value: unknown): Product | null {
       ? { maxOrderQuantity }
       : {}),
     ...(hasDiscount ? { originalPrice, discountLabel: `${Math.round((1 - price / originalPrice) * 100)}% OFF` } : {}),
+  };
+}
+
+function productFieldText(value: unknown): string {
+  return typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+}
+
+function mapProductDetailsResponse(response: unknown, requestedId: number): ProductDetails | null {
+  if (!isRecord(response)) throw new Error('The product details API returned an invalid response.');
+  const status = response['status'] ?? response['STATUS'];
+  const success = response['success'] ?? response['SUCCESS'];
+  const successfulStatus = status === undefined || status === true || status === 1 ||
+    (typeof status === 'string' && ['SUCCESS', 'OK', '200', '201', 'TRUE', '1'].includes(status.trim().toUpperCase()));
+  const successfulFlag = success === undefined || success === true || success === 1 ||
+    (typeof success === 'string' && ['TRUE', '1', 'SUCCESS'].includes(success.trim().toUpperCase()));
+  if (!successfulStatus || !successfulFlag) {
+    const message = response['message'] ?? response['MESSAGE'];
+    throw new Error(typeof message === 'string' && message.trim() ? message.trim() : 'The product could not be loaded.');
+  }
+
+  const rawData = response['data'] ?? response['DATA'];
+  if (!Array.isArray(rawData) && !isRecord(rawData)) {
+    throw new Error('The product details API returned an invalid product.');
+  }
+  const rows = Array.isArray(rawData) ? rawData : [rawData];
+  const record = rows.find((row) => isRecord(row) && Number(row['PRODUCT_ID']) === requestedId);
+  if (!record) return null;
+  if (!isRecord(record)) throw new Error('The product details API returned an invalid product.');
+
+  const productId = numericValue(record['PRODUCT_ID']);
+  if (productId === undefined || !Number.isSafeInteger(productId) || productId <= 0) {
+    throw new Error('The product details API returned an invalid product ID.');
+  }
+  const rawHasVariants = record['HAS_VARIANTS'] ?? record['HAS_VARIANT'];
+  const hasVariants = rawHasVariants === true || rawHasVariants === 1 ||
+    (typeof rawHasVariants === 'string' && ['TRUE', '1', 'YES'].includes(rawHasVariants.trim().toUpperCase()));
+  return {
+    PRODUCT_ID: productId,
+    PRODUCT_NAME: productFieldText(record['PRODUCT_NAME']),
+    CATEGORY_ID: productFieldText(record['CATEGORY_ID']),
+    SUB_CATEGORY_ID: productFieldText(record['SUB_CATEGORY_ID']),
+    BRAND_ID: productFieldText(record['BRAND_ID']),
+    PRODUCT_CODE_SKU: productFieldText(record['PRODUCT_CODE_SKU']),
+    PRODUCT_IMAGE: productFieldText(record['PRODUCT_IMAGE']) || null,
+    PRODUCT_VIDEO: productFieldText(record['PRODUCT_VIDEO']) || null,
+    PRODUCT_DESCRIPTION: productFieldText(record['PRODUCT_DESCRIPTION']),
+    HSN_CODE: productFieldText(record['HSN_CODE']),
+    TAX_RATE: productFieldText(record['TAX_RATE']),
+    SELLING_PRICE: productFieldText(record['SELLING_PRICE']),
+    PRICE: productFieldText(record['PRICE']),
+    DISCOUNT: productFieldText(record['DISCOUNT']),
+    STOCK_QUANTITY: productFieldText(record['STOCK_QUANTITY']),
+    MINIMUM_ORDER_QUANTITY: productFieldText(record['MINIMUM_ORDER_QUANTITY']),
+    MAXIMUM_ORDER_QUANTITY: productFieldText(record['MAXIMUM_ORDER_QUANTITY']),
+    WEIGHT: productFieldText(record['WEIGHT']),
+    LENGTH: productFieldText(record['LENGTH']),
+    WIDTH: productFieldText(record['WIDTH']),
+    HEIGHT: productFieldText(record['HEIGHT']),
+    ...(rawHasVariants !== undefined && rawHasVariants !== null ? { HAS_VARIANTS: hasVariants } : {}),
   };
 }
 
@@ -118,8 +247,7 @@ function mapProductsResponse(response: unknown): Product[] {
 
   const activeEntries = data.filter((entry) => {
     if (!isRecord(entry)) return true;
-    const active = entry['IS_ACTIVE'];
-    return active !== false && active !== 0 && !(typeof active === 'string' && active.trim() === '0');
+    return productActiveStatus(entry['IS_ACTIVE']) !== false;
   });
   const products = activeEntries.map(mapProduct);
   if (products.some((product) => product === null)) {
@@ -127,6 +255,128 @@ function mapProductsResponse(response: unknown): Product[] {
   }
 
   return products.filter((product): product is Product => product !== null);
+}
+
+function isProductInsertFailureMessage(message: string): boolean {
+  return /\b(?:failure|failed|error|not inserted|could not|unable|invalid|duplicate|already exists)\b/i.test(message);
+}
+
+function isProductInsertSuccessMessage(message: string): boolean {
+  return /^(?:SUCCESS|OK|200|201)\b/i.test(message) ||
+    /\b(?:product )?(?:inserted|added) successfully\b/i.test(message);
+}
+
+function productInsertMessage(response: unknown): string {
+  if (typeof response === 'string') {
+    const message = response.trim();
+    if (message.startsWith('{') || message.startsWith('[') || message.startsWith('"')) {
+      try {
+        const parsed: unknown = JSON.parse(message);
+        if (typeof parsed !== 'string' || parsed !== message) return productInsertMessage(parsed);
+      } catch (error) {
+        if (!(error instanceof SyntaxError)) throw error;
+        // A non-JSON text response is valid for this endpoint.
+      }
+    }
+    if (isProductInsertFailureMessage(message)) throw new Error(message);
+    if (isProductInsertSuccessMessage(message)) return message;
+    throw new Error(message || 'The product API returned an empty response.');
+  }
+  if (!isRecord(response)) {
+    throw new Error('The product API returned an invalid response.');
+  }
+
+  const status = response['status'] ?? response['STATUS'];
+  const normalizedStatus = typeof status === 'string' || typeof status === 'number'
+    ? String(status).trim().toUpperCase()
+    : undefined;
+  const messageValue = response['message'] ?? response['MESSAGE'] ?? response['error'] ?? response['ERROR'];
+  const message = typeof messageValue === 'string' && messageValue.trim()
+    ? messageValue.trim()
+    : undefined;
+  const errors = response['errors'] ?? response['ERRORS'];
+  const validationMessages = Array.isArray(errors)
+    ? errors.filter((entry): entry is string => typeof entry === 'string' && !!entry.trim())
+    : isRecord(errors)
+      ? Object.values(errors).flatMap((entry) => Array.isArray(entry) ? entry : [entry])
+          .filter((entry): entry is string => typeof entry === 'string' && !!entry.trim())
+      : [];
+  const successFlag = response['success'] ?? response['SUCCESS'];
+  const hasSuccessFlag = successFlag === true || successFlag === 1 ||
+    (typeof successFlag === 'string' && ['TRUE', '1', 'SUCCESS'].includes(successFlag.trim().toUpperCase()));
+  const hasSuccessfulStatus = normalizedStatus !== undefined &&
+    ['SUCCESS', 'OK', '200', '201'].includes(normalizedStatus);
+  if (
+    (normalizedStatus !== undefined && !['SUCCESS', 'OK', '200', '201'].includes(normalizedStatus)) ||
+    (successFlag !== undefined && !hasSuccessFlag) ||
+    response['error'] === true || response['ERROR'] === true || validationMessages.length > 0 ||
+    (message !== undefined && isProductInsertFailureMessage(message))
+  ) {
+    throw new Error(validationMessages.join(' ') || message || 'The product could not be added.');
+  }
+  if (hasSuccessfulStatus || hasSuccessFlag || (message !== undefined && isProductInsertSuccessMessage(message))) {
+    return message ?? 'Product added successfully.';
+  }
+  throw new Error(message || 'The product API returned an unrecognized response.');
+}
+
+function productUpdateMessage(response: unknown): string {
+  if (typeof response === 'string') {
+    const message = response.trim();
+    if (message.startsWith('{') || message.startsWith('[') || message.startsWith('"')) {
+      try {
+        const parsed: unknown = JSON.parse(message);
+        if (typeof parsed !== 'string' || parsed !== message) return productUpdateMessage(parsed);
+      } catch (error) {
+        if (!(error instanceof SyntaxError)) throw error;
+        // A non-JSON text response is valid for this endpoint.
+      }
+    }
+    if (isProductInsertFailureMessage(message)) throw new Error(message);
+    if (/^(?:SUCCESS|OK|200|201)\b/i.test(message) || /\b(?:product )?(?:updated|modified)(?: successfully)?\b/i.test(message)) {
+      return message;
+    }
+    throw new Error(message || 'The product API returned an empty response.');
+  }
+  if (!isRecord(response)) {
+    if (response === true || response === 1) return 'Product updated successfully.';
+    throw new Error('The product API returned an invalid response.');
+  }
+
+  const status = response['status'] ?? response['STATUS'];
+  const normalizedStatus = typeof status === 'string' || typeof status === 'number'
+    ? String(status).trim().toUpperCase()
+    : undefined;
+  const messageValue = response['message'] ?? response['MESSAGE'] ?? response['error'] ?? response['ERROR'];
+  const message = typeof messageValue === 'string' && messageValue.trim()
+    ? messageValue.trim()
+    : undefined;
+  const errors = response['errors'] ?? response['ERRORS'];
+  const validationMessages = Array.isArray(errors)
+    ? errors.filter((entry): entry is string => typeof entry === 'string' && !!entry.trim())
+    : isRecord(errors)
+      ? Object.values(errors).flatMap((entry) => Array.isArray(entry) ? entry : [entry])
+          .filter((entry): entry is string => typeof entry === 'string' && !!entry.trim())
+      : [];
+  const successFlag = response['success'] ?? response['SUCCESS'];
+  const hasSuccessFlag = successFlag === true || successFlag === 1 ||
+    (typeof successFlag === 'string' && ['TRUE', '1', 'SUCCESS'].includes(successFlag.trim().toUpperCase()));
+  const hasSuccessfulStatus = status === true || status === 1 ||
+    (normalizedStatus !== undefined && ['SUCCESS', 'OK', '200', '201'].includes(normalizedStatus));
+  const hasFailureStatus = status === false || status === 0 ||
+    (normalizedStatus !== undefined && !['SUCCESS', 'OK', '200', '201'].includes(normalizedStatus));
+  if (
+    hasFailureStatus || (successFlag !== undefined && !hasSuccessFlag) ||
+    response['error'] === true || response['ERROR'] === true || validationMessages.length > 0 ||
+    (message !== undefined && isProductInsertFailureMessage(message))
+  ) {
+    throw new Error(validationMessages.join(' ') || message || 'The product could not be updated.');
+  }
+  if (hasSuccessfulStatus || hasSuccessFlag ||
+    (message !== undefined && /\b(?:product )?(?:updated|modified)(?: successfully)?\b/i.test(message))) {
+    return message ?? 'Product updated successfully.';
+  }
+  throw new Error(message || 'The product API returned an unrecognized response.');
 }
 
 function findNumber(
@@ -151,9 +401,11 @@ function mapProductPageResponse(
     throw new Error('The products API returned an invalid paginated response.');
   }
 
+  const responseStatus = response['status'] ?? response['STATUS'];
   if (
-    response['status'] !== undefined &&
-    (typeof response['status'] !== 'string' || response['status'].toUpperCase() !== 'SUCCESS')
+    responseStatus !== undefined &&
+    responseStatus !== true &&
+    !(typeof responseStatus === 'string' && ['SUCCESS', 'OK', '200', '201'].includes(responseStatus.trim().toUpperCase()))
   ) {
     const message = typeof response['message'] === 'string' ? response['message'] : '';
     throw new Error(message || 'The products API could not load products.');
@@ -283,8 +535,10 @@ function mapLookupOptions(
       if (!isRecord(entry)) {
         throw new Error(`The ${resource} API returned an invalid option.`);
       }
-      const rawId = entry[definition.idField];
-      const rawLabel = entry[definition.labelField];
+      const rawId = definition.idAliases?.map((field) => entry[field]).find((value) => value !== undefined && value !== null)
+        ?? entry[definition.idField];
+      const rawLabel = definition.labelAliases?.map((field) => entry[field]).find((value) => value !== undefined && value !== null)
+        ?? entry[definition.labelField];
       const id = numericValue(rawId);
       if (
         id === undefined ||
@@ -309,15 +563,8 @@ function mapLookupOptions(
     });
 }
 
-function isActiveBrand(record: Record<string, unknown>): boolean {
-  const status = record['STATUS'];
-  if (status === undefined || status === null || status === '') return false;
-  if (status === true || status === 1) return true;
-  return typeof status === 'string' && ['ACTIVE', '1', 'TRUE'].includes(status.trim().toUpperCase());
-}
-
 const PRODUCT_LOOKUP_DEFINITIONS: Readonly<
-  Record<'categories' | 'brands' | 'taxRates', ProductLookupDefinition>
+  Record<'categories' | 'subCategories' | 'brands' | 'taxRates' | 'productCodes', ProductLookupDefinition>
 > = {
   categories: {
     path: API_ENDPOINTS.productLookups.categories,
@@ -325,12 +572,17 @@ const PRODUCT_LOOKUP_DEFINITIONS: Readonly<
     idField: 'CATEGORY_ID',
     labelField: 'CATEGORY_NAME',
   },
+  subCategories: {
+    path: API_ENDPOINTS.productLookups.subCategories,
+    idParameter: 'SUB_CATEGORY_ID',
+    idField: 'SUB_CATEGORY_ID',
+    labelField: 'SUB_CATEGORY_NAME',
+  },
   brands: {
     path: API_ENDPOINTS.productLookups.brands,
     idParameter: 'BRAND_ID',
     idField: 'BRAND_ID',
     labelField: 'BRAND_NAME',
-    isActive: isActiveBrand,
   },
   taxRates: {
     path: API_ENDPOINTS.productLookups.taxRates,
@@ -338,6 +590,16 @@ const PRODUCT_LOOKUP_DEFINITIONS: Readonly<
     idField: 'TAX_RATE_ID',
     labelField: 'TAX_PERCENTAGE',
     labelSuffix: '%',
+  },
+  productCodes: {
+    path: API_ENDPOINTS.productLookups.productCodes,
+    idField: 'PRODUCT_CODE_ID',
+    idAliases: ['PRODUCT_CODE_ID', 'PRODUCT_CODE_MASTER_ID', 'CODE_ID', 'ID', 'PRODUCT_ID'],
+    labelField: 'PRODUCT_CODE',
+    labelAliases: [
+      'PRODUCT_CODE', 'PRODUCT_CODE_NAME', 'PRODUCT_CODE_VALUE', 'PRODUCT_CODE_SKU',
+      'PRODUCT_SKU', 'CODE', 'CODE_NAME', 'CODE_VALUE', 'SKU',
+    ],
   },
 };
 
@@ -377,16 +639,71 @@ export class ProductCatalogService {
       });
   }
 
-  loadCategories(): Observable<ProductLookupOption[]> {
-      return this.loadLookup('categories');
+  insertProduct(payload: ProductInsertPayload): Observable<string> {
+    return this.api
+      .postText(API_ENDPOINTS.products.insert, payload)
+      .pipe(map(productInsertMessage));
   }
 
-  loadBrands(): Observable<ProductLookupOption[]> {
-      return this.loadLookup('brands');
+  updateProduct(payload: ProductUpdatePayload): Observable<string> {
+    if (!Number.isSafeInteger(payload.PRODUCT_ID) || payload.PRODUCT_ID <= 0) {
+      return throwError(() => new RangeError('Product ID must be a positive safe integer.'));
+    }
+    return this.api
+      .putText(API_ENDPOINTS.products.update, payload)
+      .pipe(
+        map(productUpdateMessage),
+        tap(() => this.invalidatePageCache()),
+      );
+  }
+
+  loadProductById(productId: string | number): Observable<ProductDetails | null> {
+    const id = Number(productId);
+    if (!String(productId).trim() || !Number.isSafeInteger(id) || id <= 0) {
+      return throwError(() => new RangeError('Product ID must be a positive safe integer.'));
+    }
+    return this.api.get<unknown>(API_ENDPOINTS.products.get, { PRODUCT_ID: id }).pipe(
+      map((response) => mapProductDetailsResponse(response, id)),
+    );
+  }
+
+  loadCategories(): Observable<ProductLookupOption[]> {
+    return this.loadLookup('categories');
+  }
+
+  loadSubCategories(categoryId: string | number): Observable<ProductLookupOption[]> {
+    if (!String(categoryId).trim() || !Number.isSafeInteger(Number(categoryId)) || Number(categoryId) <= 0) {
+      return throwError(() => new RangeError('Category ID must be a positive safe integer.'));
+    }
+    return this.loadLookup('subCategories', { CATEGORY_ID: Number(categoryId) });
+  }
+
+  loadAllBrands(): Observable<ProductLookupOption[]> {
+    return this.loadLookup('brands');
+  }
+
+  loadBrands(categoryId: string | number, subCategoryId: string | number): Observable<ProductLookupOption[]> {
+    const category = Number(categoryId);
+    const subCategory = Number(subCategoryId);
+    if (
+      !String(categoryId).trim() || !Number.isSafeInteger(category) || category <= 0 ||
+      !String(subCategoryId).trim() || !Number.isSafeInteger(subCategory) || subCategory <= 0
+    ) {
+      return throwError(() => new RangeError('Category and subcategory IDs must be positive safe integers.'));
+    }
+    return this.loadLookup('brands', { CATEGORY_ID: category, SUB_CATEGORY_ID: subCategory });
   }
 
   loadTaxRates(): Observable<ProductLookupOption[]> {
-      return this.loadLookup('taxRates');
+    return this.loadLookup('taxRates');
+  }
+
+  loadProductCodes(productId: string | number): Observable<ProductLookupOption[]> {
+    const id = Number(productId);
+    if (!String(productId).trim() || !Number.isSafeInteger(id) || (id !== -1 && id <= 0)) {
+      return throwError(() => new RangeError('Product ID must be -1 or a positive safe integer.'));
+    }
+    return this.loadLookup('productCodes', { PRODUCT_ID: id });
   }
 
   loadPage(page: number, pageSize: number): Observable<PaginatedResponse<Product>> {
@@ -412,7 +729,11 @@ export class ProductCatalogService {
 
     let request: Observable<PaginatedResponse<Product>>;
     request = this.api
-      .get<unknown>(API_ENDPOINTS.products.get, { LIMIT: pageSize, OFFSET: offset })
+      .get<unknown>(API_ENDPOINTS.products.get, {
+        PRODUCT_ID: -1,
+        LIMIT: pageSize,
+        OFFSET: offset,
+      })
       .pipe(
         map((response) => mapProductPageResponse(response, page, pageSize)),
         catchError((error: unknown) => {
@@ -443,31 +764,68 @@ export class ProductCatalogService {
   getErrorMessage(error: unknown): string {
     if (error instanceof HttpErrorResponse) {
       const body = error.error;
-      if (isRecord(body) && typeof body['message'] === 'string') return body['message'];
+      if (isRecord(body)) {
+        const errors = body['errors'] ?? body['ERRORS'];
+        const validationMessages = Array.isArray(errors)
+          ? errors.filter((entry): entry is string => typeof entry === 'string' && !!entry.trim())
+          : isRecord(errors)
+            ? Object.values(errors).flatMap((entry) => Array.isArray(entry) ? entry : [entry])
+                .filter((entry): entry is string => typeof entry === 'string' && !!entry.trim())
+            : [];
+        if (validationMessages.length) return validationMessages.join(' ');
+        const message = body['message'] ?? body['MESSAGE'] ?? body['error'] ?? body['ERROR'];
+        if (typeof message === 'string' && message.trim()) return message.trim();
+      } else if (typeof body === 'string' && body.trim()) {
+        const text = body.trim();
+        if (text.startsWith('{')) {
+          try {
+            const parsed: unknown = JSON.parse(text);
+            if (isRecord(parsed)) {
+              const message = parsed['message'] ?? parsed['MESSAGE'] ?? parsed['error'] ?? parsed['ERROR'];
+              if (typeof message === 'string' && message.trim()) return message.trim();
+              const errors = parsed['errors'] ?? parsed['ERRORS'];
+              if (Array.isArray(errors)) {
+                const messages = errors.filter((entry): entry is string => typeof entry === 'string' && !!entry.trim());
+                if (messages.length) return messages.join(' ');
+              }
+            }
+          } catch {
+            // Keep the raw server text below if the body is not JSON.
+          }
+        }
+        return text;
+      }
       return error.status
-        ? `Products could not be loaded (HTTP ${error.status}).`
-        : 'Products could not be loaded. Check your connection and try again.';
+        ? `The request failed (HTTP ${error.status}).`
+        : 'The request failed. Check your connection and try again.';
     }
     return error instanceof Error ? error.message : 'Products could not be loaded. Please try again.';
   }
 
-  private loadLookup(key: keyof typeof PRODUCT_LOOKUP_DEFINITIONS): Observable<ProductLookupOption[]> {
-    const cached = this.lookupRequests.get(key);
+  private loadLookup(
+    key: keyof typeof PRODUCT_LOOKUP_DEFINITIONS,
+    extraParams: Record<string, string | number> = {},
+  ): Observable<ProductLookupOption[]> {
+    const cacheKey = `${key}:${JSON.stringify(extraParams)}`;
+    const cached = this.lookupRequests.get(cacheKey);
     if (cached) return cached;
 
     const definition = PRODUCT_LOOKUP_DEFINITIONS[key];
     let request: Observable<ProductLookupOption[]>;
     request = this.api
-      .get<unknown>(definition.path, { [definition.idParameter]: -1 })
+      .get<unknown>(definition.path, {
+        ...(definition.idParameter ? { [definition.idParameter]: -1 } : {}),
+        ...extraParams,
+      })
       .pipe(
         map((response) => mapLookupOptions(response, key, definition)),
         catchError((error: unknown) => {
-          if (this.lookupRequests.get(key) === request) this.lookupRequests.delete(key);
+          if (this.lookupRequests.get(cacheKey) === request) this.lookupRequests.delete(cacheKey);
           return throwError(() => error);
         }),
         shareReplay({ bufferSize: 1, refCount: false }),
       );
-    this.lookupRequests.set(key, request);
+    this.lookupRequests.set(cacheKey, request);
     return request;
   }
 }

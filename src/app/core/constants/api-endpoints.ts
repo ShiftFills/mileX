@@ -1,11 +1,15 @@
 export const API_ENDPOINTS = {
   products: {
     get: 'products/get',
+    insert: 'products/insert',
+    update: 'products/update',
   },
   productLookups: {
     categories: 'category/get',
+    subCategories: 'sub_category/get',
     brands: 'brand_management/get',
     taxRates: 'tax_rate/get',
+    productCodes: 'product_code/get',
   },
   productVariants: {
     get: 'product_variant/get',

@@ -17,6 +17,7 @@ import { Select } from '@shared/components/select/select';
 import { StatCard, StatCardIcon, StatCardTone } from '@shared/components/stat-card/stat-card';
 import { Table, TableCellContext, TableColumn, TableHeaderContext } from '@shared/components/table/table';
 import { Textarea } from '@shared/components/textarea/textarea';
+import { DocumentPreview } from '@features/seller/components/document-preview/document-preview';
 import { eventValue } from '@shared/utils/form-events';
 import { SellerVerificationRecord, SellerVerificationService, SellerVerificationStatus } from '../../services/seller-verification.service';
 
@@ -49,7 +50,7 @@ const STATS: readonly SellerStat[] = [
 
 @Component({
   selector: 'app-admin-seller-verification',
-  imports: [Badge, Button, Card, Checkbox, DateRangeFilter, Dialog, ExportButton, Input, LoadingSpinner, PageHeading, Pagination, Select, StatCard, Table, Textarea],
+  imports: [Badge, Button, Card, Checkbox, DateRangeFilter, Dialog, DocumentPreview, ExportButton, Input, LoadingSpinner, PageHeading, Pagination, Select, StatCard, Table, Textarea],
   templateUrl: './seller-verification.html',
   styleUrl: './seller-verification.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -76,23 +77,75 @@ export class SellerVerification {
   protected readonly selectedIds = signal<ReadonlySet<number>>(new Set());
 
   protected readonly activeSellerId = signal<number | null>(null);
+  protected readonly previewDocument = signal<SellerDocument | null>(null);
+  protected readonly detailStatus = signal<'idle' | 'loading' | 'success' | 'empty' | 'error'>('idle');
+  protected readonly detailError = signal('');
+  private readonly detailRetry = signal(0);
+  private readonly detailRecord = signal<SellerVerificationRecord | null>(null);
   protected readonly remarks = signal('');
   protected readonly remarksError = signal('');
+  protected readonly pendingDecision = signal<'approve' | 'deny' | null>(null);
+  protected readonly actionNotice = signal('');
 
   protected readonly totalCount = computed(() => this.totalSellers());
-  private readonly pageRequest = computed(() => ({ page: this.page(), retry: this.retryCount() }));
+  private readonly detailRequest = computed(() => {
+    const selected = this.sellers().find((seller) => seller.id === this.activeSellerId());
+    return selected
+      ? { sellerId: selected.sellerId, status: selected.status, retry: this.detailRetry() }
+      : null;
+  });
+  private readonly pageRequest = computed(() => ({
+    page: this.page(),
+    retry: this.retryCount(),
+    status: this.status(),
+  }));
 
   constructor() {
+    toObservable(this.detailRequest)
+      .pipe(
+        distinctUntilChanged((previous, current) =>
+          previous?.sellerId === current?.sellerId &&
+          previous?.status === current?.status &&
+          previous?.retry === current?.retry,
+        ),
+        switchMap((request) => {
+          this.detailRecord.set(null);
+          this.detailError.set('');
+          if (!request) {
+            this.detailStatus.set('idle');
+            return EMPTY;
+          }
+          this.detailStatus.set('loading');
+          return this.verificationService.getSellerDetails(request.sellerId, request.status).pipe(
+            tap((seller) => {
+              this.detailRecord.set(seller);
+              this.detailStatus.set(seller ? 'success' : 'empty');
+            }),
+            catchError((error: unknown) => {
+              this.detailError.set(this.verificationService.getErrorMessage(error));
+              this.detailStatus.set('error');
+              return EMPTY;
+            }),
+          );
+        }),
+        takeUntilDestroyed(),
+      )
+      .subscribe();
+
     toObservable(this.pageRequest)
       .pipe(
-        distinctUntilChanged((previous, current) => previous.page === current.page && previous.retry === current.retry),
-        switchMap(({ page }) => {
+        distinctUntilChanged((previous, current) =>
+          previous.page === current.page &&
+          previous.retry === current.retry &&
+          previous.status === current.status,
+        ),
+        switchMap(({ page, status }) => {
           this.sellers.set([]);
           this.totalSellers.set(undefined);
           this.hasNextPage.set(false);
           this.loadStatus.set('loading');
           this.loadError.set('');
-          return this.verificationService.getSellers(page, PAGE_SIZE).pipe(
+          return this.verificationService.getSellers(page, PAGE_SIZE, status || 'PENDING').pipe(
             tap((result) => {
               this.sellers.set(result.items);
               this.totalSellers.set(result.total);
@@ -162,7 +215,11 @@ export class SellerVerification {
     return rows.length > 0 && rows.every((row) => this.selectedIds().has(row.id));
   });
 
-  protected readonly activeSeller = computed(() => this.sellers().find((seller) => seller.id === this.activeSellerId()) ?? null);
+  protected readonly activeSeller = computed(() => {
+    const selected = this.sellers().find((seller) => seller.id === this.activeSellerId()) ?? null;
+    const details = this.detailRecord();
+    return selected && details?.sellerId === selected.sellerId ? details : selected;
+  });
 
   protected statusTone(status: SellerVerificationStatus): BadgeTone {
     return STATUS_TONES[status];
@@ -201,14 +258,25 @@ export class SellerVerification {
 
   protected openDetails(seller: SellerRow): void {
     this.activeSellerId.set(seller.id);
+    this.pendingDecision.set(null);
+    this.actionNotice.set('');
     this.remarks.set(seller.remarks);
     this.remarksError.set('');
   }
 
   protected closeDetails(): void {
     this.activeSellerId.set(null);
+    this.detailRecord.set(null);
+    this.detailStatus.set('idle');
+    this.detailError.set('');
+    this.pendingDecision.set(null);
+    this.actionNotice.set('');
     this.remarks.set('');
     this.remarksError.set('');
+  }
+
+  protected retryDetails(): void {
+    this.detailRetry.update((count) => count + 1);
   }
 
   protected editSeller(seller: SellerVerificationRecord): void {
@@ -228,11 +296,16 @@ export class SellerVerification {
   }
 
   protected viewDocument(doc: SellerDocument): void {
-    if (doc.url) window.open(doc.url, '_blank', 'noopener');
+    if (doc.url) this.previewDocument.set(doc);
+  }
+
+  protected closeDocumentPreview(): void {
+    this.previewDocument.set(null);
   }
 
   protected approve(): void {
-    this.decide('Approved');
+    this.actionNotice.set('');
+    this.pendingDecision.set('approve');
   }
 
   /** Rejecting a seller must carry a reason so the seller knows what to fix. */
@@ -241,15 +314,20 @@ export class SellerVerification {
       this.remarksError.set('Add remarks explaining why the documents are being rejected.');
       return;
     }
-    this.decide('Rejected');
+    this.actionNotice.set('');
+    this.pendingDecision.set('deny');
   }
 
-  private decide(status: SellerVerificationStatus): void {
-    const id = this.activeSellerId();
-    if (id === null) return;
-    const remarks = this.remarks().trim();
-    this.sellers.update((rows) => rows.map((row) => (row.id === id ? { ...row, status, remarks } : row)));
-    this.closeDetails();
+  protected cancelDecision(): void {
+    this.pendingDecision.set(null);
+  }
+
+  protected confirmDecision(): void {
+    const decision = this.pendingDecision();
+    if (!decision) return;
+    const action = decision === 'approve' ? 'Approval' : 'Denial';
+    this.actionNotice.set(`${action} API is not available. The seller status was not changed.`);
+    this.pendingDecision.set(null);
   }
 
   protected exportSellers(): void {

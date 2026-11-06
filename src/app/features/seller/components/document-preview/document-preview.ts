@@ -30,7 +30,9 @@ const ZOOM_STEP = 25;
 export class DocumentPreview {
   private readonly sanitizer = inject(DomSanitizer);
 
-  readonly file = input.required<File>();
+  readonly file = input<File | null>(null);
+  readonly src = input<string | null>(null);
+  readonly readOnly = input(false);
   readonly title = input.required<string>();
   readonly replaced = output<File>();
   readonly removed = output<void>();
@@ -40,25 +42,32 @@ export class DocumentPreview {
   protected readonly pageCount = signal(1);
   protected readonly zoom = signal(100);
   protected readonly replaceError = signal<string | null>(null);
+  protected readonly previewError = signal(false);
   private readonly objectUrl = signal<string | null>(null);
   private readonly viewer = viewChild<ElementRef<HTMLElement>>('viewer');
 
   protected readonly kind = computed<'pdf' | 'image' | 'unsupported'>(() => {
-    const type = this.file().type;
+    const file = this.file();
+    const type = file?.type ?? '';
     if (type === 'application/pdf') return 'pdf';
-    return type === 'image/jpeg' || type === 'image/png' ? 'image' : 'unsupported';
+    if (type === 'image/jpeg' || type === 'image/png') return 'image';
+    const source = this.src()?.split(/[?#]/, 1)[0].toLowerCase() ?? '';
+    if (source.endsWith('.pdf')) return 'pdf';
+    return /\.(?:jpe?g|png|gif|webp|bmp)$/.test(source) ? 'image' : 'unsupported';
   });
 
   protected readonly extension = computed(() => {
-    const name = this.file().name;
+    const name = this.file()?.name ?? this.src()?.split(/[?#]/, 1)[0].split('/').at(-1) ?? '';
     const dot = name.lastIndexOf('.');
     return dot > -1 ? name.slice(dot + 1, dot + 5).toUpperCase() : 'FILE';
   });
 
-  protected readonly imageSrc = computed(() => (this.kind() === 'image' ? this.objectUrl() : null));
+  protected readonly imageSrc = computed(() =>
+    this.kind() === 'image' ? this.src() ?? this.objectUrl() : null,
+  );
 
   protected readonly pdfSrc = computed<SafeResourceUrl | null>(() => {
-    const url = this.objectUrl();
+    const url = this.src() ?? this.objectUrl();
     if (this.kind() !== 'pdf' || !url) return null;
     return this.sanitizer.bypassSecurityTrustResourceUrl(
       `${url}#page=${this.page()}&zoom=${this.zoom()}&toolbar=0&navpanes=0`,
@@ -71,14 +80,16 @@ export class DocumentPreview {
   constructor() {
     effect((onCleanup) => {
       const file = this.file();
-      const url = typeof URL.createObjectURL === 'function' ? URL.createObjectURL(file) : null;
+      this.src();
+      const url = file && typeof URL.createObjectURL === 'function' ? URL.createObjectURL(file) : null;
       this.objectUrl.set(url);
+      this.previewError.set(false);
       this.page.set(1);
       this.zoom.set(100);
       this.pageCount.set(1);
       this.replaceError.set(null);
       let stale = false;
-      if (file.type === 'application/pdf') {
+      if (file?.type === 'application/pdf') {
         void DocumentPreview.countPdfPages(file).then((count) => {
           if (!stale) this.pageCount.set(count);
         });
@@ -88,6 +99,10 @@ export class DocumentPreview {
         if (url) URL.revokeObjectURL(url);
       });
     });
+  }
+
+  protected onPreviewError(): void {
+    this.previewError.set(true);
   }
 
   /** Best-effort page count read from the PDF page tree; falls back to a single page. */
