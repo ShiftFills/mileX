@@ -1,12 +1,24 @@
 <main class="admin-content admin-list-page">
   <app-page-heading heading="Seller Verification"
     subtitle="Review and verify seller details, documents and approve or reject their requests.">
-    <app-date-range-filter inputId="seller-date-range" [value]="range()" (valueChange)="range.set($event)" />
+    <app-date-range-filter inputId="seller-date-range" [value]="range()" [options]="dateRangeOptions()"
+      (valueChange)="setRange($event)" />
     <app-export-button (exported)="exportSellers()" />
+    @if (summaryStatus() === 'loading') {
+    <div class="d-flex justify-content-center align-items-center gap-2 mb-2">
+      <app-loading-spinner /> Loading summary…
+    </div>
+    } @else if (summaryStatus() === 'error') {
+    <div class="d-flex justify-content-center align-items-center gap-2 mb-2" role="alert">
+      Seller summary could not be loaded.
+      <app-button variant="outline" size="compact" (clicked)="refreshSummary()">Try again</app-button>
+    </div>
+    }
   </app-page-heading>
 
-  <section class="row row-cols-2 row-cols-xl-4 g-2 g-md-3 mb-3" aria-label="Seller verification summary">
-    @for (stat of stats; track stat.label) {
+  <section class="row row-cols-2 row-cols-xl-4 g-2 g-md-3 mb-3" aria-label="Seller verification summary"
+    [attr.aria-busy]="summaryStatus() === 'loading'">
+    @for (stat of stats(); track stat.label) {
     <div class="col">
       <app-stat-card [label]="stat.label" [value]="stat.value" [trend]="stat.trend"
         [trendDirection]="stat.trendDirection" [trendTone]="stat.trendTone" [icon]="stat.icon"
@@ -25,31 +37,62 @@
         <span class="visually-hidden">Search sellers</span>
       </label>
       <div class="admin-list-filters">
-        <label class="visually-hidden" for="admin-seller-status">Filter by verification status</label>
-        <app-select class="admin-list-filter" inputId="admin-seller-status" name="sellerStatus" size="compact"
-          [value]="status()" (valueChange)="setFilter('status', $event)">
-          <option value="">All Status</option>
-          @for (item of statusOptions; track item) { <option [value]="item">{{ item }}</option> }
-        </app-select>
-        <label class="visually-hidden" for="admin-seller-business-type">Filter by business type</label>
-        <app-select class="admin-list-filter admin-list-filter--wide" inputId="admin-seller-business-type"
-          name="businessType" size="compact" [value]="businessType()" (valueChange)="setFilter('businessType', $event)">
-          <option value="">All Business Type</option>
-          @for (item of businessTypes; track item) { <option [value]="item">{{ item }}</option> }
-        </app-select>
+        <div class="admin-list-filter-group">
+          <label class="visually-hidden" for="admin-seller-status">Filter by verification status</label>
+          <app-select class="admin-list-filter" inputId="admin-seller-status" name="sellerStatus" size="compact"
+            [value]="status()" [disabled]="statusOptionsStatus() !== 'success'"
+            (valueChange)="setFilter('status', $event)">
+            @if (statusOptionsStatus() === 'loading') {
+            <option [value]="status()">Loading statuses…</option>
+            } @else if (statusOptionsStatus() === 'error') {
+            <option [value]="status()">Statuses unavailable</option>
+            } @else if (statusOptions().length === 0) {
+            <option [value]="status()" disabled>No statuses available</option>
+            } @else {
+            @for (item of statusOptions(); track item.id) {
+            <option [value]="item.id">{{ item.label }}</option>
+            }
+            }
+          </app-select>
+          @if (statusOptionsStatus() === 'error') {
+          <div class="admin-list-filter-error" role="alert">
+            <span>Statuses unavailable.</span>
+            <app-button variant="link" size="dense" (clicked)="retryStatuses()">Retry</app-button>
+          </div>
+          }
+        </div>
+        <div class="admin-list-filter-group admin-list-filter-group--wide">
+          <label class="visually-hidden" for="admin-seller-business-type">Filter by business type</label>
+          <app-searchable-select class="admin-list-filter admin-list-filter--wide"
+            inputId="admin-seller-business-type" name="businessType" [options]="businessTypeOptions()"
+            [value]="businessType()" [placeholder]="businessTypePlaceholder()"
+            searchPlaceholder="Search business types..." ariaLabel="Filter by business type"
+            [disabled]="businessTypesStatus() !== 'success' || businessTypes().length === 0"
+            (valueChange)="setBusinessType($event)" />
+          @if (businessTypesStatus() === 'error') {
+          <div class="admin-list-filter-error" role="alert">
+            <span>{{ businessTypesError() }}</span>
+            <app-button variant="link" size="dense" (clicked)="retryBusinessTypes()">
+              Retry
+            </app-button>
+          </div>
+          }
+        </div>
       </div>
     </div>
 
     @if (loadStatus() === 'loading') {
-      <div class="seller-verification-state seller-verification-state--loading" role="status"><app-loading-spinner /> Loading seller details…</div>
+    <div class="seller-verification-state seller-verification-state--loading" role="status">
+      <app-loading-spinner /> Loading seller details…
+    </div>
     } @else if (loadStatus() === 'error') {
-      <div class="seller-verification-state seller-verification-state--error" role="alert">
-        <p>{{ loadError() }}</p>
-        <app-button variant="outline" size="compact" (clicked)="retryLoad()">Try again</app-button>
-      </div>
+    <div class="seller-verification-state seller-verification-state--error" role="alert">
+      <p>{{ loadError() }}</p>
+      <app-button variant="outline" size="compact" (clicked)="retryLoad()">Try again</app-button>
+    </div>
     } @else {
-      <app-table class="admin-list-table sellers-table" ariaLabel="Sellers" [columns]="tableColumns()"
-        [rows]="visibleRows()" emptyMessage="No sellers are available for verification." />
+    <app-table class="admin-list-table sellers-table" ariaLabel="Sellers" [columns]="tableColumns()"
+      [rows]="visibleRows()" emptyMessage="No sellers are available for verification." />
     }
 
     <ng-template #selectAllHeader>
@@ -83,14 +126,18 @@
     </header>
 
     @if (detailStatus() === 'loading') {
-      <div class="seller-verification-state seller-verification-state--loading" role="status"><app-loading-spinner /> Loading seller details…</div>
+    <div class="seller-verification-state seller-verification-state--loading" role="status">
+      <app-loading-spinner /> Loading seller details…
+    </div>
     } @else if (detailStatus() === 'error') {
-      <div class="seller-verification-state seller-verification-state--error" role="alert">
-        <p>{{ detailError() }}</p>
-        <app-button variant="outline" size="compact" (clicked)="retryDetails()">Try again</app-button>
-      </div>
+    <div class="seller-verification-state seller-verification-state--error" role="alert">
+      <p>{{ detailError() }}</p>
+      <app-button variant="outline" size="compact" (clicked)="retryDetails()">Try again</app-button>
+    </div>
     } @else if (detailStatus() === 'empty') {
-      <p class="seller-verification-state" role="status">No verification details were returned for this seller.</p>
+    <p class="seller-verification-state" role="status">
+      No verification details were returned for this seller.
+    </p>
     } @else {
     <h3 class="seller-dialog__section">Seller Information</h3>
     <dl class="seller-info row g-0 row-cols-1 row-cols-sm-2">
@@ -132,114 +179,203 @@
       [rows]="seller.documents" />
 
     <div class="row g-3 mt-1">
-      <div class="col-12 col-sm-4">
+      <div class="col-12">
         <h3 class="seller-dialog__section">Verification Status</h3>
-        <app-badge [tone]="statusTone(seller.status)" size="compact">{{ seller.status }}</app-badge>
+        <app-badge class="seller-document-status" [tone]="statusTone(seller.documentVerificationStatus)"
+          size="compact">{{ seller.documentVerificationStatus }}</app-badge>
       </div>
-      <div class="col-12 col-sm-8">
-        <label class="seller-dialog__section d-block" for="seller-remarks">Verification Remarks</label>
+      @if (sellerDecisionState() === 'approved-documents') {
+      <div class="col-12 col-sm-6">
+        <label class="seller-dialog__section d-block" for="seller-remarks">Remarks</label>
         <app-textarea class="seller-remarks" inputId="seller-remarks" name="remarks" size="compact" [rows]="3"
-          placeholder="Add remarks about the submitted documents..." [value]="remarks()"
-          [ariaInvalid]="!!remarksError()" [ariaDescribedBy]="remarksError() ? 'seller-remarks-error' : null"
-          (valueInput)="setRemarks($event)" />
-        @if (remarksError()) { <p id="seller-remarks-error" class="seller-dialog__error" role="alert">{{ remarksError()
-          }}</p> }
+          placeholder="Enter remarks" [value]="remarks()" [ariaInvalid]="!!remarksError()"
+          [ariaDescribedBy]="remarksError() ? 'seller-remarks-error' : null" (valueInput)="setRemarks($event)" />
+        @if (remarksError()) {
+        <p id="seller-remarks-error" class="seller-dialog__error" role="alert">
+          {{ remarksError() }}
+        </p>
+        }
       </div>
+      }
     </div>
+    @if (approvedSellerVerificationWarning(); as warning) {
+    <section class="seller-decision-confirm" role="alert">
+      <h3>Verification needs attention</h3>
+      <p>{{ warning }}</p>
+    </section>
+    }
+    @if (sellerApprovalDisabledReason(); as reason) {
+    <p class="seller-dialog__notice" role="status">{{ reason }}</p>
+    }
     }
 
-    @if (actionNotice()) {
-      <p class="seller-dialog__notice" role="status">{{ actionNotice() }}</p>
+    @if (actionNotice() && decisionScope() !== 'document') {
+    <p class="seller-dialog__notice" role="status">{{ actionNotice() }}</p>
     }
     @if (pendingDecision(); as decision) {
-      <section class="seller-decision-confirm" role="alertdialog" aria-modal="true"
-        aria-labelledby="seller-decision-title">
-        <h3 id="seller-decision-title">Confirm {{ decision === 'approve' ? 'approval' : 'denial' }}?</h3>
-        <p>{{ decision === 'approve' ? 'Approve this seller?' : 'Deny this seller with the remarks provided?' }}</p>
-        <div class="seller-decision-confirm__actions">
-          <app-button variant="outline" size="small" (clicked)="cancelDecision()">Cancel</app-button>
-          <app-button [variant]="decision === 'approve' ? 'accent' : 'outline-danger'" size="small"
-            (clicked)="confirmDecision()">Confirm {{ decision === 'approve' ? 'Approve' : 'Deny' }}</app-button>
-        </div>
-      </section>
+    @if (decisionScope() === 'seller') {
+    <section class="seller-decision-confirm" role="alertdialog" aria-modal="true"
+      aria-labelledby="seller-decision-title">
+      <h3 id="seller-decision-title">
+        Confirm {{ decision === 'approve' ? 'approval' : 'rejection' }}?
+      </h3>
+      <p>
+        {{ decision === 'approve' ? 'Approve this seller?' : 'Reject this seller?' }}
+      </p>
+      <div class="seller-decision-confirm__actions">
+        <app-button variant="outline" size="small" (clicked)="cancelDecision()">Cancel</app-button>
+        <app-button [variant]="decision === 'approve' ? 'accent' : 'outline-danger'" size="small"
+          [disabled]="isSubmitting()" (clicked)="confirmDecision()">
+          {{
+          isSubmitting()
+          ? 'Processing...'
+          : 'Confirm ' + (decision === 'approve' ? 'Approve' : 'Reject')
+          }}
+        </app-button>
+      </div>
+    </section>
+    }
     }
 
     <footer class="seller-dialog__actions">
       <app-button variant="outline" size="small" (clicked)="closeDetails()">Cancel</app-button>
-      <app-button variant="outline" size="small" (clicked)="editSeller(seller)">Edit Seller</app-button>
-      <app-button variant="outline-danger" size="small" (clicked)="reject()">Reject</app-button>
-      <app-button variant="accent" size="small" (clicked)="approve()">Approve</app-button>
+      @if (canRejectSeller()) {
+      <app-button variant="outline-danger" size="small" [disabled]="isSubmitting()"
+        (clicked)="reject()">Reject</app-button>
+      }
+      @if (canApproveSeller()) {
+      <app-button variant="accent" size="small" [disabled]="isSubmitting()" (clicked)="approve()">
+        Approve
+      </app-button>
+      }
     </footer>
   </section>
 </app-dialog>
 }
 
 @if (previewDocument(); as document) {
-  <app-dialog (closed)="closeDocumentPreview()">
-    <section class="seller-document-preview" role="dialog" aria-modal="true"
-      [attr.aria-labelledby]="'seller-preview-title'" (click)="$event.stopPropagation()">
-      <header class="seller-document-preview__heading">
-        <div class="seller-document-preview__title-group">
-          <h2 id="seller-preview-title">{{ document.name }}</h2>
-          <p>{{ document.fileName }}</p>
-        </div>
-        <app-button variant="plain" size="compact" ariaLabel="Close document preview"
-          (clicked)="closeDocumentPreview()">×</app-button>
-      </header>
-      <app-document-preview [src]="document.url" [title]="document.name" [readOnly]="true" />
-      @if (remarksError()) {
-        <p class="seller-document-preview__error" role="alert">{{ remarksError() }}</p>
+<app-dialog (closed)="closeDocumentPreview()">
+  <section class="seller-document-preview" role="dialog" aria-modal="true"
+    [attr.aria-labelledby]="'seller-preview-title'" (click)="$event.stopPropagation()">
+    <header class="seller-document-preview__heading">
+      <div class="seller-document-preview__title-group">
+        <h2 id="seller-preview-title">{{ document.name }}</h2>
+        <p>{{ document.fileName }}</p>
+      </div>
+      @if (document.status) {
+      <app-badge [tone]="statusTone(document.status)" size="compact">{{
+        document.status
+        }}</app-badge>
       }
-      @if (actionNotice()) {
-        <p class="seller-document-preview__notice" role="status">{{ actionNotice() }}</p>
+      <app-button variant="plain" size="compact" ariaLabel="Close document preview"
+        (clicked)="closeDocumentPreview()">×</app-button>
+    </header>
+    <app-document-preview [src]="document.url" [title]="document.name" [readOnly]="true" />
+    @if ((document.status === 'Pending' || document.status === 'Approved') && documentRejectionOpen()) {
+    <div class="seller-document-preview__remarks">
+      <label class="seller-dialog__section d-block" for="seller-preview-remarks">Remarks</label>
+      <app-textarea class="seller-remarks" inputId="seller-preview-remarks" name="remarks" size="compact" [rows]="3"
+        placeholder="Enter remarks" [value]="documentRemarks()" [ariaInvalid]="!!documentRemarksError()"
+        [ariaDescribedBy]="documentRemarksError() ? 'seller-preview-remarks-error' : null"
+        (valueInput)="setDocumentRemarks($event)" />
+      @if (documentRemarksError()) {
+      <p id="seller-preview-remarks-error" class="seller-document-preview__error" role="alert">
+        {{ documentRemarksError() }}
+      </p>
       }
-      @if (pendingDecision(); as decision) {
-        <section class="seller-document-preview__confirmation" role="alertdialog" aria-modal="true"
-          aria-labelledby="seller-preview-decision-title">
-          <h3 id="seller-preview-decision-title">Confirm {{ decision === 'approve' ? 'approval' : 'denial' }}?</h3>
-          <p>{{ decision === 'approve' ? 'Approve this seller?' : 'Reject this seller with the remarks provided?' }}</p>
-          <div class="seller-document-preview__decision-actions">
-            <app-button variant="outline" size="small" (clicked)="cancelDecision()">Cancel</app-button>
-            <app-button [variant]="decision === 'approve' ? 'success' : 'danger'" size="small"
-              (clicked)="confirmDecision()">
-              @if (decision === 'approve') {
-                <svg class="seller-document-preview__decision-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                  <circle cx="10" cy="10" r="8" /><path d="m6 10 2.5 2.5L14 7" />
-                </svg>
-                Confirm Approve
-              } @else {
-                <svg class="seller-document-preview__decision-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                  <circle cx="10" cy="10" r="8" /><path d="m7 7 6 6m0-6-6 6" />
-                </svg>
-                Confirm Reject
-              }
-            </app-button>
-          </div>
-        </section>
+      @if (!pendingDecision()) {
+      <div class="seller-document-preview__decision-actions">
+        <app-button variant="outline" size="small" [disabled]="isSubmitting()"
+          (clicked)="cancelDocumentRejection()">Cancel</app-button>
+        <app-button variant="danger" size="small" [disabled]="isSubmitting()"
+          (clicked)="submitDocumentRejection()">Continue to Reject</app-button>
+      </div>
       }
-      <footer class="seller-document-preview__footer">
-        <a class="seller-document-preview__open" [href]="document.url" target="_blank" rel="noopener">
-          Open document in a new tab
-        </a>
-        <div class="seller-document-preview__decision-actions">
-          <app-button class="seller-document-preview__decision seller-document-preview__deny" variant="danger" size="small"
-            [disabled]="!!pendingDecision()" (clicked)="reject()">
-            <svg class="seller-document-preview__decision-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-              <circle cx="10" cy="10" r="8" /><path d="m7 7 6 6m0-6-6 6" />
-            </svg>
-            Reject
-          </app-button>
-          <app-button class="seller-document-preview__decision" variant="success" size="small"
-            [disabled]="!!pendingDecision()" (clicked)="approve()">
-            <svg class="seller-document-preview__decision-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-              <circle cx="10" cy="10" r="8" /><path d="m6 10 2.5 2.5L14 7" />
-            </svg>
-            Approve
-          </app-button>
-        </div>
-      </footer>
+    </div>
+    } @else if (document.status === 'Rejected') {
+    <div class="seller-document-preview__remarks">
+      <h3 class="seller-dialog__section">Rejection reason</h3>
+      <p class="seller-document-preview__rejection-reason">
+        {{ document.rejectionReason || 'No rejection reason was provided.' }}
+      </p>
+    </div>
+    }
+    @if (actionNotice() && decisionScope() === 'document') {
+    <p class="seller-document-preview__notice" role="status">{{ actionNotice() }}</p>
+    }
+    @if (pendingDecision(); as decision) {
+    @if (decisionScope() === 'document') {
+    <section class="seller-document-preview__confirmation" role="alertdialog" aria-modal="true"
+      aria-labelledby="seller-preview-decision-title">
+      <h3 id="seller-preview-decision-title">
+        Confirm {{ decision === 'approve' ? 'approval' : 'rejection' }}?
+      </h3>
+      <p>
+        {{
+        decision === 'approve'
+        ? 'Approve this document?'
+        : 'Reject this document with the reason provided?'
+        }}
+      </p>
+      <div class="seller-document-preview__decision-actions">
+        <app-button variant="outline" size="small" [disabled]="isSubmitting()"
+          (clicked)="cancelDocumentRejection()">Cancel</app-button>
+        <app-button [variant]="decision === 'approve' ? 'success' : 'danger'" size="small" [disabled]="isSubmitting()"
+          (clicked)="confirmDecision()">
+          @if (isSubmitting()) {
+          Processing...
+          } @else if (decision === 'approve') {
+          <svg class="seller-document-preview__decision-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <circle cx="10" cy="10" r="8" />
+            <path d="m6 10 2.5 2.5L14 7" />
+          </svg>
+          Confirm Approve
+          } @else {
+          <svg class="seller-document-preview__decision-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <circle cx="10" cy="10" r="8" />
+            <path d="m7 7 6 6m0-6-6 6" />
+          </svg>
+          Confirm Reject
+          }
+        </app-button>
+      </div>
     </section>
-  </app-dialog>
+    }
+    }
+    <footer class="seller-document-preview__footer">
+      <a class="seller-document-preview__open" [href]="document.url" target="_blank" rel="noopener">
+        Open document in a new tab
+      </a>
+      @if (
+      (document.status === 'Pending' || document.status === 'Approved' || document.status === 'Rejected') &&
+      !documentRejectionOpen()
+      ) {
+      <div class="seller-document-preview__decision-actions">
+        @if (document.status === 'Pending' || document.status === 'Approved') {
+        <app-button class="seller-document-preview__decision seller-document-preview__deny" variant="danger"
+          size="small" [disabled]="!!pendingDecision() || isSubmitting()" (clicked)="rejectDocument()">
+          <svg class="seller-document-preview__decision-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <circle cx="10" cy="10" r="8" />
+            <path d="m7 7 6 6m0-6-6 6" />
+          </svg>
+          Reject
+        </app-button>
+        }
+        @if (document.status === 'Pending' || document.status === 'Rejected') {
+        <app-button class="seller-document-preview__decision" variant="success" size="small"
+          [disabled]="!!pendingDecision() || isSubmitting()" (clicked)="approveDocument()">
+          <svg class="seller-document-preview__decision-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <circle cx="10" cy="10" r="8" />
+            <path d="m6 10 2.5 2.5L14 7" />
+          </svg>
+          Approve
+        </app-button>
+        }
+      </div>
+      }
+    </footer>
+  </section>
+</app-dialog>
 }
 
 <ng-template #documentNameCell let-doc>
@@ -254,15 +390,12 @@
 </ng-template>
 <ng-template #documentStatusCell let-doc>
   <span class="seller-doc-status">
-    @if (doc.url) {
-      <svg viewBox="0 0 16 16" aria-hidden="true">
-        <circle cx="8" cy="8" r="6.5" />
-        <path d="m5.3 8.2 1.8 1.8 3.6-3.8" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round"
-          stroke-linejoin="round" />
-      </svg>
-      Uploaded
+    @if (doc.url || doc.required) {
+    <app-badge [tone]="statusTone(doc.status ?? 'Pending')" size="compact">
+      {{ doc.status ?? 'Pending' }}
+    </app-badge>
     } @else {
-      Not Available
+    Not Available
     }
   </span>
 </ng-template>

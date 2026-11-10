@@ -39,8 +39,37 @@
 
 .admin-list-filters {
   display: flex;
+  align-items: flex-start;
   min-width: 0;
   gap: var(--space-2);
+}
+
+.admin-list-filter-group {
+  display: flex;
+  width: 8.5rem;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.admin-list-filter-group--wide {
+  width: 10rem;
+}
+
+.admin-list-filter-error {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem;
+  color: var(--color-danger);
+  font-size: 0.55rem;
+  line-height: 1.2;
+
+  span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
 }
 
 .admin-list-filter {
@@ -78,7 +107,8 @@
     width: 100%;
   }
 
-  .admin-list-filters app-select {
+  .admin-list-filter-group,
+  .admin-list-filter-group--wide {
     flex: 1 1 0;
     width: auto;
   }
@@ -97,10 +127,12 @@
 
   .admin-list-filters {
     flex-wrap: wrap;
+  }
 
-    app-select {
-      flex-basis: calc(50% - var(--space-1));
-    }
+  .admin-list-filter-group,
+  .admin-list-filter-group--wide {
+    flex: 1 1 calc(50% - var(--space-1));
+    width: auto;
   }
 
   .admin-list-table {
@@ -110,7 +142,8 @@
 }
 
 @media (max-width: 349.98px) {
-  .admin-list-filters app-select {
+  .admin-list-filter-group,
+  .admin-list-filter-group--wide {
     flex-basis: 100%;
   }
 }

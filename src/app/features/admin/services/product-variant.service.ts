@@ -1,11 +1,12 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable, map } from 'rxjs';
+import { Observable, map, shareReplay } from 'rxjs';
 import { API_ENDPOINTS } from '@core/constants/api-endpoints';
 import { ApiService } from '@core/services/api.service';
 
 export interface ProductVariant {
   id: string;
+  productId: number | null;
   name: string;
   imageUrl: string;
   sku: string;
@@ -16,6 +17,10 @@ export interface ProductVariant {
   weight: string;
   stock: number;
   price: number;
+  imagePath: string;
+  sellerId: number | null;
+  sellerName: string | null;
+  createdBy: number | null;
 }
 
 export interface ProductVariantPage {
@@ -24,8 +29,121 @@ export interface ProductVariantPage {
   hasNext: boolean;
 }
 
+export interface ProductVariantInsertPayload {
+  VARIANT_NAME: string;
+  SKU: string;
+  BARCODE: string | null;
+  SIZE_ID: number | null;
+  COLOUR_ID: number;
+  MATERIAL_ID: number | null;
+  WEIGHT: number | null;
+  PRICE: number;
+  STOCK_QUANTITY: number;
+  VARIANT_IMAGE: string;
+  PRODUCT_ID: number;
+  SELLER_ID: number;
+  SELLER_NAME: string;
+  CREATED_BY: number;
+}
+
+export interface ProductVariantUpdatePayload extends Omit<
+  ProductVariantInsertPayload,
+  'SIZE_ID' | 'COLOUR_ID' | 'MATERIAL_ID'
+> {
+  VARIANT_ID: number;
+  SIZE: string | null;
+  COLOR: string;
+  MATERIAL: string | null;
+}
+
+export interface ProductVariantDeletePayload {
+  PRODUCT_ID: number;
+  VARIANT_ID: number;
+}
+
+export interface ProductVariantLookupOption {
+  id: string;
+  name: string;
+}
+
+export type ProductVariantLookup = 'colours' | 'sizes' | 'materials';
+
+interface ProductVariantLookupDefinition {
+  path: string;
+  idParameter: string;
+  idFields: readonly string[];
+  nameFields: readonly string[];
+}
+
+const PRODUCT_VARIANT_LOOKUPS: Record<ProductVariantLookup, ProductVariantLookupDefinition> = {
+  colours: {
+    path: API_ENDPOINTS.variantLookups.colours,
+    idParameter: 'COLOUR_ID',
+    idFields: ['COLOUR_ID', 'COLOR_ID', 'ID'],
+    nameFields: ['COLOUR_NAME', 'COLOR_NAME', 'COLOUR', 'COLOR', 'NAME'],
+  },
+  sizes: {
+    path: API_ENDPOINTS.variantLookups.sizes,
+    idParameter: 'SIZE_ID',
+    idFields: ['SIZE_ID', 'ID'],
+    nameFields: ['SIZE_NAME', 'SIZE', 'NAME'],
+  },
+  materials: {
+    path: API_ENDPOINTS.variantLookups.materials,
+    idParameter: 'MATERIAL_ID',
+    idFields: ['MATERIAL_ID', 'ID'],
+    nameFields: ['MATERIAL_NAME', 'MATERIAL', 'NAME'],
+  },
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function mapVariantLookup(
+  response: unknown,
+  lookup: ProductVariantLookup,
+  definition: ProductVariantLookupDefinition,
+): ProductVariantLookupOption[] {
+  if (!isRecord(response)) {
+    throw new Error(`The ${lookup} API returned an invalid response.`);
+  }
+  const status = response['status'] ?? response['STATUS'];
+  const message = response['message'] ?? response['MESSAGE'];
+  if (
+    status !== undefined &&
+    status !== true &&
+    !(
+      typeof status === 'string' &&
+      ['SUCCESS', 'OK', '200'].includes(status.trim().toUpperCase())
+    )
+  ) {
+    throw new Error(
+      typeof message === 'string' && message.trim()
+        ? message.trim()
+        : `The ${lookup} API could not load its options.`,
+    );
+  }
+  const data = response['data'] ?? response['DATA'];
+  if (!Array.isArray(data)) {
+    throw new Error(`The ${lookup} API returned an invalid option list.`);
+  }
+  return data.map((entry) => {
+    if (!isRecord(entry)) {
+      throw new Error(`The ${lookup} API returned an invalid option.`);
+    }
+    const rawId = definition.idFields.map((field) => entry[field]).find((value) => value != null);
+    const rawName = definition.nameFields
+      .map((field) => entry[field])
+      .find((value) => value !== undefined && value !== null);
+    const id = typeof rawId === 'string' || typeof rawId === 'number' ? String(rawId).trim() : '';
+    const name =
+      typeof rawName === 'string' || typeof rawName === 'number' ? String(rawName).trim() : '';
+    if (!id || !name) {
+      throw new Error(`The ${lookup} API returned an option with missing ID or name.`);
+    }
+    return { id, name };
+  });
 }
 
 function firstValue(record: Record<string, unknown>, keys: readonly string[]): unknown {
@@ -83,8 +201,10 @@ function mapVariant(value: unknown): ProductVariant {
 
   return {
     id: String(rawId),
+    productId: numericValue(value, ['PRODUCT_ID']) ?? null,
     name,
-    imageUrl: textValue(value, ['VARIANT_IMAGE_URL', 'IMAGE_URL'], '/images/latest-gadgets.svg'),
+    imageUrl: textValue(value, ['VARIANT_IMAGE_URL', 'VARIANT_IMAGE', 'IMAGE_URL'], '/images/latest-gadgets.svg'),
+    imagePath: textValue(value, ['VARIANT_IMAGE', 'VARIANT_IMAGE_URL', 'IMAGE_URL'], ''),
     sku: textValue(value, ['VARIANT_SKU', 'PRODUCT_CODE_SKU', 'SKU']),
     barcode: textValue(value, ['VARIANT_BARCODE', 'BARCODE', 'BAR_CODE']),
     color: textValue(value, ['VARIANT_COLOR', 'COLOR', 'COLOUR']),
@@ -93,6 +213,9 @@ function mapVariant(value: unknown): ProductVariant {
     weight: textValue(value, ['VARIANT_WEIGHT', 'WEIGHT', 'WEIGHT_KG'], ''),
     stock: numericValue(value, ['VARIANT_STOCK', 'STOCK_QUANTITY', 'AVAILABLE_STOCK', 'QUANTITY']) ?? 0,
     price: numericValue(value, ['SELLING_PRICE', 'VARIANT_SELLING_PRICE', 'VARIANT_PRICE', 'PRICE']) ?? 0,
+    sellerId: numericValue(value, ['SELLER_ID']) ?? null,
+    sellerName: textValue(value, ['SELLER_NAME'], ''),
+    createdBy: numericValue(value, ['CREATED_BY']) ?? null,
   };
 }
 
@@ -165,9 +288,98 @@ function mapVariantPage(response: unknown, limit: number, offset: number): Produ
   };
 }
 
+function mapVariantInsertResponse(response: unknown): string {
+  if (!isRecord(response)) {
+    throw new Error('The product variant API returned an invalid response.');
+  }
+
+  const status = response['status'] ?? response['STATUS'];
+  const message = response['message'] ?? response['MESSAGE'];
+  const data = response['data'] ?? response['DATA'];
+  const successValue = isRecord(data) ? data['SUCCES'] ?? data['SUCCESS'] : undefined;
+  const statusIsSuccess =
+    (typeof status === 'string' || typeof status === 'number') &&
+    ['SUCCESS', 'OK', '200', '201'].includes(String(status).trim().toUpperCase());
+  const dataIsFailure =
+    successValue !== undefined &&
+    (typeof successValue !== 'string' ||
+      !['SUCCESS', 'SUCCES'].includes(successValue.trim().toUpperCase()));
+  if (!statusIsSuccess || dataIsFailure || response['success'] === false || response['SUCCESS'] === false) {
+    throw new Error(
+      typeof message === 'string' && message.trim()
+        ? message.trim()
+        : 'The product variant could not be added.',
+    );
+  }
+
+  return typeof message === 'string' && message.trim()
+    ? message.trim()
+    : 'Product variant added successfully.';
+}
+
+function mapVariantMutationResponse(response: unknown, action: 'updated' | 'deleted'): string {
+  if (!isRecord(response)) {
+    throw new Error(`The product variant API returned an invalid ${action} response.`);
+  }
+  const status = response['status'] ?? response['STATUS'];
+  const message = response['message'] ?? response['MESSAGE'];
+  const data = response['data'] ?? response['DATA'];
+  const successValue = isRecord(data) ? data['SUCCES'] ?? data['SUCCESS'] : undefined;
+  const normalizedStatus =
+    typeof status === 'string' || typeof status === 'number'
+      ? String(status).trim().toUpperCase()
+      : '';
+  const statusSucceeded =
+    status === true ||
+    status === 1 ||
+    ['SUCCESS', 'OK', '200', '201', 'TRUE', '1'].includes(normalizedStatus);
+  const successSucceeded =
+    response['success'] === true ||
+    response['SUCCESS'] === true ||
+    response['success'] === 1 ||
+    response['SUCCESS'] === 1 ||
+    (typeof successValue === 'string' &&
+      ['SUCCESS', 'SUCCES', 'TRUE', '1'].includes(successValue.trim().toUpperCase()));
+  if (
+    (!statusSucceeded && !successSucceeded) ||
+    response['success'] === false ||
+    response['SUCCESS'] === false ||
+    (typeof status === 'string' && ['FAILURE', 'FAILED', 'ERROR'].includes(normalizedStatus))
+  ) {
+    throw new Error(
+      typeof message === 'string' && message.trim()
+        ? message.trim()
+        : `The product variant could not be ${action}.`,
+    );
+  }
+  return typeof message === 'string' && message.trim()
+    ? message.trim()
+    : `Product variant ${action} successfully.`;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ProductVariantService {
   private readonly api = inject(ApiService);
+  private readonly lookupRequests = new Map<ProductVariantLookup, Observable<ProductVariantLookupOption[]>>();
+
+  loadLookup(lookup: ProductVariantLookup): Observable<ProductVariantLookupOption[]> {
+    const cached = this.lookupRequests.get(lookup);
+    if (cached) return cached;
+
+    const definition = PRODUCT_VARIANT_LOOKUPS[lookup];
+    const request = this.api
+      .get<unknown>(definition.path, {
+        [definition.idParameter]: -1,
+        LIMIT: 10,
+        OFFSET: 0,
+      })
+      .pipe(
+        map((response) => mapVariantLookup(response, lookup, definition)),
+        shareReplay({ bufferSize: 1, refCount: false }),
+      );
+    this.lookupRequests.set(lookup, request);
+    return request;
+  }
 
   loadPage(page: number, limit: number): Observable<ProductVariantPage> {
     if (!Number.isSafeInteger(page) || page < 1) {
@@ -191,14 +403,47 @@ export class ProductVariantService {
       .pipe(map((response) => mapVariantPage(response, limit, offset)));
   }
 
+  insertVariant(payload: ProductVariantInsertPayload): Observable<string> {
+    return this.api
+      .post<unknown>(API_ENDPOINTS.productVariants.insert, payload)
+      .pipe(map(mapVariantInsertResponse));
+  }
+
+  updateVariant(payload: ProductVariantUpdatePayload): Observable<string> {
+    if (!Number.isSafeInteger(payload.VARIANT_ID) || payload.VARIANT_ID <= 0) {
+      throw new RangeError('Variant ID must be a positive safe integer.');
+    }
+    if (!Number.isSafeInteger(payload.PRODUCT_ID) || payload.PRODUCT_ID <= 0) {
+      throw new RangeError('Product ID must be a positive safe integer.');
+    }
+    return this.api
+      .put<unknown>(API_ENDPOINTS.productVariants.update, payload)
+      .pipe(map((response) => mapVariantMutationResponse(response, 'updated')));
+  }
+
+  deleteVariant(payload: ProductVariantDeletePayload): Observable<string> {
+    if (!Number.isSafeInteger(payload.VARIANT_ID) || payload.VARIANT_ID <= 0) {
+      throw new RangeError('Variant ID must be a positive safe integer.');
+    }
+    if (!Number.isSafeInteger(payload.PRODUCT_ID) || payload.PRODUCT_ID <= 0) {
+      throw new RangeError('Product ID must be a positive safe integer.');
+    }
+    return this.api
+      .delete<unknown>(API_ENDPOINTS.productVariants.delete, payload)
+      .pipe(map((response) => mapVariantMutationResponse(response, 'deleted')));
+  }
+
   getErrorMessage(error: unknown): string {
     if (error instanceof HttpErrorResponse) {
       const body = error.error;
-      if (isRecord(body) && typeof body['message'] === 'string') return body['message'];
+      if (isRecord(body)) {
+        const message = body['message'] ?? body['MESSAGE'];
+        if (typeof message === 'string' && message.trim()) return message.trim();
+      }
       return error.status
-        ? `Product variants could not be loaded (HTTP ${error.status}).`
-        : 'Product variants could not be loaded. Check your connection and try again.';
+        ? `The product variants request failed (HTTP ${error.status}).`
+        : 'The product variants request failed. Check your connection and try again.';
     }
-    return error instanceof Error ? error.message : 'Product variants could not be loaded. Please try again.';
+    return error instanceof Error ? error.message : 'The product variants request failed. Please try again.';
   }
 }

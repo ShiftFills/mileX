@@ -1,8 +1,26 @@
 <main class="admin-content admin-list-page">
   <app-page-heading heading="Order Management" subtitle="View and manage all customer orders in one place.">
-    <app-date-range-filter inputId="order-date-range" [value]="range()" (valueChange)="range.set($event)" />
+    <app-date-range-filter inputId="order-date-range" [value]="range()" [options]="dateRangeOptions()"
+      (valueChange)="setRange($event)" />
+    @if (dateFilterStatus() === 'loading') {
+      <span class="small text-muted" role="status">Loading date filters…</span>
+    } @else if (dateFilterStatus() === 'error') {
+      <span class="small text-danger" role="alert">{{ dateFilterError() }}</span>
+      <button type="button" class="btn btn-link btn-sm" (click)="retryDateFilters()">Retry date filters</button>
+    }
     <app-export-button (exported)="exportOrders()" />
   </app-page-heading>
+
+  @if (countLoadStatus() === 'loading') {
+    <div class="d-flex align-items-center gap-2 mb-2 small text-muted" role="status">
+      <app-loading-spinner /> Loading order counts…
+    </div>
+  } @else if (countLoadStatus() === 'error') {
+    <div class="alert alert-danger d-flex justify-content-between align-items-center gap-3 mb-2" role="alert">
+      <span>{{ countError() }}</span>
+      <button type="button" class="btn btn-outline-danger btn-sm" (click)="retryOrderCounts()">Retry counts</button>
+    </div>
+  }
 
   <section class="row row-cols-2 row-cols-md-3 row-cols-xl-5 g-2 g-md-3 mb-3" aria-label="Order summary">
     @for (stat of stats; track stat.label) {
@@ -24,30 +42,31 @@
       </label>
       <div class="admin-list-filters">
         <label class="visually-hidden" for="admin-order-status">Filter by order status</label>
-        <app-select class="admin-list-filter" inputId="admin-order-status" name="orderStatus" size="compact" [value]="orderStatus()" (valueChange)="setFilter('orderStatus', $event)">
-          <option value="">All Status</option>
-          @for (status of orderStatuses; track status) { <option [value]="status">{{ status }}</option> }
+        <app-select class="admin-list-filter" inputId="admin-order-status" name="orderStatus" size="compact"
+          [value]="orderStatus()" [disabled]="orderStatusLoadStatus() === 'loading'"
+          (valueChange)="setFilter('orderStatus', $event)">
+          @for (option of orderStatusDropdownOptions(); track option.id) {
+            <option [value]="option.id">{{ option.label }}</option>
+          }
         </app-select>
         <label class="visually-hidden" for="admin-order-payment">Filter by payment status</label>
-        <app-select class="admin-list-filter" inputId="admin-order-payment" name="paymentStatus" size="compact" [value]="paymentStatus()" (valueChange)="setFilter('paymentStatus', $event)">
-          <option value="">All Payment Status</option>
-          @for (status of paymentStatuses; track status) { <option [value]="status">{{ status }}</option> }
+        <app-select class="admin-list-filter" inputId="admin-order-payment" name="paymentStatus" size="compact"
+          [value]="paymentStatus()" [disabled]="paymentStatusLoadStatus() === 'loading'"
+          (valueChange)="setFilter('paymentStatus', $event)">
+          @for (option of paymentStatusDropdownOptions(); track option.id) {
+            <option [value]="option.id">{{ option.label }}</option>
+          }
         </app-select>
         <label class="visually-hidden" for="admin-order-shipping">Filter by shipping status</label>
-        <app-select class="admin-list-filter" inputId="admin-order-shipping" name="shippingStatus" size="compact" [value]="shippingStatus()" (valueChange)="setFilter('shippingStatus', $event)">
-          <option value="">All Shipping Status</option>
-          @for (status of shippingStatuses; track status) { <option [value]="status">{{ status }}</option> }
+        <app-select class="admin-list-filter" inputId="admin-order-shipping" name="shippingStatus" size="compact"
+          [value]="shippingStatus()" [disabled]="shippingStatusLoadStatus() === 'loading'"
+          (valueChange)="setFilter('shippingStatus', $event)">
+          @for (option of shippingStatusDropdownOptions(); track option.id) {
+            <option [value]="option.id">{{ option.label }}</option>
+          }
         </app-select>
       </div>
     </div>
-
-    <app-table
-      class="admin-list-table orders-table"
-      ariaLabel="Orders"
-      [columns]="tableColumns()"
-      [rows]="visibleRows()"
-      emptyMessage="No orders match these filters."
-    />
 
     <ng-template #selectAllHeader>
       <app-checkbox [checked]="allVisibleSelected()" ariaLabel="Select all orders on this page" (checkedChange)="toggleAllVisible($event)" />
@@ -60,6 +79,44 @@
     <ng-template #orderStatusCell let-order><app-badge [tone]="orderTone(order.orderStatus)" size="compact">{{ order.orderStatus }}</app-badge></ng-template>
     <ng-template #shippingCell let-order><app-badge [tone]="shippingTone(order.shippingStatus)" size="compact">{{ order.shippingStatus }}</app-badge></ng-template>
 
-    <app-pagination ariaLabel="Order pages" itemLabel="products" [page]="page()" [pageSize]="pageSize" [total]="filteredRows().length" (pageChange)="page.set($event)" />
+    @if (orderStatusLoadStatus() === 'error') {
+      <div class="admin-list-filter-error" role="alert">
+        <span>Order statuses could not be loaded.</span>
+        <button type="button" class="btn btn-link btn-sm" (click)="retryOrderStatuses()">Retry</button>
+      </div>
+    }
+    @if (paymentStatusLoadStatus() === 'error') {
+      <div class="admin-list-filter-error" role="alert">
+        <span>Payment statuses could not be loaded.</span>
+        <button type="button" class="btn btn-link btn-sm" (click)="retryPaymentStatuses()">Retry</button>
+      </div>
+    }
+    @if (shippingStatusLoadStatus() === 'error') {
+      <div class="admin-list-filter-error" role="alert">
+        <span>Shipping statuses could not be loaded.</span>
+        <button type="button" class="btn btn-link btn-sm" (click)="retryShippingStatuses()">Retry</button>
+      </div>
+    }
+
+    @if (loadStatus() === 'loading' || statusLookupsLoading()) {
+      <div class="d-flex justify-content-center align-items-center gap-2 py-4" role="status">
+        <app-loading-spinner /> Loading orders and status names…
+      </div>
+    } @else if (loadStatus() === 'error') {
+      <div class="alert alert-danger d-flex justify-content-between align-items-center gap-3" role="alert">
+        <span>{{ loadError() }}</span>
+        <button type="button" class="btn btn-outline-danger btn-sm" (click)="retryLoad()">Try again</button>
+      </div>
+    } @else {
+      <app-table
+        class="admin-list-table orders-table"
+        ariaLabel="Orders"
+        [columns]="tableColumns()"
+        [rows]="visibleRows()"
+        emptyMessage="No orders match these filters."
+      />
+      <app-pagination ariaLabel="Order pages" itemLabel="orders" [page]="page()" [pageSize]="pageSize"
+        [total]="filteredRows().length" (pageChange)="page.set($event)" />
+    }
   </section>
 </main>

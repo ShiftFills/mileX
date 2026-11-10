@@ -6,3 +6,8 @@ export interface PaginatedResponse<T> {
   totalPages?: number;
   hasNext: boolean;
 }
+
+export interface StatusOption {
+  id: number;
+  label: string;
+}

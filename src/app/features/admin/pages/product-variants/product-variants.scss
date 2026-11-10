@@ -38,7 +38,7 @@
 .more { display:grid; width:1.25rem; height:1.5rem; place-items:center; margin:auto; padding:0; border:0; background:transparent; color:var(--table-action-icon-color, #374151); font-size:.8rem; }
 .more::before { content:none; }
 .more svg { width:.62rem; height:.62rem; fill:currentColor; }
-.action-menu { position:absolute; z-index:3; top:1.8rem; right:.2rem; display:grid; width:6rem; padding:.25rem; border:1px solid var(--color-border-subtle); border-radius:var(--radius-sm); background:var(--color-surface); box-shadow:var(--shadow-md); }
+.action-menu { position:fixed; z-index:1100; display:grid; width:6rem; padding:.25rem; border:1px solid var(--color-border-subtle); border-radius:var(--radius-sm); background:var(--color-surface); box-shadow:var(--shadow-md); }
 .action-menu button { display:flex; align-items:center; gap:.4rem; padding:.4rem .45rem; border:0; background:transparent; color:var(--color-file-link); font-size:.62rem; text-align:left; }
 .action-menu svg { width:.75rem; height:.75rem; fill:none; stroke:currentColor; stroke-width:1.2; }
 .action-menu .delete-action { color:#DC2626; }

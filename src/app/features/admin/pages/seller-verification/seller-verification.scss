@@ -181,6 +181,10 @@
     overflow-wrap: anywhere;
   }
 
+  &__remarks {
+    margin-top: var(--space-3);
+  }
+
   &__footer {
     display: flex;
     align-items: center;
