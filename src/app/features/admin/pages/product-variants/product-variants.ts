@@ -27,6 +27,8 @@ const MAX_VARIANT_IMAGE_SIZE = 5 * 1024 * 1024;
 const VARIANT_SELLER_ID = 1;
 const VARIANT_SELLER_NAME = 'Arun Kumar';
 const VARIANT_CREATED_BY = 2;
+const VARIANT_UPDATE_SELLER_ID = 1;
+const VARIANT_UPDATE_CREATED_BY = 42;
 
 type VariantLookupState = {
   status: 'idle' | 'loading' | 'success' | 'error';
@@ -36,6 +38,17 @@ type VariantLookupState = {
 
 const EMPTY_LOOKUP_STATE: VariantLookupState = { status: 'idle', options: [], error: null };
 const VARIANT_LOOKUP_NAMES: readonly ProductVariantLookup[] = ['colours', 'sizes', 'materials'];
+const EMPTY_VARIANT_DIMENSION_VALUES = new Set(['—', '-', '_']);
+
+function optionalVariantDimension(value: string): string {
+  const normalized = value.trim();
+  return EMPTY_VARIANT_DIMENSION_VALUES.has(normalized) ? '' : normalized;
+}
+
+function hasVariantDimensionSelection(value: string, id: number | null): boolean {
+  const rawValue = value.trim();
+  return rawValue ? optionalVariantDimension(rawValue) !== '' : id !== null;
+}
 
 @Component({
   selector: 'app-product-variants',
@@ -60,6 +73,7 @@ export class ProductVariants {
   private readonly retryCount = signal(0);
   private readonly totalVariants = signal<number | null>(null);
   private readonly hasNextPage = signal(false);
+  private activePage: number | null = null;
   protected readonly totalCount = computed(() => this.totalVariants());
   protected readonly totalPages = computed(() => {
     const total = this.totalVariants();
@@ -73,7 +87,7 @@ export class ProductVariants {
   protected readonly selected = signal<ProductVariant | null>(null);
   protected readonly menu = signal<string | null>(null);
   protected readonly menuPosition = signal<{ top: number; right: number } | null>(null);
-  protected readonly form = signal({ productId: '', name: '', sku: '', barcode: '', size: '', sizeId: null as number | null, color: '', colorId: null as number | null, material: '', materialId: null as number | null, weight: '', price: '', stock: '' });
+  protected readonly form = signal({ productId: '', name: '', sku: '', barcode: '', size: '', sizeId: null as number | null, color: '', colorId: null as number | null, material: '', materialId: null as number | null, weight: '', price: '', stock: '', status: 'ACTIVE' });
   protected readonly error = signal(false);
   protected readonly imageError = signal('');
   protected readonly selectedImage = signal<File | null>(null);
@@ -91,9 +105,12 @@ export class ProductVariants {
           previous.page === current.page && previous.retry === current.retry,
         ),
         switchMap(({ page }) => {
-          this.variants.set([]);
-          this.totalVariants.set(null);
-          this.hasNextPage.set(false);
+          if (this.activePage !== page) {
+            this.activePage = page;
+            this.variants.set([]);
+            this.totalVariants.set(null);
+            this.hasNextPage.set(false);
+          }
           this.loadStatus.set('loading');
           this.loadError.set(null);
           return this.variantService.loadPage(page, PAGE_SIZE).pipe(
@@ -224,6 +241,14 @@ export class ProductVariants {
     return !!value && !this.variantLookups()[lookup].options.some((option) => option.name === value);
   }
 
+  private lookupId(lookup: ProductVariantLookup, value: string): number | null {
+    const option = this.variantLookups()[lookup].options.find(
+      (entry) => entry.id === value || entry.name === value,
+    );
+    const id = Number(option?.id);
+    return Number.isSafeInteger(id) && id > 0 ? id : null;
+  }
+
   protected sizeDropdownValue(): string {
     if (this.dialog() === 'add') {
       const sizeId = this.form().sizeId;
@@ -246,7 +271,11 @@ export class ProductVariants {
       return;
     }
     const size = this.variantLookups().sizes.options.find((option) => option.id === value)?.name ?? value;
-    this.form.update((form) => ({ ...form, size }));
+    this.form.update((form) => ({
+      ...form,
+      size,
+      sizeId: this.lookupId('sizes', value),
+    }));
   }
 
   protected colorDropdownValue(): string {
@@ -272,7 +301,11 @@ export class ProductVariants {
       }));
       return;
     }
-    this.form.update((form) => ({ ...form, color: option?.name ?? value }));
+    this.form.update((form) => ({
+      ...form,
+      color: option?.name ?? value,
+      colorId: this.lookupId('colours', value),
+    }));
   }
 
   protected materialDropdownValue(): string {
@@ -298,12 +331,16 @@ export class ProductVariants {
       }));
       return;
     }
-    this.form.update((form) => ({ ...form, material: option?.name ?? value }));
+    this.form.update((form) => ({
+      ...form,
+      material: option?.name ?? value,
+      materialId: this.lookupId('materials', value),
+    }));
   }
 
   protected openAdd(): void {
     this.selected.set(null);
-    this.form.set({ productId: '', name: '', sku: '', barcode: '', size: '', sizeId: null, color: '', colorId: null, material: '', materialId: null, weight: '', price: '', stock: '' });
+    this.form.set({ productId: '', name: '', sku: '', barcode: '', size: '', sizeId: null, color: '', colorId: null, material: '', materialId: null, weight: '', price: '', stock: '', status: 'ACTIVE' });
     this.error.set(false);
     this.imageError.set('');
     this.selectedImage.set(null);
@@ -313,9 +350,10 @@ export class ProductVariants {
   }
   protected openEdit(row: ProductVariant): void {
     this.selected.set(row);
-    this.form.set({ productId: '', name: row.name, sku: row.sku, barcode: row.barcode, size: row.size, sizeId: null, color: row.color, colorId: null, material: row.material, materialId: null, weight: row.weight, price: String(row.price), stock: String(row.stock) });
+    this.form.set({ productId: '', name: row.name, sku: row.sku, barcode: row.barcode, size: row.size, sizeId: null, color: row.color, colorId: null, material: row.material, materialId: null, weight: row.weight, price: String(row.price), stock: String(row.stock), status: row.status });
     this.error.set(false);
     this.imageError.set('');
+    this.selectedImage.set(null);
     this.dialog.set('edit');
     this.menu.set(null);
     this.menuPosition.set(null);
@@ -332,6 +370,7 @@ export class ProductVariants {
     this.dialog.set(null);
     this.error.set(false);
     this.imageError.set('');
+    this.selectedImage.set(null);
   }
   protected setField(key: keyof ReturnType<typeof this.form>, event: Event): void {
     const target = event.target;
@@ -366,8 +405,9 @@ export class ProductVariants {
       if (
         !Number.isSafeInteger(productId) || productId <= 0 ||
         !v.name.trim() || !v.sku.trim() ||
-        v.colorId === null || !Number.isSafeInteger(v.colorId) || v.colorId <= 0 ||
+        (v.colorId !== null && (!Number.isSafeInteger(v.colorId) || v.colorId <= 0)) ||
         (v.sizeId !== null && (!Number.isSafeInteger(v.sizeId) || v.sizeId <= 0)) ||
+        (v.materialId !== null && (!Number.isSafeInteger(v.materialId) || v.materialId <= 0)) ||
         !Number.isFinite(price) || price < 0 ||
         !Number.isSafeInteger(stock) || stock < 0 ||
         (weight !== null && (!Number.isFinite(weight) || weight < 0)) ||
@@ -386,17 +426,17 @@ export class ProductVariants {
         VARIANT_NAME: v.name.trim(),
         SKU: v.sku.trim(),
         BARCODE: v.barcode.trim() || null,
-        SIZE_ID: v.sizeId,
-        COLOUR_ID: v.colorId,
-        MATERIAL_ID: v.materialId,
+        ...(v.sizeId !== null && hasVariantDimensionSelection(v.size, v.sizeId) ? { SIZE_ID: v.sizeId } : {}),
+        ...(v.colorId !== null && hasVariantDimensionSelection(v.color, v.colorId) ? { COLOUR_ID: v.colorId } : {}),
+        ...(v.materialId !== null && hasVariantDimensionSelection(v.material, v.materialId) ? { MATERIAL_ID: v.materialId } : {}),
         WEIGHT: weight,
         PRICE: price,
         STOCK_QUANTITY: stock,
         VARIANT_IMAGE: imageName,
         PRODUCT_ID: productId,
-        SELLER_ID: VARIANT_SELLER_ID,
+        SELLER_ID: VARIANT_SELLER_ID || 1,
         SELLER_NAME: VARIANT_SELLER_NAME,
-        CREATED_BY: VARIANT_CREATED_BY,
+        CREATED_BY: VARIANT_CREATED_BY || 42,
       };
 
       this.error.set(false);
@@ -422,21 +462,35 @@ export class ProductVariants {
     const selected = this.selected();
     const variantId = Number(selected?.id);
     const productId = selected?.productId;
+    const sellerName = selected?.sellerName?.trim();
     const weight = v.weight.trim() ? Number(v.weight) : null;
     const price = Number(v.price);
     const stock = Number(v.stock);
+    const imageFile = this.selectedImage();
+    const imageName = imageFile?.name.split(/[\\/]/).pop() ?? selected?.imagePath ?? '';
+    const size = optionalVariantDimension(v.size);
+    const color = optionalVariantDimension(v.color);
+    const material = optionalVariantDimension(v.material);
+    const sizeId = size ? v.sizeId ?? this.lookupId('sizes', size) : null;
+    const colorId = color ? v.colorId ?? this.lookupId('colours', color) : null;
+    const materialId = material ? v.materialId ?? this.lookupId('materials', material) : null;
     if (
       !selected ||
       !Number.isSafeInteger(variantId) || variantId <= 0 ||
-      productId === null || productId === undefined ||
-      !v.name.trim() || !v.sku.trim() || !v.color ||
+      productId === null || productId === undefined || !Number.isSafeInteger(productId) || productId <= 0 ||
+      !sellerName ||
+      !v.name.trim() || !v.status.trim() || !imageName.trim() ||
       !Number.isFinite(price) || price < 0 ||
       !Number.isSafeInteger(stock) || stock < 0 ||
       (weight !== null && (!Number.isFinite(weight) || weight < 0))
     ) {
       this.error.set(true);
-      if (selected && (productId === null || productId === undefined)) {
+      if (selected && (productId === null || productId === undefined || productId <= 0)) {
         this.toast.showError('The selected variant does not include a valid product ID.');
+      } else if (selected && !sellerName) {
+        this.toast.showError('The selected variant does not include a seller name.');
+      } else if (selected && !imageName.trim()) {
+        this.toast.showError('The selected variant does not include an image.');
       }
       return;
     }
@@ -444,18 +498,20 @@ export class ProductVariants {
       VARIANT_ID: variantId,
       PRODUCT_ID: productId,
       VARIANT_NAME: v.name.trim(),
-      SKU: v.sku.trim(),
       BARCODE: v.barcode.trim() || null,
-      SIZE: v.size || null,
-      COLOR: v.color,
-      MATERIAL: v.material || null,
+      ...(size ? sizeId !== null ? { SIZE_ID: sizeId } : { SIZE: size } : {}),
+      ...(color ? colorId !== null ? { COLOR_ID: colorId } : { COLOR: color } : {}),
+      ...(materialId !== null
+        ? { MATERIAL_ID: materialId }
+        : material ? { MATERIAL: material } : {}),
       WEIGHT: weight,
       PRICE: price,
       STOCK_QUANTITY: stock,
-      VARIANT_IMAGE: selected.imagePath,
-      SELLER_ID: selected.sellerId ?? VARIANT_SELLER_ID,
-      SELLER_NAME: selected.sellerName || VARIANT_SELLER_NAME,
-      CREATED_BY: selected.createdBy ?? VARIANT_CREATED_BY,
+      VARIANT_IMAGE: imageName,
+      SELLER_ID: VARIANT_UPDATE_SELLER_ID,
+      SELLER_NAME: sellerName,
+      STATUS: v.status.trim(),
+      CREATED_BY: VARIANT_UPDATE_CREATED_BY,
     };
 
     this.error.set(false);
@@ -464,6 +520,7 @@ export class ProductVariants {
       tap((message) => {
         this.toast.showSuccess(message);
         this.dialog.set(null);
+        this.selectedImage.set(null);
         if (this.page() === 1) this.retryLoad();
         else this.page.set(1);
       }),
@@ -493,9 +550,15 @@ export class ProductVariants {
     this.variantService.deleteVariant({ PRODUCT_ID: productId, VARIANT_ID: variantId }).pipe(
       tap((message) => {
         this.toast.showSuccess(message);
+        this.variants.update((variants) => variants.filter((variant) => variant.id !== selected.id));
+        this.totalVariants.update((total) => total === null ? null : Math.max(0, total - 1));
+        this.selected.set(null);
         this.dialog.set(null);
-        if (this.page() === 1) this.retryLoad();
-        else this.page.set(1);
+        if (this.page() > 1 && this.variants().length === 0) {
+          this.page.update((page) => page - 1);
+        } else {
+          this.retryLoad();
+        }
       }),
       catchError((error: unknown) => {
         this.toast.showError(this.variantService.getErrorMessage(error));

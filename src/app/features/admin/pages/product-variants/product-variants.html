@@ -67,7 +67,7 @@
               </app-select></label>
             }
             <label>Variant Name <b>*</b><app-input class="product-control" size="compact" inputId="variant-name" name="name" placeholder="e.g. Black - Regular" [value]="form().name" [required]="true" (valueInput)="setField('name', $event)" /></label>
-            <label>SKU <b>*</b><app-input class="product-control" size="compact" inputId="variant-sku" name="sku" placeholder="Enter SKU / Product Code" [value]="form().sku" [required]="true" (valueInput)="setField('sku', $event)" /></label>
+            <label>SKU @if (dialog() === 'add') { <b>*</b> }<app-input class="product-control" size="compact" inputId="variant-sku" name="sku" placeholder="Enter SKU / Product Code" [value]="form().sku" [required]="dialog() === 'add'" [disabled]="dialog() === 'edit' || isSubmitting()" (valueInput)="setField('sku', $event)" /></label>
             <label>Barcode<app-input class="product-control" size="compact" inputId="variant-barcode" name="barcode" placeholder="Enter barcode" [value]="form().barcode" (valueInput)="setField('barcode', $event)" /></label>
             <label>Size<app-select class="product-control" size="compact" inputId="variant-size" name="sizeId" [value]="sizeDropdownValue()" [disabled]="variantLookups().sizes.status !== 'success' || !variantLookups().sizes.options.length" (valueChange)="setSizeField($event)">
               @if (variantLookups().sizes.status === 'loading') { <option value="">Loading sizes…</option> }
@@ -78,7 +78,7 @@
             </app-select>
               @if (variantLookups().sizes.status === 'error') { <span class="form-error" role="alert">{{ variantLookups().sizes.error }}</span><app-button variant="outline" size="compact" [disabled]="isSubmitting()" (clicked)="retryVariantLookup('sizes')">Retry sizes</app-button> }
             </label>
-            <label>Color <b>*</b><app-select class="product-control" size="compact" inputId="variant-color" name="colorId" [value]="colorDropdownValue()" [required]="true" [disabled]="variantLookups().colours.status !== 'success' || !variantLookups().colours.options.length" (valueChange)="setColorField($event)">
+            <label>Color<app-select class="product-control" size="compact" inputId="variant-color" name="colorId" [value]="colorDropdownValue()" [disabled]="variantLookups().colours.status !== 'success' || !variantLookups().colours.options.length" (valueChange)="setColorField($event)">
               @if (variantLookups().colours.status === 'loading') { <option value="">Loading colours…</option> }
               @else if (variantLookups().colours.status === 'success' && !variantLookups().colours.options.length) { <option value="">No colours available</option> }
               @else { <option value="">Select colour</option> }
@@ -99,15 +99,22 @@
             <label>Weight (KG)<app-input class="product-control" size="compact" inputId="variant-weight" name="weight" type="number" placeholder="Enter weight" [value]="form().weight" (valueInput)="setField('weight', $event)" /></label>
             <label>Price <b>*</b><app-input class="product-control" size="compact" inputId="variant-price" name="price" type="number" placeholder="Enter price" [value]="form().price" [required]="true" (valueInput)="setField('price', $event)" /></label>
             <label>Stock Quantity <b>*</b><app-input class="product-control" size="compact" inputId="variant-stock" name="stock" type="number" placeholder="Enter stock quantity" [value]="form().stock" [required]="true" (valueInput)="setField('stock', $event)" /></label>
+            @if (dialog() === 'edit') {
+              <label>Status <b>*</b><app-select class="product-control" size="compact" inputId="variant-status" name="status" [value]="form().status" [required]="true" (valueChange)="setField('status', $event)">
+                @if (form().status && form().status !== 'ACTIVE' && form().status !== 'INACTIVE') { <option [value]="form().status">{{ form().status }}</option> }
+                <option value="ACTIVE">Active</option>
+                <option value="INACTIVE">Inactive</option>
+              </app-select></label>
+            }
           </div>
         </div>
         @if (dialog() === 'add' && productsStatus() === 'error') {
           <div class="variants-state variants-state--error" role="alert"><p>{{ productsError() }}</p><app-button variant="outline" size="compact" [disabled]="isSubmitting()" (clicked)="retryProducts()">Try again</app-button></div>
         }
         @if (dialog() === 'add' && productsStatus() === 'success' && !products().length) { <p class="form-error" role="status">No products are available for variants.</p> }
-        @if (error()) { <p class="form-error" role="alert">Please complete all required fields and select a variant image.</p> }
+        @if (error()) { <p class="form-error" role="alert">Please complete all required fields{{ dialog() === 'add' ? ' and select a variant image' : '' }}.</p> }
         <div class="upload-grid row g-3">
-          <div class="col-md-6"><label>Variant Images <b>*</b></label><label class="upload-box"><svg class="upload-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><circle cx="9" cy="9" r="1.5"/><path d="m5 18 5-5 3 3 2-2 4 4"/></svg><span>Drag &amp; drop an image or</span><button type="button">Browse files</button><small>{{ selectedImage()?.name || 'PNG, JPEG, JPG, Max 5MB' }}</small><input type="file" accept="image/*" [disabled]="isSubmitting()" (change)="onImageChange($event)" /></label>@if (imageError()) { <span class="form-error" role="alert">{{ imageError() }}</span> }</div>
+          <div class="col-md-6"><label>Variant Image @if (dialog() === 'add') { <b>*</b> }</label><label class="upload-box"><svg class="upload-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><circle cx="9" cy="9" r="1.5"/><path d="m5 18 5-5 3 3 2-2 4 4"/></svg><span>Drag &amp; drop an image or</span><button type="button">Browse files</button><small>{{ selectedImage()?.name || (dialog() === 'edit' ? selected()?.imagePath : 'PNG, JPEG, JPG, Max 5MB') }}</small><input type="file" accept="image/*" [disabled]="isSubmitting()" (change)="onImageChange($event)" /></label>@if (imageError()) { <span class="form-error" role="alert">{{ imageError() }}</span> }</div>
           <div class="col-md-6"><label>Variant Video (Optional)</label><label class="upload-box"><svg class="upload-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="m10 8 6 4-6 4V8Z"/></svg><button type="button">Upload Video</button><small>MP4, MOV, Max 20MB</small><input type="file" accept="video/*" /></label></div>
         </div>
         <footer class="dialog-actions"><app-button class="dialog-action" variant="outline" size="small" [disabled]="isSubmitting()" (clicked)="close()">Cancel</app-button><app-button class="dialog-action" variant="accent" size="small" type="submit" [loading]="isSubmitting()">{{ isSubmitting() ? 'Saving…' : dialog() === 'add' ? 'Save Variant' : 'Update Variant' }}</app-button></footer>

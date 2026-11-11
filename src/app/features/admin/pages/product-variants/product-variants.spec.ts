@@ -19,6 +19,7 @@ interface VariantRow {
   weight: string;
   stock: number;
   price: number;
+  status: string;
 }
 
 interface VariantForm {
@@ -35,6 +36,7 @@ interface VariantForm {
   weight: string;
   price: string;
   stock: string;
+  status: string;
 }
 
 interface ProductVariantsHarness {
@@ -124,9 +126,10 @@ describe('ProductVariants edit action', () => {
           VARIANT_ID: 21,
           VARIANT_NAME: 'Black - Regular',
           PRODUCT_ID: 4,
-          SELLER_ID: 1,
+          SELLER_ID: 6,
           SELLER_NAME: 'Arun Kumar',
-          CREATED_BY: 2,
+          CREATED_BY: 1,
+          STATUS: 'ACTIVE',
           VARIANT_SKU: 'MLEX-001',
           VARIANT_IMAGE: 'black_leather.png',
           BARCODE: '8901234567890',
@@ -278,9 +281,24 @@ describe('ProductVariants edit action', () => {
       weight: selected.weight,
       price: String(selected.price),
       stock: String(selected.stock),
+      status: selected.status,
     });
 
-    component.form.update((form) => ({ ...form, name: 'Blue - Large', size: 'L', weight: '0.4', price: '3200', stock: '80' }));
+    component.form.update((form) => ({
+      ...form,
+      name: 'Blue - Large',
+      barcode: '',
+      size: 'L',
+      color: 'Blue',
+      material: 'Cotton',
+      weight: '0.4',
+      price: '3200',
+      stock: '80',
+      status: 'INACTIVE',
+    }));
+    component.selectedImage.set(new File(['image'], 'variant-new.png', { type: 'image/png' }));
+    component.save();
+    expect(component.isSubmitting()).toBe(true);
     component.save();
     const request = http.expectOne((req) => req.url.endsWith('/product_variant/update'));
     expect(request.request.method).toBe('PUT');
@@ -288,24 +306,99 @@ describe('ProductVariants edit action', () => {
       VARIANT_ID: 21,
       PRODUCT_ID: 4,
       VARIANT_NAME: 'Blue - Large',
-      SKU: selected.sku,
-      BARCODE: selected.barcode,
+      BARCODE: null,
       SIZE: 'L',
-      COLOR: selected.color,
-      MATERIAL: selected.material,
+      COLOR: 'Blue',
+      MATERIAL: 'Cotton',
       WEIGHT: 0.4,
       PRICE: 3200,
       STOCK_QUANTITY: 80,
-      VARIANT_IMAGE: 'black_leather.png',
+      VARIANT_IMAGE: 'variant-new.png',
       SELLER_ID: 1,
       SELLER_NAME: 'Arun Kumar',
-      CREATED_BY: 2,
+      STATUS: 'INACTIVE',
+      CREATED_BY: 42,
     });
     request.flush({ status: 'SUCCESS', message: 'Product variant updated successfully' });
     expect(component.dialog()).toBeNull();
+    expect(component.isSubmitting()).toBe(false);
     expect(toast.showSuccess).toHaveBeenCalledWith('Product variant updated successfully');
     fixture.detectChanges();
     http.expectOne((req) => req.url.endsWith('/product_variant/get')).flush({ status: 'SUCCESS', data: [] });
+  });
+
+  it('sends dropdown IDs instead of size, color, and material strings when IDs are available', () => {
+    component.openEdit(component.variants()[0]);
+    flushVariantLookups(http);
+    fixture.detectChanges();
+
+    const dropdowns = [
+      { selector: '#variant-size', id: '2' },
+      { selector: '#variant-color', id: '1' },
+      { selector: '#variant-material', id: '3' },
+    ];
+    for (const { selector, id } of dropdowns) {
+      const dropdown = fixture.nativeElement.querySelector(selector) as HTMLSelectElement;
+      dropdown.value = id;
+      dropdown.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    component.save();
+    const request = http.expectOne((req) => req.url.endsWith('/product_variant/update'));
+    expect(request.request.body).toMatchObject({
+      VARIANT_ID: 21,
+      PRODUCT_ID: 4,
+      SIZE_ID: 2,
+      COLOR_ID: 1,
+      MATERIAL_ID: 3,
+      SELLER_ID: 1,
+      CREATED_BY: 42,
+    });
+    expect(request.request.body).not.toHaveProperty('SIZE');
+    expect(request.request.body).not.toHaveProperty('COLOR');
+    expect(request.request.body).not.toHaveProperty('MATERIAL');
+    request.flush({ status: 'SUCCESS', message: 'Product variant updated successfully' });
+    fixture.detectChanges();
+    http.expectOne((req) => req.url.endsWith('/product_variant/get')).flush({ status: 'SUCCESS', data: [] });
+  });
+
+  it('omits empty and placeholder size, color, and material values from edit payloads', () => {
+    component.openEdit(component.variants()[0]);
+    flushVariantLookups(http);
+    component.form.update((form) => ({
+      ...form,
+      size: '—',
+      sizeId: null,
+      color: '-',
+      colorId: null,
+      material: '_',
+      materialId: null,
+    }));
+
+    component.save();
+    const request = http.expectOne((req) => req.url.endsWith('/product_variant/update'));
+    for (const field of ['SIZE', 'SIZE_ID', 'COLOR', 'COLOR_ID', 'MATERIAL', 'MATERIAL_ID']) {
+      expect(request.request.body).not.toHaveProperty(field);
+    }
+    request.flush({ status: 'SUCCESS', message: 'Product variant updated successfully' });
+    fixture.detectChanges();
+    http.expectOne((req) => req.url.endsWith('/product_variant/get')).flush({ status: 'SUCCESS', data: [] });
+  });
+
+  it('keeps the edit dialog open and reports a failed update without refreshing', () => {
+    component.openEdit(component.variants()[0]);
+    flushVariantLookups(http);
+    component.save();
+
+    http.expectOne((req) => req.url.endsWith('/product_variant/update')).flush({
+      status: 'FAILURE',
+      message: 'Variant could not be updated.',
+    });
+
+    expect(component.dialog()).toBe('edit');
+    expect(component.isSubmitting()).toBe(false);
+    expect(toast.showError).toHaveBeenCalledWith('Variant could not be updated.');
+    http.expectNone((req) => req.url.endsWith('/product_variant/get'));
   });
 
   it('closes on cancel without changing the selected variant', () => {
@@ -358,6 +451,8 @@ describe('ProductVariants edit action', () => {
     const selected = component.variants()[0];
     component.openDelete(selected);
     component.confirmDelete();
+    expect(component.isSubmitting()).toBe(true);
+    component.confirmDelete();
 
     const request = http.expectOne((req) => req.url.endsWith('/product_variant/delete'));
     expect(request.request.method).toBe('DELETE');
@@ -365,9 +460,14 @@ describe('ProductVariants edit action', () => {
     request.flush({ status: 'SUCCESS', message: 'Product variant deleted successfully' });
 
     expect(component.dialog()).toBeNull();
+    expect(component.isSubmitting()).toBe(false);
+    expect(component.variants()).toEqual([]);
+    expect(component.totalCount()).toBe(21);
     expect(toast.showSuccess).toHaveBeenCalledWith('Product variant deleted successfully');
     fixture.detectChanges();
-    http.expectOne((req) => req.url.endsWith('/product_variant/get')).flush({ status: 'SUCCESS', data: [] });
+    const refresh = http.expectOne((req) => req.url.endsWith('/product_variant/get'));
+    expect(refresh.request.params.get('OFFSET')).toBe('0');
+    refresh.flush({ status: 'SUCCESS', data: [] });
   });
 
   it('keeps delete confirmation open when the delete API fails', () => {
@@ -380,6 +480,8 @@ describe('ProductVariants edit action', () => {
     });
 
     expect(component.dialog()).toBe('delete');
+    expect(component.variants()).toHaveLength(1);
+    expect(component.totalCount()).toBe(22);
     expect(toast.showError).toHaveBeenCalledWith('Variant is associated with an order.');
     http.expectNone((req) => req.url.endsWith('/product_variant/get'));
   });
@@ -420,6 +522,7 @@ describe('ProductVariants edit action', () => {
       weight: '1.2',
       price: '2499',
       stock: '50',
+      status: 'ACTIVE',
     });
     component.selectedImage.set(new File(['image'], 'black_leather.png', { type: 'image/png' }));
 
@@ -462,6 +565,41 @@ describe('ProductVariants edit action', () => {
     refresh.flush({ status: 'SUCCESS', data: [] });
   });
 
+  it('omits size, color, and material when none are selected for Add Variant', () => {
+    component.openAdd();
+    flushVariantLookups(http);
+    component.form.set({
+      productId: '4',
+      name: 'Black Leather',
+      sku: 'SKU-LEATHER',
+      barcode: '',
+      size: '—',
+      sizeId: null,
+      color: '-',
+      colorId: null,
+      material: '_',
+      materialId: null,
+      weight: '',
+      price: '40000',
+      stock: '34',
+      status: 'ACTIVE',
+    });
+    component.selectedImage.set(new File(['image'], 'variant.png', { type: 'image/png' }));
+
+    component.save();
+    const request = http.expectOne((req) => req.url.endsWith('/product_variant/insert'));
+    for (const field of ['SIZE_ID', 'COLOUR_ID', 'MATERIAL_ID', 'SIZE', 'COLOR', 'MATERIAL']) {
+      expect(request.request.body).not.toHaveProperty(field);
+    }
+    request.flush({
+      status: 'SUCCESS',
+      message: 'Product variant inserted successfully',
+      data: { SUCCES: 'SUCCES' },
+    });
+    fixture.detectChanges();
+    http.expectOne((req) => req.url.endsWith('/product_variant/get')).flush({ status: 'SUCCESS', data: [] });
+  });
+
   it('reports an API error and keeps the Add Variant dialog open', () => {
     component.openAdd();
     flushVariantLookups(http);
@@ -479,6 +617,7 @@ describe('ProductVariants edit action', () => {
       weight: '1.2',
       price: '2499',
       stock: '50',
+      status: 'ACTIVE',
     });
     component.selectedImage.set(new File(['image'], 'black_leather.png', { type: 'image/png' }));
     component.save();
@@ -511,6 +650,7 @@ describe('ProductVariants edit action', () => {
       weight: '1.2',
       price: '2499',
       stock: '50',
+      status: 'ACTIVE',
     });
     component.selectedImage.set(new File(['image'], 'black_leather.png', { type: 'image/png' }));
 

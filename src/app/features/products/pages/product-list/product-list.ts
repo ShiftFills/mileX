@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed, toSignal, toObservable } from '@angular/core/rxjs-interop';
 import { EMPTY, catchError, distinctUntilChanged, switchMap, tap } from 'rxjs';
@@ -10,7 +10,7 @@ import { Pagination } from '@shared/components/pagination/pagination';
 import { SearchBox } from '@shared/components/search-box/search-box';
 import { Select } from '@shared/components/select/select';
 import { APP_ROUTES } from '@core/constants/app-routes';
-import { productCategoryLabel } from '@core/constants/product-categories';
+import { ProductLookupOption } from '@core/services/product-catalog.service';
 import { PaginatedResponse, Product } from '@shared/models';
 import { ProductService } from '../../services/product.service';
 import { WishlistService } from '../../services/wishlist.service';
@@ -28,6 +28,7 @@ export class ProductList {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly productService = inject(ProductService);
+  private readonly destroyRef = inject(DestroyRef);
   protected readonly wishlist = inject(WishlistService);
   protected readonly routes = APP_ROUTES;
   protected readonly query = toSignal(this.route.queryParamMap, {
@@ -37,6 +38,9 @@ export class ProductList {
   protected readonly listingStatus = signal<'idle' | 'loading' | 'success' | 'error'>('idle');
   protected readonly listingError = signal<string | null>(null);
   protected readonly pageData = signal<PaginatedResponse<Product> | null>(null);
+  protected readonly categories = signal<ProductLookupOption[]>([]);
+  protected readonly categoriesStatus = signal<'loading' | 'success' | 'error'>('loading');
+  protected readonly categoriesError = signal<string | null>(null);
   private readonly retryCount = signal(0);
   private readonly knownTotal = signal<number | null>(null);
   private readonly requestedPage = computed(() => {
@@ -69,12 +73,7 @@ export class ProductList {
       : (this.pageData()?.hasNext ?? false);
   });
   protected readonly categoryOptions = computed(() => {
-    const categories = new Set((this.pageData()?.items ?? []).map((product) => product.category));
-    const selectedCategory = this.query().get('category');
-    if (selectedCategory) categories.add(selectedCategory);
-    return [...categories]
-      .sort()
-      .map((category) => ({ value: category, label: productCategoryLabel(category) }));
+    return this.categories().map((category) => ({ value: category.id, label: category.label }));
   });
   protected readonly products = computed(() => {
     const query = this.query();
@@ -83,7 +82,8 @@ export class ProductList {
     const results = (this.pageData()?.items ?? []).filter((product) => {
       const matchesSearch =
         !search || `${product.name} ${product.description} ${product.category}`.toLowerCase().includes(search);
-      return matchesSearch && (!category || product.category === category);
+      return matchesSearch &&
+        (!category || product.category === category || product.category === `category-${category}`);
     });
     return [...results].sort((a, b) => {
       if (this.sortBy() === 'price-low') return a.price - b.price;
@@ -94,6 +94,7 @@ export class ProductList {
   });
 
   constructor() {
+    this.loadCategories();
     toObservable(this.pageRequest)
       .pipe(
         distinctUntilChanged(
@@ -134,7 +135,7 @@ export class ProductList {
             }),
           ),
         ),
-        takeUntilDestroyed(),
+        takeUntilDestroyed(this.destroyRef),
       )
       .subscribe();
   }
@@ -176,6 +177,27 @@ export class ProductList {
 
   protected retryLoad(): void {
     this.retryCount.update((count) => count + 1);
+  }
+
+  protected retryCategories(): void {
+    this.loadCategories();
+  }
+
+  private loadCategories(): void {
+    this.categoriesStatus.set('loading');
+    this.categoriesError.set(null);
+    this.productService.loadCategories().pipe(
+      tap((categories) => {
+        this.categories.set(categories);
+        this.categoriesStatus.set('success');
+      }),
+      catchError((error: unknown) => {
+        this.categoriesError.set(this.productService.getErrorMessage(error));
+        this.categoriesStatus.set('error');
+        return EMPTY;
+      }),
+      takeUntilDestroyed(),
+    ).subscribe();
   }
 
   private currentQuery(): Record<string, string> {

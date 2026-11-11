@@ -5,7 +5,7 @@ export const API_ENDPOINTS = {
     update: 'products/update',
   },
   productLookups: {
-    categories: 'category/get',
+    categories: 'category_management/get',
     subCategories: 'sub_category/get',
     brands: 'brand_management/get',
     taxRates: 'tax_rate/get',

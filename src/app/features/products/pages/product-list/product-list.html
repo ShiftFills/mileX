@@ -20,12 +20,23 @@
     />
     <label>
       Category
-      <app-select [value]="query().get('category') ?? ''" (valueChange)="setCategory($event)">
+      <app-select
+        [value]="query().get('category') ?? ''"
+        [disabled]="categoriesStatus() !== 'success'"
+        (valueChange)="setCategory($event)"
+      >
         <option value="">All categories</option>
         @for (category of categoryOptions(); track category.value) {
           <option [value]="category.value">{{ category.label }}</option>
         }
       </app-select>
+      @if (categoriesStatus() === 'loading') {
+        <small role="status">Loading categories…</small>
+      } @else if (categoriesStatus() === 'error') {
+        <small role="alert">{{ categoriesError() }} <button type="button" (click)="retryCategories()">Try again</button></small>
+      } @else if (!categoryOptions().length) {
+        <small>No categories available.</small>
+      }
     </label>
     <label>
       Sort by

@@ -29,7 +29,7 @@
       <a
         class="category-shelf__feature"
         [routerLink]="routes.products"
-        [queryParams]="{ category: shelf.category }"
+        [queryParams]="{ category: shelf.categoryId }"
         [style.background-image]="'url(' + shelf.image + ')'"
         [attr.aria-label]="'Shop ' + shelf.title"
       >

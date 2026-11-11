@@ -1,9 +1,8 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { ProductCard } from '@shared/components/product-card/product-card';
 import { APP_ROUTES } from '@core/constants/app-routes';
-import { productCategoryLabel } from '@core/constants/product-categories';
-import { ProductCatalogService } from '@core/services/product-catalog.service';
+import { ProductCatalogService, ProductLookupOption } from '@core/services/product-catalog.service';
 import { Alert } from '@shared/components/alert/alert';
 import { LoadingSpinner } from '@shared/components/loading-spinner/loading-spinner';
 import { Product } from '@shared/models';
@@ -18,6 +17,7 @@ import { WishlistService } from '@core/services/wishlist.service';
 })
 export class HomeShowcases {
   protected readonly routes = APP_ROUTES;
+  readonly categories = input<readonly ProductLookupOption[]>([]);
   protected readonly wishlist = inject(WishlistService);
   private readonly productService = inject(ProductCatalogService);
   protected readonly catalogStatus = this.productService.status;
@@ -28,6 +28,7 @@ export class HomeShowcases {
     [...this.productService.products()].sort((a, b) => a.price - b.price).slice(0, 10),
   );
   protected readonly shelves = computed(() => {
+    const categoryLabels = new Map(this.categories().map((category) => [category.id, category.label]));
     const groups = new Map<string, Product[]>();
     for (const product of this.productService.products()) {
       const products = groups.get(product.category) ?? [];
@@ -36,9 +37,10 @@ export class HomeShowcases {
     }
 
     return [...groups].slice(0, 2).map(([category, products]) => ({
-      title: productCategoryLabel(category),
+      title: categoryLabels.get(category.replace(/^category-/, '')) ?? 'Other products',
       image: '/images/Section - HeroPromoBanner.svg',
       category,
+      categoryId: category.startsWith('category-') ? category.slice('category-'.length) : null,
       products: products.slice(0, 8),
     }));
   });

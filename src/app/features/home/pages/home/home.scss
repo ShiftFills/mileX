@@ -118,6 +118,19 @@
   }
 }
 
+.deal-category__state {
+  align-self: center;
+  justify-self: center;
+  padding: 1rem;
+  color: var(--color-text-muted);
+  text-align: center;
+
+  button {
+    display: block;
+    margin: 0.5rem auto 0;
+  }
+}
+
 .promos {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

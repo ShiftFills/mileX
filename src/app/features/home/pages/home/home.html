@@ -1,12 +1,12 @@
 <div class="storefront">
   <div class="storefront__content">
-    <app-hero-banner />
+    <app-hero-banner [categories]="categories()" />
 
     <section class="deals" aria-labelledby="deals-heading">
       <div class="deals__intro">
         <div>
           <h1 id="deals-heading">Deals and offers</h1>
-          <p>Hygiene equipments</p>
+          <p>Browse our categories</p>
         </div>
         <div class="deals__timer" aria-label="Offer countdown">
           <span><strong>04</strong><small>Days</small></span>
@@ -17,12 +17,23 @@
       </div>
 
       <div class="deals__items row row-cols-2 row-cols-sm-3 row-cols-lg-5 g-0">
-        @for (category of categories; track category.name) {
-        <a class="deal-category col" [routerLink]="routes.products" [queryParams]="{ category: category.query }">
-          <img [src]="category.image" [alt]="category.name" loading="lazy" decoding="async" />
-          <h2>{{ category.name }}</h2>
-          <span class="deal-category__discount">{{ category.discount }}</span>
-        </a>
+        @if (categoriesStatus() === 'loading') {
+          <p class="deal-category__state col" role="status">Loading categories…</p>
+        } @else if (categoriesStatus() === 'error') {
+          <div class="deal-category__state col" role="alert">
+            {{ categoriesError() }}
+            <button type="button" (click)="retryCategories()">Try again</button>
+          </div>
+        } @else if (!categories().length) {
+          <p class="deal-category__state col">No categories available.</p>
+        } @else {
+          @for (category of categories(); track category.id) {
+            <a class="deal-category col" [routerLink]="routes.products" [queryParams]="{ category: category.id }">
+              <img src="/images/latest-gadgets.svg" alt="" loading="lazy" decoding="async" />
+              <h2>{{ category.label }}</h2>
+              <span class="deal-category__discount">Shop now</span>
+            </a>
+          }
         }
       </div>
     </section>
@@ -30,10 +41,10 @@
     <section class="promos" aria-label="Featured collections">
       <article class="promo promo--fashion">
         <div class="promo__copy">
-          <h2>Trendy Styles<br />for Every You</h2>
-          <p>Women <span aria-hidden="true">|</span> Men <span aria-hidden="true">|</span> Kids</p>
-          <a class="btn btn-sm" [routerLink]="routes.products" [queryParams]="{ category: 'fashion' }">
-            Explore Fashion <span aria-hidden="true">→</span>
+          <h2>Discover Your<br />Next Favorite</h2>
+          <p>Find something new for every day</p>
+          <a class="btn btn-sm" [routerLink]="routes.products">
+            Explore now <span aria-hidden="true">→</span>
           </a>
         </div>
         <img class="promo__art promo__art--fashion" src="/images/trendy-style.svg" alt="" loading="lazy"
@@ -42,10 +53,10 @@
 
       <article class="promo promo--gadgets">
         <div class="promo__copy">
-          <h2>Latest Gadgets<br />Best Deals</h2>
-          <p>Mobiles <span aria-hidden="true">|</span> Laptops <span aria-hidden="true">|</span> Accessories</p>
-          <a class="btn btn-sm" [routerLink]="routes.products" [queryParams]="{ category: 'electronics' }">
-            Shop Electronics <span aria-hidden="true">→</span>
+          <h2>Fresh Finds<br />Best Deals</h2>
+          <p>Explore the latest arrivals</p>
+          <a class="btn btn-sm" [routerLink]="routes.products">
+            Shop now <span aria-hidden="true">→</span>
           </a>
         </div>
         <img class="promo__art promo__art--gadgets" src="/images/gadgets.svg" alt="" loading="lazy" decoding="async" />
@@ -53,16 +64,16 @@
 
       <article class="promo promo--home">
         <div class="promo__copy">
-          <h2>Upgrade Your<br />Home Today</h2>
-          <p>Furniture <span aria-hidden="true">|</span> Kitchen <span aria-hidden="true">|</span> Decor</p>
-          <a class="btn btn-sm" [routerLink]="routes.products" [queryParams]="{ category: 'home-living' }">
-            Shop Home &amp; Living <span aria-hidden="true">→</span>
+          <h2>Make Your Space<br />Your Own</h2>
+          <p>Find new favorites for everyday living</p>
+          <a class="btn btn-sm" [routerLink]="routes.products">
+            Explore now <span aria-hidden="true">→</span>
           </a>
         </div>
       </article>
     </section>
 
-    <app-home-showcases />
+    <app-home-showcases [categories]="categories()" />
     <app-supplier-inquiry />
   </div>
 </div>

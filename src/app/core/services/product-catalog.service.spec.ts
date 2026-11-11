@@ -38,7 +38,7 @@ describe('ProductCatalogService', () => {
 
     http.expectOne(
       (request) =>
-        request.url.endsWith('/category/get') &&
+        request.url.endsWith('/category_management/get') &&
         request.params.get('CATEGORY_ID') === '-1' &&
         request.method === 'GET',
     ).flush({
@@ -106,11 +106,11 @@ describe('ProductCatalogService', () => {
     catalog.loadCategories().subscribe();
 
     http
-      .expectOne((request) => request.url.endsWith('/category/get'))
+      .expectOne((request) => request.url.endsWith('/category_management/get'))
       .flush({ status: 'SUCCESS', data: [] });
 
     catalog.loadCategories().subscribe((options) => expect(options).toEqual([]));
-    http.expectNone((request) => request.url.endsWith('/category/get'));
+    http.expectNone((request) => request.url.endsWith('/category_management/get'));
   });
 
   it('loads subcategories using both the wildcard subcategory ID and selected category ID', () => {

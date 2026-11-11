@@ -132,7 +132,7 @@ describe('AllProducts', () => {
   function loadLookups(): void {
     fixture.detectChanges();
     http.expectOne((req) =>
-      req.url.endsWith('/category/get') &&
+      req.url.endsWith('/category_management/get') &&
       req.method === 'GET' &&
       req.params.get('CATEGORY_ID') === '-1',
     ).flush({
@@ -238,7 +238,7 @@ describe('AllProducts', () => {
     expect(fixture.nativeElement.textContent).toContain('Loading categories');
     expect(fixture.nativeElement.textContent).toContain('Loading brands');
 
-    http.expectOne((req) => req.url.endsWith('/category/get')).flush({
+    http.expectOne((req) => req.url.endsWith('/category_management/get')).flush({
       status: 'ERROR',
       message: 'Category service unavailable',
     });
@@ -260,7 +260,7 @@ describe('AllProducts', () => {
     expect(fixture.nativeElement.textContent).toContain('No brands available');
 
     component.retryCategoryLookup();
-    http.expectOne((req) => req.url.endsWith('/category/get')).flush({
+    http.expectOne((req) => req.url.endsWith('/category_management/get')).flush({
       status: 'SUCCESS',
       data: [{ CATEGORY_ID: 1, CATEGORY_NAME: 'Electronics' }],
     });

@@ -1,6 +1,9 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
+import { EMPTY, catchError, tap } from 'rxjs';
 import { APP_ROUTES } from '@core/constants/app-routes';
+import { ProductCatalogService, ProductLookupOption } from '@core/services/product-catalog.service';
 import { HeroBanner } from '../../components/hero-banner/hero-banner';
 import { HomeShowcases } from '../../components/home-showcases/home-showcases';
 import { SupplierInquiry } from '../../components/supplier-inquiry/supplier-inquiry';
@@ -13,37 +16,35 @@ import { SupplierInquiry } from '../../components/supplier-inquiry/supplier-inqu
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class Home {
+  private readonly productCatalog = inject(ProductCatalogService);
+  private readonly destroyRef = inject(DestroyRef);
   protected readonly routes = APP_ROUTES;
-  protected readonly categories = [
-    {
-      name: 'Smart Watches',
-      query: 'smart-watches',
-      discount: 'Min. 25% Off',
-      image: '/images/watch.svg',
-    },
-    {
-      name: 'Laptop',
-      query: 'laptops',
-      discount: 'Min. 55% Off',
-      image: '/images/laptop.svg',
-    },
-    {
-      name: 'Canon Cameras',
-      query: 'cameras',
-      discount: 'Min. 40% Off',
-      image: '/images/camera.svg',
-    },
-    {
-      name: 'Headphones',
-      query: 'headphones',
-      discount: 'Min. 55% Off',
-      image: '/images/headphones.svg',
-    },
-    {
-      name: 'Mobile Phones',
-      query: 'mobile-phones',
-      discount: 'Min. 25% Off',
-      image: '/images/mobile-phone.svg',
-    },
-  ];
+  protected readonly categories = signal<ProductLookupOption[]>([]);
+  protected readonly categoriesStatus = signal<'loading' | 'success' | 'error'>('loading');
+  protected readonly categoriesError = signal<string | null>(null);
+
+  constructor() {
+    this.loadCategories();
+  }
+
+  protected retryCategories(): void {
+    this.loadCategories();
+  }
+
+  private loadCategories(): void {
+    this.categoriesStatus.set('loading');
+    this.categoriesError.set(null);
+    this.productCatalog.loadCategories().pipe(
+      tap((categories) => {
+        this.categories.set(categories);
+        this.categoriesStatus.set('success');
+      }),
+      catchError((error: unknown) => {
+        this.categoriesError.set(this.productCatalog.getErrorMessage(error));
+        this.categoriesStatus.set('error');
+        return EMPTY;
+      }),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe();
+  }
 }

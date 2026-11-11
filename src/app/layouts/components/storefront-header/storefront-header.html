@@ -146,12 +146,11 @@
           All Categories
         </button>
         <a routerLink="/" routerLinkActive="is-active" [routerLinkActiveOptions]="{ exact: true }" (click)="closeMobileCategories()">Home</a>
-        <a [routerLink]="routes.products" [queryParams]="{ category: 'fashion' }" (click)="closeMobileCategories()">Fashion</a>
-        <a [routerLink]="routes.products" [queryParams]="{ category: 'electronics' }" (click)="closeMobileCategories()">Electronics</a>
-        <a [routerLink]="routes.products" [queryParams]="{ category: 'home-living' }" (click)="closeMobileCategories()">Home &amp; Living</a>
-        <a [routerLink]="routes.products" [queryParams]="{ category: 'beauty' }" (click)="closeMobileCategories()">Beauty &amp; Personal Care</a>
-        <a [routerLink]="routes.products" [queryParams]="{ category: 'sports' }" (click)="closeMobileCategories()">Sports &amp; Fitness</a>
-        <a [routerLink]="routes.products" [queryParams]="{ category: 'toys-baby' }" (click)="closeMobileCategories()">Toys &amp; Baby</a>
+        @for (category of categories().slice(0, 6); track category.id) {
+          <a [routerLink]="routes.products" [queryParams]="{ category: category.id }" (click)="closeMobileCategories()">
+            {{ category.label }}
+          </a>
+        }
         <div class="store-header__more" appClickOutside (clickedOutside)="closeMoreMenu()">
           <button
             #moreTrigger
@@ -202,24 +201,24 @@
         [style.max-height.px]="categoryPopupPosition().maxHeight"
         aria-label="Category navigation"
       >
-        @for (category of categoryMenuItems; track category.label) {
-          @if (category.slug) {
-            <a [routerLink]="routes.products" [queryParams]="{ category: category.slug }" (click)="closeMobileCategories()">
+        <a routerLink="/" (click)="closeMobileCategories()">Home</a>
+        @if (categoriesStatus() === 'loading') {
+          <span role="status">Loading categories…</span>
+        } @else if (categoriesStatus() === 'error') {
+          <span role="alert">{{ categoriesError() }}</span>
+          <button type="button" (click)="retryCategories()">Try again</button>
+        } @else if (!categories().length) {
+          <span>No categories available.</span>
+        } @else {
+          @for (category of categories(); track category.id) {
+            <a [routerLink]="routes.products" [queryParams]="{ category: category.id }" (click)="closeMobileCategories()">
               {{ category.label }}
-            </a>
-          } @else if (category.route) {
-            <a [routerLink]="category.route" (click)="closeMobileCategories()">
-              {{ category.label }}
-            </a>
-          } @else {
-            <a class="store-header__category-popup-more" [routerLink]="routes.products" (click)="closeMobileCategories()">
-              <span>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg>
-                {{ category.label }}
-              </span>
             </a>
           }
         }
+        <a class="store-header__category-popup-more" [routerLink]="routes.products" (click)="closeMobileCategories()">
+          Browse all products
+        </a>
       </div>
     </div>
   </nav>

@@ -1,8 +1,11 @@
-import { ChangeDetectionStrategy, Component, ElementRef, computed, inject, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, computed, inject, signal, viewChild } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { EMPTY, catchError, tap } from 'rxjs';
 import { APP_ROUTES } from '@core/constants/app-routes';
 import { AuthService } from '@core/services/auth.service';
 import { CartService } from '@core/services/cart.service';
+import { ProductCatalogService, ProductLookupOption } from '@core/services/product-catalog.service';
 import { SearchBox } from '@shared/components/search-box/search-box';
 import { ClickOutside } from '@shared/directives/click-outside';
 
@@ -11,12 +14,6 @@ interface AccountLink {
   route: string;
   /** SVG path data on a 24x24 grid (stroke icon). */
   icon: string;
-}
-
-interface CategoryMenuItem {
-  label: string;
-  slug?: string;
-  route?: string;
 }
 
 @Component({
@@ -29,29 +26,19 @@ interface CategoryMenuItem {
 export class StorefrontHeader {
   protected readonly auth = inject(AuthService);
   protected readonly cart = inject(CartService);
+  private readonly productCatalog = inject(ProductCatalogService);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
   protected readonly routes = APP_ROUTES;
+  protected readonly categories = signal<ProductLookupOption[]>([]);
+  protected readonly categoriesStatus = signal<'loading' | 'success' | 'error'>('loading');
+  protected readonly categoriesError = signal<string | null>(null);
   protected readonly accountLinks: readonly AccountLink[] = [
     { label: 'My Orders', route: APP_ROUTES.orders, icon: 'M3 4h18v4H3zM5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4' },
     { label: 'My Addresses', route: APP_ROUTES.deliveryAddress, icon: 'M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11ZM12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z' },
     { label: 'Offers / Discounts', route: APP_ROUTES.offers, icon: 'M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4ZM7.5 7.5h.01' },
     { label: 'My Account', route: APP_ROUTES.account, icon: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM4 21a8 8 0 0 1 16 0' },
     { label: 'Help & Support', route: APP_ROUTES.support, icon: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17h.01' },
-  ];
-  protected readonly categoryMenuItems: readonly CategoryMenuItem[] = [
-    { label: 'Home', route: APP_ROUTES.home },
-    { label: 'Fashion', slug: 'fashion' },
-    { label: 'Electronics', slug: 'electronics' },
-    { label: 'Home & Living', slug: 'home-living' },
-    { label: 'Beauty & Personal Care', slug: 'beauty' },
-    { label: 'Sports & Fitness', slug: 'sports' },
-    { label: 'Toys & Baby', slug: 'toys-baby' },
-    { label: 'Books & Stationery', slug: 'books-stationery' },
-    { label: 'Home Appliances', slug: 'home-appliances' },
-    { label: 'Jewellery & Accessories', slug: 'jewellery-accessories' },
-    { label: 'Automotive', slug: 'automotive' },
-    { label: 'Mobiles & Tablets', slug: 'mobiles-tablets' },
-    { label: 'More' },
   ];
   protected readonly logoutIcon = 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9';
   protected readonly userName = computed(() => {
@@ -66,6 +53,31 @@ export class StorefrontHeader {
   protected readonly categoryPopupPosition = signal({ left: 8, top: 0, maxHeight: 0 });
   protected readonly moreMenuPosition = signal({ left: 0, top: 0 });
   private readonly moreTrigger = viewChild.required<ElementRef<HTMLButtonElement>>('moreTrigger');
+
+  constructor() {
+    this.loadCategories();
+  }
+
+  protected retryCategories(): void {
+    this.loadCategories();
+  }
+
+  private loadCategories(): void {
+    this.categoriesStatus.set('loading');
+    this.categoriesError.set(null);
+    this.productCatalog.loadCategories().pipe(
+      tap((categories) => {
+        this.categories.set(categories);
+        this.categoriesStatus.set('success');
+      }),
+      catchError((error: unknown) => {
+        this.categoriesError.set(this.productCatalog.getErrorMessage(error));
+        this.categoriesStatus.set('error');
+        return EMPTY;
+      }),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe();
+  }
 
   protected toggleAccountMenu(): void {
     this.accountMenuOpen.update((isOpen) => !isOpen);

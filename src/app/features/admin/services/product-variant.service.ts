@@ -21,6 +21,7 @@ export interface ProductVariant {
   sellerId: number | null;
   sellerName: string | null;
   createdBy: number | null;
+  status: string;
 }
 
 export interface ProductVariantPage {
@@ -33,9 +34,9 @@ export interface ProductVariantInsertPayload {
   VARIANT_NAME: string;
   SKU: string;
   BARCODE: string | null;
-  SIZE_ID: number | null;
-  COLOUR_ID: number;
-  MATERIAL_ID: number | null;
+  SIZE_ID?: number;
+  COLOUR_ID?: number;
+  MATERIAL_ID?: number;
   WEIGHT: number | null;
   PRICE: number;
   STOCK_QUANTITY: number;
@@ -46,14 +47,25 @@ export interface ProductVariantInsertPayload {
   CREATED_BY: number;
 }
 
-export interface ProductVariantUpdatePayload extends Omit<
-  ProductVariantInsertPayload,
-  'SIZE_ID' | 'COLOUR_ID' | 'MATERIAL_ID'
-> {
+export interface ProductVariantUpdatePayload {
   VARIANT_ID: number;
-  SIZE: string | null;
-  COLOR: string;
-  MATERIAL: string | null;
+  VARIANT_NAME: string;
+  BARCODE: string | null;
+  SIZE_ID?: number;
+  SIZE?: string;
+  COLOR_ID?: number;
+  COLOR?: string;
+  MATERIAL_ID?: number;
+  MATERIAL?: string;
+  WEIGHT: number | null;
+  PRICE: number;
+  STOCK_QUANTITY: number;
+  VARIANT_IMAGE: string;
+  PRODUCT_ID: number;
+  SELLER_ID: number;
+  SELLER_NAME: string;
+  STATUS: string;
+  CREATED_BY: number;
 }
 
 export interface ProductVariantDeletePayload {
@@ -165,6 +177,11 @@ function textValue(
     : fallback;
 }
 
+function optionalTextValue(record: Record<string, unknown>, keys: readonly string[]): string {
+  const value = firstValue(record, keys);
+  return typeof value === 'string' || typeof value === 'number' ? String(value).trim() : '';
+}
+
 function numericValue(record: Record<string, unknown>, keys: readonly string[]): number | undefined {
   const value = firstValue(record, keys);
   if (value === undefined) return undefined;
@@ -206,16 +223,17 @@ function mapVariant(value: unknown): ProductVariant {
     imageUrl: textValue(value, ['VARIANT_IMAGE_URL', 'VARIANT_IMAGE', 'IMAGE_URL'], '/images/latest-gadgets.svg'),
     imagePath: textValue(value, ['VARIANT_IMAGE', 'VARIANT_IMAGE_URL', 'IMAGE_URL'], ''),
     sku: textValue(value, ['VARIANT_SKU', 'PRODUCT_CODE_SKU', 'SKU']),
-    barcode: textValue(value, ['VARIANT_BARCODE', 'BARCODE', 'BAR_CODE']),
-    color: textValue(value, ['VARIANT_COLOR', 'COLOR', 'COLOUR']),
-    material: textValue(value, ['VARIANT_MATERIAL', 'MATERIAL']),
-    size: textValue(value, ['VARIANT_SIZE', 'SIZE']),
+    barcode: optionalTextValue(value, ['VARIANT_BARCODE', 'BARCODE', 'BAR_CODE']),
+    color: optionalTextValue(value, ['VARIANT_COLOR', 'COLOR', 'COLOUR']),
+    material: optionalTextValue(value, ['VARIANT_MATERIAL', 'MATERIAL']),
+    size: optionalTextValue(value, ['VARIANT_SIZE', 'SIZE']),
     weight: textValue(value, ['VARIANT_WEIGHT', 'WEIGHT', 'WEIGHT_KG'], ''),
     stock: numericValue(value, ['VARIANT_STOCK', 'STOCK_QUANTITY', 'AVAILABLE_STOCK', 'QUANTITY']) ?? 0,
     price: numericValue(value, ['SELLING_PRICE', 'VARIANT_SELLING_PRICE', 'VARIANT_PRICE', 'PRICE']) ?? 0,
     sellerId: numericValue(value, ['SELLER_ID']) ?? null,
     sellerName: textValue(value, ['SELLER_NAME'], ''),
     createdBy: numericValue(value, ['CREATED_BY']) ?? null,
+    status: textValue(value, ['STATUS'], ''),
   };
 }
 

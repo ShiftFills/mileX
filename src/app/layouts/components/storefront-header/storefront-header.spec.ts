@@ -1,12 +1,32 @@
-import { Component } from '@angular/core';
+import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, RouterOutlet, provideRouter } from '@angular/router';
+import { of } from 'rxjs';
 import { routes as appRoutes } from '../../../app.routes';
 import { AuthService } from '@core/services/auth.service';
 import { CartService } from '@core/services/cart.service';
+import { ProductCatalogService } from '@core/services/product-catalog.service';
+import { Product } from '@shared/models';
 import { StorefrontHeader } from './storefront-header';
 
 const cartServiceStub = { provide: CartService, useValue: { count: () => 0 } };
+const products = signal<Product[]>([]);
+const catalogStatus = signal<'idle' | 'loading' | 'success' | 'error'>('idle');
+const catalogError = signal<string | null>(null);
+const categoryServiceStub = {
+  provide: ProductCatalogService,
+  useValue: {
+    products: products.asReadonly(),
+    status: catalogStatus.asReadonly(),
+    error: catalogError.asReadonly(),
+    load: () => undefined,
+    loadCategories: () => of([
+      { id: '31', label: 'Housewares' },
+      { id: '44', label: 'Outdoor' },
+    ]),
+    getErrorMessage: () => 'Categories are unavailable.',
+  },
+};
 
 @Component({ template: '' })
 class TestHomePage {}
@@ -35,7 +55,7 @@ describe('StorefrontHeader account menu', () => {
         { path: 'checkout/address', children: [] },
         { path: 'auth/login', component: TestHomePage },
         { path: 'auth/register', component: TestHomePage },
-      ]), cartServiceStub],
+      ]), cartServiceStub, categoryServiceStub],
     }).compileComponents();
     auth = TestBed.inject(AuthService);
     fixture = TestBed.createComponent(StorefrontHeader);
@@ -117,7 +137,7 @@ describe('StorefrontHeader auth navigation integration', () => {
     localStorage.clear();
     await TestBed.configureTestingModule({
       imports: [TestStorefrontShell],
-      providers: [provideRouter(appRoutes), cartServiceStub],
+      providers: [provideRouter(appRoutes), cartServiceStub, categoryServiceStub],
     }).compileComponents();
 
     fixture = TestBed.createComponent(TestStorefrontShell);
@@ -156,7 +176,7 @@ describe('StorefrontHeader Browse All Products menu', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [StorefrontHeader],
-      providers: [provideRouter([{ path: 'products', children: [] }]), cartServiceStub],
+      providers: [provideRouter([{ path: 'products', children: [] }]), cartServiceStub, categoryServiceStub],
     }).compileComponents();
     fixture = TestBed.createComponent(StorefrontHeader);
     root = fixture.nativeElement as HTMLElement;
@@ -212,7 +232,7 @@ describe('StorefrontHeader mobile category popup', () => {
       providers: [provideRouter([
         { path: '', pathMatch: 'full', component: TestHomePage },
         { path: 'products', children: [] },
-      ]), cartServiceStub],
+      ]), cartServiceStub, categoryServiceStub],
     }).compileComponents();
     fixture = TestBed.createComponent(StorefrontHeader);
     root = fixture.nativeElement as HTMLElement;
@@ -224,26 +244,16 @@ describe('StorefrontHeader mobile category popup', () => {
     await fixture.whenStable();
   }
 
-  it('renders the Figma category menu items in reference order', async () => {
+  it('renders category labels and IDs from the category lookup', async () => {
     await toggleMenu();
     const labels = Array.from(root.querySelectorAll('#category-popup > a')).map((link) => link.textContent?.trim());
     expect(labels).toEqual([
       'Home',
-      'Fashion',
-      'Electronics',
-      'Home & Living',
-      'Beauty & Personal Care',
-      'Sports & Fitness',
-      'Toys & Baby',
-      'Books & Stationery',
-      'Home Appliances',
-      'Jewellery & Accessories',
-      'Automotive',
-      'Mobiles & Tablets',
-      'More',
+      'Housewares',
+      'Outdoor',
+      'Browse all products',
     ]);
     expect(root.querySelector('.store-header__category-menu-close')).toBeNull();
-    expect(root.querySelector('#category-popup a[href="/"] svg')).toBeNull();
     expect(root.querySelector('#category-popup')?.textContent).not.toContain('All Categories');
     expect((root.querySelector('.store-header__all-categories') as HTMLButtonElement).textContent).toContain('All Categories');
   });
@@ -281,12 +291,12 @@ describe('StorefrontHeader mobile category popup', () => {
     expect(root.querySelector('#category-popup.is-open')).toBeNull();
   });
 
-  it('navigates to a category and closes the popup', async () => {
+  it('navigates using the selected category ID and closes the popup', async () => {
     await toggleMenu();
-    (root.querySelector('#category-popup a[href*="category=fashion"]') as HTMLAnchorElement).click();
+    (root.querySelector('#category-popup a[href*="category=31"]') as HTMLAnchorElement).click();
     await fixture.whenStable();
 
-    expect(TestBed.inject(Router).url).toBe('/products?category=fashion');
+    expect(TestBed.inject(Router).url).toBe('/products?category=31');
     expect(root.querySelector('#category-popup.is-open')).toBeNull();
   });
 
