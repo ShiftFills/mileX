@@ -14,6 +14,7 @@ export const APP_ROUTES = {
   login: '/auth/login',
   register: '/auth/register',
   adminDashboard: '/admin/dashboard',
+  addProduct: '/admin/products/new',
   allProducts: '/admin/products/all',
   sellerDashboard: '/seller/dashboard',
   sellerVerificationPending: '/seller/verification-pending',

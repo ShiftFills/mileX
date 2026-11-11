@@ -82,6 +82,33 @@ describe('AuthService', () => {
     );
   });
 
+  it('maps and persists login details returned at the response root', () => {
+    let message: string | undefined;
+    service.login('rahul_ocean', 'password').subscribe((result) => (message = result));
+
+    http.expectOne('https://api.example.test/api/user/login').flush({
+      success: true,
+      message: 'Login successful',
+      USER_ID: 60,
+      USER_NAME: 'rahul_ocean',
+      USER_TYPE: 'SELLER',
+      USER_TYPE_ID: 1,
+      ACCESSTOKEN: 'seller-access-token',
+    });
+
+    expect(message).toBe('Login successful');
+    expect(service.user()).toMatchObject({
+      id: '60',
+      userName: 'rahul_ocean',
+      userType: 'SELLER',
+      userTypeId: 1,
+    });
+    expect(service.token()).toBe('seller-access-token');
+    expect(service.isAuthenticated()).toBe(true);
+    expect(localStorage.getItem(STORAGE_KEYS.user)).toContain('"id":"60"');
+    expect(localStorage.getItem(STORAGE_KEYS.accessToken)).toBe('"seller-access-token"');
+  });
+
   it('attaches the stored access token to all API HTTP methods', () => {
     service.setSession(
       { id: '8', email: '', firstName: 'dhiya_seller', lastName: '' },

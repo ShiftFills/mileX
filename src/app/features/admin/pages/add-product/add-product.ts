@@ -1,6 +1,8 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Router } from '@angular/router';
 import { EMPTY, Observable, Subscription, catchError, finalize, tap } from 'rxjs';
+import { APP_ROUTES } from '@core/constants/app-routes';
 import { Button } from '@shared/components/button/button';
 import { Card } from '@shared/components/card/card';
 import { FileUpload } from '@shared/components/file-upload/file-upload';
@@ -37,6 +39,7 @@ interface ProductLookupState {
 export class AddProduct implements OnInit {
   private readonly productCatalog = inject(ProductCatalogService);
   private readonly toast = inject(ToastService);
+  private readonly addProductRouter = inject(Router);
   private readonly dropdownDestroyRef = inject(DestroyRef);
   private subcategoryRequest?: Subscription;
   private brandRequest?: Subscription;
@@ -317,8 +320,10 @@ export class AddProduct implements OnInit {
     this.isSubmitting.set(true);
     this.productCatalog.insertProduct(payload).pipe(
       tap((message) => {
+        this.cancel();
         this.saved.set(true);
         this.toast.showSuccess(message);
+        void this.addProductRouter.navigateByUrl(APP_ROUTES.addProduct);
       }),
       catchError((error: unknown) => {
         this.toast.showError(this.productCatalog.getErrorMessage(error));

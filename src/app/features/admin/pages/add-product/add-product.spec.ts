@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { Router } from '@angular/router';
 import { of, throwError } from 'rxjs';
 import { ProductCatalogService, ProductLookupOption } from '@core/services/product-catalog.service';
 import { ToastService } from '@core/services/toast.service';
@@ -26,8 +27,10 @@ describe('AddProduct Pricing & Inventory validation', () => {
     insertProduct: ReturnType<typeof vi.fn>;
   };
   let toast: { showError: ReturnType<typeof vi.fn>; showSuccess: ReturnType<typeof vi.fn> };
+  let router: { navigateByUrl: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
+    router = { navigateByUrl: vi.fn(() => Promise.resolve(true)) };
     productCatalog = {
       loadCategories: vi.fn(() => of([{ id: '1', label: 'Electronics' }])),
       loadSubCategories: vi.fn(() => of([{ id: '11', label: 'Phones' }])),
@@ -44,6 +47,7 @@ describe('AddProduct Pricing & Inventory validation', () => {
       providers: [
         { provide: ProductCatalogService, useValue: productCatalog },
         { provide: ToastService, useValue: toast },
+        { provide: Router, useValue: router },
       ],
     }).compileComponents();
     fixture = TestBed.createComponent(AddProduct);
@@ -242,5 +246,47 @@ describe('AddProduct Pricing & Inventory validation', () => {
       WEIGHT: 0.3, LENGTH: 18, WIDTH: 8, HEIGHT: 4, SELLER_ID: 1, CREATED_BY: 2,
     });
     expect(toast.showSuccess).toHaveBeenCalledWith('Product inserted successfully');
+    expect(router.navigateByUrl).toHaveBeenCalledWith('/admin/products/new');
+    expect((fixture.componentInstance as unknown as {
+      valueFor(name: string): string;
+      productImages(): File[];
+      productVideo(): File | null;
+      attemptedSave(): boolean;
+    }).valueFor('productName')).toBe('');
+    expect((fixture.componentInstance as unknown as { productImages(): File[] }).productImages()).toEqual([]);
+    expect((fixture.componentInstance as unknown as { productVideo(): File | null }).productVideo()).toBeNull();
+    expect((fixture.componentInstance as unknown as { attemptedSave(): boolean }).attemptedSave()).toBe(false);
+  });
+
+  it('does not navigate, clear the form, or show success when product creation fails', () => {
+    productCatalog.insertProduct.mockReturnValue(throwError(() => new Error('Create failed')));
+    const submit = fixture.componentInstance as unknown as {
+      values: { set(value: Record<string, string>): void };
+      productImages: { set(files: File[]): void };
+      categoryLookup: { set(state: { status: string; options: ProductLookupOption[]; error: string | null }): void };
+      subcategoryLookup: { set(state: { status: string; options: ProductLookupOption[]; error: string | null }): void };
+      brandLookup: { set(state: { status: string; options: ProductLookupOption[]; error: string | null }): void };
+      taxRateLookup: { set(state: { status: string; options: ProductLookupOption[]; error: string | null }): void };
+      valueFor(name: string): string;
+      saveProduct(): void;
+    };
+    submit.values.set({
+      productName: 'Bluetooth Headphones', category: '1', subcategory: '11', brand: '3',
+      description: 'Wireless audio', hsnCode: '851830', taxRate: '4', sellingPrice: '1800',
+      mrp: '2200', discount: '400', stockQuantity: '18', minimumOrderQuantity: '1',
+      maximumOrderQuantity: '4',
+    });
+    submit.categoryLookup.set({ status: 'success', options: [{ id: '1', label: 'Electronics' }], error: null });
+    submit.subcategoryLookup.set({ status: 'success', options: [{ id: '11', label: 'Audio' }], error: null });
+    submit.brandLookup.set({ status: 'success', options: [{ id: '3', label: 'Milex' }], error: null });
+    submit.taxRateLookup.set({ status: 'success', options: [{ id: '4', label: '18%' }], error: null });
+    submit.productImages.set([new File(['image'], 'headphones.png', { type: 'image/png' })]);
+
+    submit.saveProduct();
+
+    expect(router.navigateByUrl).not.toHaveBeenCalled();
+    expect(toast.showSuccess).not.toHaveBeenCalled();
+    expect(toast.showError).toHaveBeenCalledWith('Create failed');
+    expect(submit.valueFor('productName')).toBe('Bluetooth Headphones');
   });
 });

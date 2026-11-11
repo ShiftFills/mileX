@@ -88,21 +88,19 @@ describe('Login', () => {
     });
     expect(request.request.headers.has('Authorization')).toBe(false);
     request.flush({
-      status: 'SUCCESS',
+      success: true,
       message: 'Login successful',
-      data: {
-        USER_ID: 8,
-        USER_NAME: 'dhiya_seller',
-        USER_TYPE: 'SELLER',
-        USER_TYPE_ID: 1,
-        ACCESSTOKEN: 'access-token-returned-by-api',
-      },
+      USER_ID: 60,
+      USER_NAME: 'rahul_ocean',
+      USER_TYPE: 'SELLER',
+      USER_TYPE_ID: 1,
+      ACCESSTOKEN: 'access-token-returned-by-api',
     });
     await fixture.whenStable();
 
     expect(TestBed.inject(AuthService).user()).toMatchObject({
-      id: '8',
-      userName: 'dhiya_seller',
+      id: '60',
+      userName: 'rahul_ocean',
       userType: 'SELLER',
       userTypeId: 1,
     });

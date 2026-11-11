@@ -66,20 +66,32 @@ function mapLoginResponse(response: unknown): LoginResult {
   }
 
   const status = response['status'] ?? response['STATUS'];
+  const success = response['success'] ?? response['SUCCESS'];
   const message = responseMessage(response);
+  const normalizedStatus =
+    typeof status === 'string' ? status.trim().toUpperCase() : undefined;
+  const hasSuccessfulStatus =
+    normalizedStatus !== undefined && ['SUCCESS', 'OK', '200', '201'].includes(normalizedStatus);
+  const hasSuccessFlag =
+    success === true ||
+    success === 1 ||
+    (typeof success === 'string' &&
+      ['TRUE', '1', 'SUCCESS'].includes(success.trim().toUpperCase()));
   if (
-    typeof status !== 'string' ||
-    status.trim().toUpperCase() !== 'SUCCESS' ||
-    response['success'] === false ||
-    response['SUCCESS'] === false
+    (status !== undefined && status !== null && !hasSuccessfulStatus) ||
+    success === false ||
+    success === 0 ||
+    (success !== undefined && !hasSuccessFlag) ||
+    (!hasSuccessfulStatus && !hasSuccessFlag)
   ) {
     throw new Error(message ?? 'Login failed. Check your username and password.');
   }
 
-  const data = response['data'] ?? response['DATA'];
-  if (!isRecord(data)) {
+  const responseData = response['data'] ?? response['DATA'];
+  if (responseData !== undefined && responseData !== null && !isRecord(responseData)) {
     throw new Error('The login API returned incomplete user details.');
   }
+  const data = isRecord(responseData) ? responseData : response;
 
   const userId = positiveInteger(data['USER_ID']);
   const userName = requiredText(data['USER_NAME']);
