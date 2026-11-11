@@ -250,9 +250,16 @@ function mapSeller(value: unknown): SellerVerificationRecord {
   }
   const documentId = Number(value['DOCUMENT_ID']);
   const bankDetailId = Number(value['BANK_DETAIL_ID']);
+  const rawSellerStatus = value['SELLER_STATUS'];
   const verificationStatus = mapStatus(
-    value['SELLER_STATUS'] ?? value['VERIFICATION_STATUS'] ?? value['SELLER_VERIFICATION_STATUS'],
+    rawSellerStatus ??
+      value['SELLER_APPROVAL_STATUS'] ??
+      value['APPROVAL_STATUS'] ??
+      value['SELLER_VERIFICATION_STATUS'] ??
+      value['VERIFICATION_STATUS'] ??
+      value['STATUS'],
   );
+  const sellerStatus = rawSellerStatus === 'ACTIVE' ? 'Approved' : verificationStatus;
   const documentVerificationStatus = mapStatus(
     value['DOCUMENT_VERIFICATION_STATUS'] ?? value['DOCUMENT_STATUS'],
   );
@@ -269,7 +276,7 @@ function mapSeller(value: unknown): SellerVerificationRecord {
     mobile: text(value, 'MOBILE_NUMBER'),
     gstNumber: text(value, 'GST_NUMBER'),
     panNumber: text(value, 'PAN_NUMBER'),
-    status: verificationStatus,
+    status: sellerStatus,
     documentVerificationStatus,
     remarks: text(value, 'VERIFICATION_REMARKS', ''),
     documents: mapSellerDocuments(

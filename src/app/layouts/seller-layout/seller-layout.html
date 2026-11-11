@@ -1,0 +1,20 @@
+<div class="seller-portal">
+  <header class="seller-portal__topbar">
+    <a class="seller-portal__brand" routerLink="/"
+      >mile<span>x</span><small>SELLER CENTER</small></a
+    >
+    <div class="seller-portal__account">
+      <span>{{ user()?.userName || user()?.firstName || 'Seller' }}</span>
+      <button type="button" (click)="logout()">Log out</button>
+    </div>
+  </header>
+
+  <div class="seller-portal__body">
+    <aside class="seller-portal__sidebar">
+      <app-sidebar title="Seller tools" [links]="links" />
+    </aside>
+    <main class="seller-portal__content">
+      <router-outlet />
+    </main>
+  </div>
+</div>

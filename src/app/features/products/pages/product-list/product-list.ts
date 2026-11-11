@@ -16,6 +16,7 @@ import { ProductService } from '../../services/product.service';
 import { WishlistService } from '../../services/wishlist.service';
 
 const PAGE_SIZE = 5;
+const SORT_OPTIONS = ['price-low', 'price-high', 'name'] as const;
 
 @Component({
   selector: 'app-product-list',
@@ -34,7 +35,11 @@ export class ProductList {
   protected readonly query = toSignal(this.route.queryParamMap, {
     initialValue: this.route.snapshot.queryParamMap,
   });
-  protected readonly sortBy = signal('featured');
+  /** Sort lives in the URL (?sort=...) so refresh and back/forward keep it. */
+  protected readonly sortBy = computed(() => {
+    const sort = this.query().get('sort') ?? '';
+    return (SORT_OPTIONS as readonly string[]).includes(sort) ? sort : 'featured';
+  });
   protected readonly listingStatus = signal<'idle' | 'loading' | 'success' | 'error'>('idle');
   protected readonly listingError = signal<string | null>(null);
   protected readonly pageData = signal<PaginatedResponse<Product> | null>(null);
@@ -43,14 +48,17 @@ export class ProductList {
   protected readonly categoriesError = signal<string | null>(null);
   private readonly retryCount = signal(0);
   private readonly knownTotal = signal<number | null>(null);
+  /** Category of the previous request; used to discard totals that belonged to another category. */
+  private lastRequestedCategory: string | null = null;
   private readonly requestedPage = computed(() => {
     const page = Number(this.query().get('page'));
     return Number.isSafeInteger(page) && page > 0 ? page : 1;
   });
+  // Only values sent to the API belong here. Search and sort are applied to the loaded page in
+  // `products`, so changing them must not trigger a reload.
   private readonly pageRequest = computed(() => ({
     page: this.requestedPage(),
-    search: (this.query().get('q') ?? '').trim().toLowerCase(),
-    category: this.query().get('category') ?? '',
+    category: (this.query().get('category') ?? '').trim(),
     retry: this.retryCount(),
   }));
   protected readonly currentPage = computed(() => this.pageData()?.page ?? this.requestedPage());
@@ -78,13 +86,11 @@ export class ProductList {
   protected readonly products = computed(() => {
     const query = this.query();
     const search = (query.get('q') ?? '').trim().toLowerCase();
-    const category = query.get('category');
-    const results = (this.pageData()?.items ?? []).filter((product) => {
-      const matchesSearch =
-        !search || `${product.name} ${product.description} ${product.category}`.toLowerCase().includes(search);
-      return matchesSearch &&
-        (!category || product.category === category || product.category === `category-${category}`);
-    });
+    // Category filtering now happens on the server (CATEGORY_ID), so only search is applied here.
+    const results = (this.pageData()?.items ?? []).filter(
+      (product) =>
+        !search || `${product.name} ${product.description} ${product.category}`.toLowerCase().includes(search),
+    );
     return [...results].sort((a, b) => {
       if (this.sortBy() === 'price-low') return a.price - b.price;
       if (this.sortBy() === 'price-high') return b.price - a.price;
@@ -100,17 +106,21 @@ export class ProductList {
         distinctUntilChanged(
           (previous, current) =>
             previous.page === current.page &&
-            previous.search === current.search &&
             previous.category === current.category &&
             previous.retry === current.retry,
         ),
-        tap(() => {
+        tap(({ category }) => {
+          // A total remembered from another category would show wrong pagination, so drop it.
+          if (category !== this.lastRequestedCategory) {
+            this.knownTotal.set(null);
+            this.lastRequestedCategory = category;
+          }
           this.listingStatus.set('loading');
           this.listingError.set(null);
           this.pageData.set(null);
         }),
-        switchMap(({ page }) =>
-          this.productService.loadPage(page, PAGE_SIZE).pipe(
+        switchMap(({ page, category }) =>
+          this.productService.loadPage(page, PAGE_SIZE, category || null).pipe(
             tap((pageData) => {
               if (pageData.total !== undefined) this.knownTotal.set(pageData.total);
               if (
@@ -168,9 +178,12 @@ export class ProductList {
   protected updateSort(event: Event): void {
     const select = event.target;
     if (select instanceof HTMLSelectElement) {
-      this.sortBy.set(select.value);
       void this.router.navigate([this.routes.products], {
-        queryParams: { ...this.currentQuery(), page: null },
+        queryParams: {
+          ...this.currentQuery(),
+          sort: select.value === 'featured' ? null : select.value,
+          page: null,
+        },
       });
     }
   }

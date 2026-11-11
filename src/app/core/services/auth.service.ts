@@ -7,6 +7,17 @@ import { STORAGE_KEYS } from '../constants/storage-keys';
 import { ApiService } from './api.service';
 import { StorageService } from './storage.service';
 
+export interface LoginPayload {
+  USER_NAME: string;
+  USER_PASSWORD: string;
+}
+
+interface LoginResult {
+  user: User;
+  token: string;
+  message: string;
+}
+
 export interface CustomerRegistrationPayload {
   FIRST_NAME: string;
   LAST_NAME: string;
@@ -36,6 +47,62 @@ function responseMessage(response: Record<string, unknown>): string | undefined 
           .filter((entry): entry is string => typeof entry === 'string' && !!entry.trim())
       : [];
   return messages.length ? messages.join(' ') : undefined;
+}
+
+function requiredText(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  if (typeof value !== 'number' && typeof value !== 'string') return undefined;
+  if (typeof value === 'string' && !value.trim()) return undefined;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function mapLoginResponse(response: unknown): LoginResult {
+  if (!isRecord(response)) {
+    throw new Error('The login API returned an invalid response.');
+  }
+
+  const status = response['status'] ?? response['STATUS'];
+  const message = responseMessage(response);
+  if (
+    typeof status !== 'string' ||
+    status.trim().toUpperCase() !== 'SUCCESS' ||
+    response['success'] === false ||
+    response['SUCCESS'] === false
+  ) {
+    throw new Error(message ?? 'Login failed. Check your username and password.');
+  }
+
+  const data = response['data'] ?? response['DATA'];
+  if (!isRecord(data)) {
+    throw new Error('The login API returned incomplete user details.');
+  }
+
+  const userId = positiveInteger(data['USER_ID']);
+  const userName = requiredText(data['USER_NAME']);
+  const userType = requiredText(data['USER_TYPE']);
+  const userTypeId = positiveInteger(data['USER_TYPE_ID']);
+  const token = requiredText(data['ACCESSTOKEN']);
+  if (!userId || !userName || !userType || !userTypeId || !token) {
+    throw new Error('The login API returned incomplete user details or access token.');
+  }
+
+  return {
+    user: {
+      id: String(userId),
+      email: '',
+      firstName: userName,
+      lastName: '',
+      userName,
+      userType,
+      userTypeId,
+    },
+    token,
+    message: message ?? 'Login successful.',
+  };
 }
 
 function validateRegistrationResponse(response: unknown): string {
@@ -82,6 +149,26 @@ export class AuthService {
   readonly token = this._token.asReadonly();
   readonly isAuthenticated = computed(() => !!this._token() && !!this._user());
 
+  login(userName: string, password: string): Observable<string> {
+    const payload: LoginPayload = {
+      USER_NAME: userName.trim(),
+      USER_PASSWORD: password,
+    };
+    if (!payload.USER_NAME || !payload.USER_PASSWORD) {
+      throw new RangeError('Username and password are required.');
+    }
+
+    return this.api
+      .post<unknown>(API_ENDPOINTS.user.login, payload)
+      .pipe(
+        map(mapLoginResponse),
+        map((result) => {
+          this.setSession(result.user, result.token);
+          return result.message;
+        }),
+      );
+  }
+
   registerCustomer(payload: CustomerRegistrationPayload): Observable<string> {
     return this.api
       .post<unknown>(API_ENDPOINTS.customerRegistration.insert, payload)
@@ -102,6 +189,22 @@ export class AuthService {
         : 'Registration failed. Check your connection and try again.';
     }
     return error instanceof Error ? error.message : 'Registration failed. Please try again.';
+  }
+
+  getLoginErrorMessage(error: unknown): string {
+    if (error instanceof HttpErrorResponse) {
+      const body = error.error;
+      if (isRecord(body)) {
+        const message = responseMessage(body);
+        if (message) return message;
+      } else if (typeof body === 'string' && body.trim()) {
+        return body.trim();
+      }
+      return error.status
+        ? `Login failed (HTTP ${error.status}).`
+        : 'Login failed. Check your connection and try again.';
+    }
+    return error instanceof Error ? error.message : 'Login failed. Please try again.';
   }
 
   setSession(user: User, token: string): void {

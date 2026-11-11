@@ -179,8 +179,14 @@ describe('SellerVerificationService', () => {
   it('maps API seller approval statuses to the seller status model', () => {
     let approved: SellerVerificationRecord | null | undefined;
     let rejected: SellerVerificationRecord | null | undefined;
+    let statusAliasApproved: SellerVerificationRecord | null | undefined;
+    let activeSeller: SellerVerificationRecord | null | undefined;
+    let lowercaseActiveSeller: SellerVerificationRecord | null | undefined;
     service.getSellerDetails(59).subscribe((seller) => (approved = seller));
     service.getSellerDetails(60).subscribe((seller) => (rejected = seller));
+    service.getSellerDetails(61).subscribe((seller) => (statusAliasApproved = seller));
+    service.getSellerDetails(62).subscribe((seller) => (activeSeller = seller));
+    service.getSellerDetails(63).subscribe((seller) => (lowercaseActiveSeller = seller));
 
     http
       .expectOne((request) => request.params.get('SELLER_ID') === '59')
@@ -201,10 +207,31 @@ describe('SellerVerificationService', () => {
         status: true,
         data: [{ SELLER_ID: 60, SELLER_STATUS: 'REJECTED' }],
       });
+    http
+      .expectOne((request) => request.params.get('SELLER_ID') === '61')
+      .flush({
+        status: true,
+        data: [{ SELLER_ID: 61, STATUS: 'APPROVED' }],
+      });
+    http
+      .expectOne((request) => request.params.get('SELLER_ID') === '62')
+      .flush({
+        status: true,
+        data: [{ SELLER_ID: 62, SELLER_STATUS: 'ACTIVE' }],
+      });
+    http
+      .expectOne((request) => request.params.get('SELLER_ID') === '63')
+      .flush({
+        status: true,
+        data: [{ SELLER_ID: 63, SELLER_STATUS: 'active' }],
+      });
 
     expect(approved?.status).toBe('Approved');
     expect(approved?.documentVerificationStatus).toBe('Approved');
     expect(rejected?.status).toBe('Rejected');
+    expect(statusAliasApproved?.status).toBe('Approved');
+    expect(activeSeller?.status).toBe('Approved');
+    expect(lowercaseActiveSeller?.status).toBe('Pending');
   });
 
   it('maps each document verification status and rejection reason from the API response', () => {

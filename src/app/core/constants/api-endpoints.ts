@@ -44,6 +44,9 @@ export const API_ENDPOINTS = {
     get: 'seller_verification/get',
     updateDecision: 'seller_approve_reject/update',
   },
+  user: {
+    login: 'user/login',
+  },
   orderManagement: {
     get: 'order_dashboard/get',
     orderCount: 'order_count/get',

@@ -8,5 +8,14 @@ export const guestGuard: CanActivateFn = () => {
   const auth = inject(AuthService);
   const router = inject(Router);
 
-  return auth.isAuthenticated() ? router.createUrlTree([APP_ROUTES.home]) : true;
+  if (!auth.isAuthenticated()) return true;
+
+  switch (auth.user()?.userType?.trim().toUpperCase()) {
+    case 'ADMIN':
+      return router.parseUrl(APP_ROUTES.adminDashboard);
+    case 'SELLER':
+      return router.parseUrl(APP_ROUTES.allProducts);
+    default:
+      return router.parseUrl(APP_ROUTES.home);
+  }
 };

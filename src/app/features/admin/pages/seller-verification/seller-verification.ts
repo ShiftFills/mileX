@@ -218,10 +218,6 @@ export class SellerVerification {
   private readonly detailRetry = signal(0);
   private readonly detailRecord = signal<SellerVerificationRecord | null>(null);
   private readonly refreshListingAfterDetailFor = signal<number | null>(null);
-  private readonly detailStatusOverride = signal<{
-    sellerId: number;
-    status: SellerVerificationStatus;
-  } | null>(null);
   protected readonly remarks = signal('');
   protected readonly remarksError = signal('');
   protected readonly documentRemarks = signal('');
@@ -235,14 +231,9 @@ export class SellerVerification {
   protected readonly totalCount = computed(() => this.totalSellers());
   private readonly detailRequest = computed(() => {
     const selected = this.sellers().find((seller) => seller.id === this.activeSellerId());
-    const statusOverride = this.detailStatusOverride();
     return selected
       ? {
           sellerId: selected.sellerId,
-          status:
-            statusOverride?.sellerId === selected.sellerId
-              ? statusOverride.status
-              : selected.status,
           retry: this.detailRetry(),
         }
       : null;
@@ -372,7 +363,6 @@ export class SellerVerification {
         distinctUntilChanged(
           (previous, current) =>
             previous?.sellerId === current?.sellerId &&
-            previous?.status === current?.status &&
             previous?.retry === current?.retry,
         ),
         switchMap((request) => {
@@ -577,7 +567,7 @@ export class SellerVerification {
   protected readonly sellerApprovalDisabledReason = computed(() => {
     const seller = this.activeSeller();
     const state = this.sellerDecisionState();
-    if (!seller || seller.status !== 'Pending' || seller.documentVerificationStatus === 'Approved') {
+    if (!seller || seller.status !== 'Pending') {
       return null;
     }
     if (state !== 'pending-documents' && state !== 'rejected-document') return null;
@@ -599,16 +589,13 @@ export class SellerVerification {
     return (
       this.detailStatus() === 'success' &&
       seller?.status === 'Pending' &&
-      seller.documentVerificationStatus === 'Pending' &&
       this.sellerDecisionState() === 'approved-documents'
     );
   });
   protected readonly sellerDecisionState = computed(() => {
     const seller = this.activeSeller();
     if (!seller || this.detailStatus() !== 'success') return 'unavailable';
-    if (seller.status !== 'Pending' || seller.documentVerificationStatus === 'Approved') {
-      return 'already-decided';
-    }
+    if (seller.status !== 'Pending') return 'already-decided';
 
     const requiredDocuments = seller.documents.filter((document) => document.required === true);
     if (requiredDocuments.length < REQUIRED_SELLER_DOCUMENT_TYPES.length) {
@@ -666,7 +653,6 @@ export class SellerVerification {
 
   protected openDetails(seller: SellerRow): void {
     this.activeSellerId.set(seller.id);
-    this.detailStatusOverride.set(null);
     this.documentRejectionOpen.set(false);
     this.pendingDecision.set(null);
     this.decisionScope.set(null);
@@ -678,7 +664,6 @@ export class SellerVerification {
   protected closeDetails(): void {
     this.activeSellerId.set(null);
     this.detailRecord.set(null);
-    this.detailStatusOverride.set(null);
     this.refreshListingAfterDetailFor.set(null);
     this.detailStatus.set('idle');
     this.detailError.set('');
@@ -867,7 +852,9 @@ export class SellerVerification {
       .subscribe({
         next: (message) => {
           const status: SellerVerificationStatus = decision === 'approve' ? 'Approved' : 'Rejected';
-          this.detailStatusOverride.set({ sellerId: seller.sellerId, status });
+          this.detailRecord.update((record) =>
+            record?.sellerId === seller.sellerId ? { ...record, status } : record,
+          );
           this.refreshListingAfterDetailFor.set(seller.sellerId);
           this.detailRetry.update((retry) => retry + 1);
           this.pendingDecision.set(null);

@@ -3,6 +3,9 @@ export interface User {
   email: string;
   firstName: string;
   lastName: string;
+  userName?: string;
+  userType?: string;
+  userTypeId?: number;
 }
 
 export interface Address {

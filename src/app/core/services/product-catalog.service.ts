@@ -233,16 +233,35 @@ function mapProductDetailsResponse(response: unknown, requestedId: number): Prod
 }
 
 function mapProductsResponse(response: unknown): Product[] {
-  if (!isRecord(response) || typeof response['status'] !== 'string') {
+  if (!isRecord(response)) {
     throw new Error('The products API returned an invalid response.');
   }
 
-  if (response['status'].toUpperCase() !== 'SUCCESS') {
-    const message = typeof response['message'] === 'string' ? response['message'] : '';
-    throw new Error(message || 'The products API could not load products.');
+  // The backend reports success either as `status: "SUCCESS"` or as `success: true`,
+  // so accept both (same tolerance as the paginated and lookup mappers below).
+  const status = response['status'] ?? response['STATUS'];
+  const success = response['success'] ?? response['SUCCESS'];
+  if (status === undefined && success === undefined) {
+    throw new Error('The products API returned an invalid response.');
+  }
+  const successfulStatus =
+    status === undefined ||
+    status === true ||
+    status === 1 ||
+    (typeof status === 'string' && ['SUCCESS', 'OK', '200', '201', 'TRUE', '1'].includes(status.trim().toUpperCase()));
+  const successfulFlag =
+    success === undefined ||
+    success === true ||
+    success === 1 ||
+    (typeof success === 'string' && ['TRUE', '1', 'SUCCESS'].includes(success.trim().toUpperCase()));
+  if (!successfulStatus || !successfulFlag) {
+    const message = response['message'] ?? response['MESSAGE'];
+    throw new Error(
+      typeof message === 'string' && message.trim() ? message.trim() : 'The products API could not load products.',
+    );
   }
 
-  const data = response['data'];
+  const data = response['data'] ?? response['DATA'];
   if (!Array.isArray(data)) throw new Error('The products API returned an invalid product list.');
 
   const activeEntries = data.filter((entry) => {
@@ -706,7 +725,16 @@ export class ProductCatalogService {
     return this.loadLookup('productCodes', { PRODUCT_ID: id });
   }
 
-  loadPage(page: number, pageSize: number): Observable<PaginatedResponse<Product>> {
+  /**
+   * Loads one page of products. When `categoryId` is given, the backend filters by CATEGORY_ID
+   * (server-side), so pagination metadata describes that category only. Omit it (or pass
+   * null/empty) for "All categories".
+   */
+  loadPage(
+    page: number,
+    pageSize: number,
+    categoryId?: string | number | null,
+  ): Observable<PaginatedResponse<Product>> {
     if (!Number.isSafeInteger(page) || page < 1) {
       return throwError(() => new RangeError('Page must be a positive safe integer.'));
     }
@@ -714,11 +742,18 @@ export class ProductCatalogService {
       return throwError(() => new RangeError('Page size must be a positive safe integer.'));
     }
 
+    const hasCategory = categoryId !== undefined && categoryId !== null && String(categoryId).trim() !== '';
+    const category = hasCategory ? Number(categoryId) : undefined;
+    if (category !== undefined && (!Number.isSafeInteger(category) || category <= 0)) {
+      return throwError(() => new RangeError('Category ID must be a positive safe integer.'));
+    }
+
     const offset = offsetForPage(page, pageSize);
     if (!Number.isSafeInteger(offset)) {
       return throwError(() => new RangeError('The requested page offset is outside the supported range.'));
     }
-    const cacheKey = `${pageSize}:${offset}`;
+    // The category is part of the key so pages of different categories never share a cache entry.
+    const cacheKey = `${category ?? 'all'}:${pageSize}:${offset}`;
     const cachedRequest = this.pageRequests.get(cacheKey);
     if (cachedRequest) {
       // Map preserves insertion order, so reinserting marks this page as recently used.
@@ -731,6 +766,7 @@ export class ProductCatalogService {
     request = this.api
       .get<unknown>(API_ENDPOINTS.products.get, {
         PRODUCT_ID: -1,
+        ...(category !== undefined ? { CATEGORY_ID: category } : {}),
         LIMIT: pageSize,
         OFFSET: offset,
       })

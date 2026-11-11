@@ -1,0 +1,41 @@
+.seller-dashboard__heading {
+  margin-bottom: 24px;
+}
+
+.seller-dashboard__eyebrow {
+  margin: 0 0 8px;
+  color: #536bce;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.seller-dashboard__heading h1 {
+  margin: 0 0 8px;
+  font-size: clamp(24px, 3vw, 32px);
+  font-weight: 700;
+}
+
+.seller-dashboard__heading > p:last-child,
+.seller-dashboard__card p {
+  color: #68748a;
+  line-height: 1.6;
+}
+
+.seller-dashboard__card {
+  max-width: 780px;
+  padding: 24px;
+  background: #fff;
+  border: 1px solid #e8ebf1;
+  border-radius: 12px;
+}
+
+.seller-dashboard__card h2 {
+  margin: 0 0 10px;
+  font-size: 18px;
+}
+
+.seller-dashboard__card p {
+  margin: 0;
+}

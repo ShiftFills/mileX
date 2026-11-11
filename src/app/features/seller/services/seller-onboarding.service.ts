@@ -1,8 +1,9 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable, map, throwError } from 'rxjs';
+import { Observable, finalize, map, of, shareReplay, tap, throwError } from 'rxjs';
 import { API_ENDPOINTS } from '@core/constants/api-endpoints';
 import { ApiService } from '@core/services/api.service';
+import { AuthService } from '@core/services/auth.service';
 
 export interface SellerLookupOption {
   id: string;
@@ -58,6 +59,14 @@ export interface SellerOnboardingUpdatePayload {
 export interface SellerOnboardingResult {
   sellerId: number;
   userId: number;
+}
+
+export interface SellerAccountRecord {
+  userId: number;
+  sellerId?: number;
+  sellerStatus?: string;
+  documentId?: number;
+  bankDetailId?: number;
 }
 
 export interface SellerDocumentsResult {
@@ -193,6 +202,69 @@ function readResourceRecord(response: unknown, resource: string): Record<string,
   return record;
 }
 
+function mapSellerForUser(response: unknown, userId: number): SellerAccountRecord | null {
+  if (!isRecord(response)) {
+    throw new Error('The seller lookup API returned an invalid response.');
+  }
+
+  const status = response['STATUS'] ?? response['status'];
+  const message = response['MESSAGE'] ?? response['message'];
+  if (
+    status !== undefined &&
+    status !== true &&
+    (typeof status !== 'string' ||
+      !['SUCCESS', 'OK', '200', '201'].includes(status.trim().toUpperCase()))
+  ) {
+    throw new Error(
+      typeof message === 'string' && message.trim()
+        ? message.trim()
+        : 'Seller details could not be loaded.',
+    );
+  }
+
+  const responseData = response['DATA'] ?? response['data'];
+  const data =
+    (responseData === null || responseData === undefined) &&
+    numericId(response['USER_ID']) === userId
+      ? response
+      : responseData;
+  if (data === null || data === undefined || (Array.isArray(data) && data.length === 0)) {
+    return null;
+  }
+
+  const records = Array.isArray(data) ? data.filter(isRecord) : isRecord(data) ? [data] : [];
+  if (records.length === 0) {
+    throw new Error('The seller lookup API returned an invalid seller record.');
+  }
+
+  const matchingRecord = records.find((record) => numericId(record['USER_ID']) === userId);
+  if (!matchingRecord) {
+    const returnedUserId = numericId(records[0]['USER_ID']);
+    if (returnedUserId === undefined) {
+      throw new Error('The seller lookup API response is missing USER_ID.');
+    }
+    throw new Error(
+      `The seller lookup API returned USER_ID ${returnedUserId} for the requested USER_ID ${userId}.`,
+    );
+  }
+
+  const sellerId = numericId(matchingRecord['SELLER_ID']);
+  const documentId = numericId(matchingRecord['DOCUMENT_ID']);
+  const bankDetailId = numericId(matchingRecord['BANK_DETAIL_ID']);
+  const sellerStatus =
+    typeof matchingRecord['SELLER_STATUS'] === 'string'
+      ? matchingRecord['SELLER_STATUS'].trim()
+      : undefined;
+
+  return {
+    userId,
+    ...(sellerId !== undefined ? { sellerId } : {}),
+    ...(sellerStatus ? { sellerStatus } : {}),
+    ...(documentId !== undefined ? { documentId } : {}),
+    ...(bankDetailId !== undefined ? { bankDetailId } : {}),
+  };
+}
+
 function assertRecordId(record: Record<string, unknown>, key: string, expectedId: number, resource: string): void {
   const actualId = numericId(record[key]);
   if (actualId === undefined) {
@@ -283,6 +355,39 @@ function mapInsertResult(
 @Injectable({ providedIn: 'root' })
 export class SellerOnboardingService {
   private readonly api = inject(ApiService);
+  private readonly auth = inject(AuthService);
+  private sellerLookupToken: string | null | undefined;
+  private readonly sellerLookupCache = new Map<string, SellerAccountRecord | null>();
+  private readonly sellerLookupRequests = new Map<string, Observable<SellerAccountRecord | null>>();
+
+  getSellerForUser(userId: number): Observable<SellerAccountRecord | null> {
+    const id = requireId(userId, 'USER_ID');
+    const token = this.auth.token();
+    if (this.sellerLookupToken !== token) {
+      this.sellerLookupToken = token;
+      this.sellerLookupCache.clear();
+      this.sellerLookupRequests.clear();
+    }
+
+    const requestKey = `${token ?? ''}:${id}`;
+    if (this.sellerLookupCache.has(requestKey)) {
+      return of(this.sellerLookupCache.get(requestKey) ?? null);
+    }
+
+    const existingRequest = this.sellerLookupRequests.get(requestKey);
+    if (existingRequest) return existingRequest;
+
+    const request = this.api
+      .get<unknown>(API_ENDPOINTS.sellerOnboarding.get, { USER_ID: id })
+      .pipe(
+        map((response) => mapSellerForUser(response, id)),
+        tap((record) => this.sellerLookupCache.set(requestKey, record)),
+        finalize(() => this.sellerLookupRequests.delete(requestKey)),
+        shareReplay({ bufferSize: 1, refCount: false }),
+      );
+    this.sellerLookupRequests.set(requestKey, request);
+    return request;
+  }
 
   getSeller(sellerId: number): Observable<Record<string, unknown>> {
     const id = requireId(sellerId, 'SELLER_ID');

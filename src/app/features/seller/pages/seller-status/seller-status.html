@@ -1,0 +1,32 @@
+<section class="seller-status" aria-live="polite">
+  @if (unavailable) {
+    <div class="seller-status__icon" aria-hidden="true">!</div>
+    <h1>We couldn't verify your seller status</h1>
+    <p>
+      Seller details are temporarily unavailable. Your dashboard remains protected until we can
+      confirm your current approval status.
+    </p>
+    <a class="seller-status__action" [routerLink]="routes.sellerDashboard">Try again</a>
+  } @else if (rejected) {
+    <div class="seller-status__icon seller-status__icon--rejected" aria-hidden="true">!</div>
+    <h1>Your seller application needs an update</h1>
+    <p>
+      Your application was rejected. Review and update your seller details or documents to follow
+      the resubmission process.
+    </p>
+    <a
+      class="seller-status__action"
+      [routerLink]="routes.sellerOnboarding"
+      queryParamsHandling="preserve"
+      >Review and resubmit</a
+    >
+  } @else {
+    <div class="seller-status__icon" aria-hidden="true">…</div>
+    <h1>Your seller account is under review</h1>
+    <p>
+      Your onboarding and documents have been submitted. We’ll make the Seller Dashboard available
+      after verification is complete.
+    </p>
+    <a class="seller-status__secondary" [routerLink]="routes.home">Back to MileX</a>
+  }
+</section>

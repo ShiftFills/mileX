@@ -1,0 +1,16 @@
+<section class="seller-dashboard" aria-labelledby="seller-dashboard-title">
+  <header class="seller-dashboard__heading">
+    <p class="seller-dashboard__eyebrow">Seller Center</p>
+    <h1 id="seller-dashboard-title">
+      Welcome, {{ user()?.userName || user()?.firstName || 'Seller' }}
+    </h1>
+    <p>Your seller account is active. Manage your MileX business from this workspace.</p>
+  </header>
+  <section class="seller-dashboard__card" aria-label="Seller dashboard">
+    <h2>Seller dashboard</h2>
+    <p>
+      Your seller workspace is ready. Product, order, inventory, and reporting tools will appear
+      here as they are enabled for your account.
+    </p>
+  </section>
+</section>

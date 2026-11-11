@@ -1,7 +1,12 @@
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
-import { SellerOnboardingPayload, SellerOnboardingService } from './seller-onboarding.service';
+import { AuthService } from '@core/services/auth.service';
+import {
+  SellerAccountRecord,
+  SellerOnboardingPayload,
+  SellerOnboardingService,
+} from './seller-onboarding.service';
 
 describe('SellerOnboardingService', () => {
   let service: SellerOnboardingService;
@@ -291,6 +296,115 @@ describe('SellerOnboardingService', () => {
     expect(seller).toEqual({ SELLER_ID: 42, USER_ID: 2 });
     expect(documents).toEqual({ DOCUMENT_ID: 7, SELLER_ID: 42 });
     expect(bankDetails).toEqual({ BANK_DETAIL_ID: 9, SELLER_ID: 42 });
+  });
+
+  it('resolves a seller and approval status using the logged-in USER_ID', () => {
+    let seller: unknown;
+    service.getSellerForUser(8).subscribe((record) => (seller = record));
+
+    http
+      .expectOne(
+        (request) =>
+          request.url.endsWith('/seller_onboarding/get') &&
+          request.params.get('USER_ID') === '8' &&
+          request.params.get('SELLER_ID') === null,
+      )
+      .flush({
+        STATUS: 'SUCCESS',
+        DATA: [
+          {
+            USER_ID: 8,
+            SELLER_ID: 42,
+            SELLER_STATUS: 'ACTIVE',
+            DOCUMENT_ID: 7,
+            BANK_DETAIL_ID: 9,
+          },
+        ],
+      });
+
+    expect(seller).toEqual({
+      userId: 8,
+      sellerId: 42,
+      sellerStatus: 'ACTIVE',
+      documentId: 7,
+      bankDetailId: 9,
+    });
+  });
+
+  it('shares and caches seller lookup results for repeated guard subscriptions in one session', () => {
+    let first: unknown;
+    let second: unknown;
+    service.getSellerForUser(8).subscribe((record) => (first = record));
+    service.getSellerForUser(8).subscribe((record) => (second = record));
+
+    http
+      .expectOne(
+        (request) =>
+          request.url.endsWith('/seller_onboarding/get') &&
+          request.params.get('USER_ID') === '8',
+      )
+      .flush({
+        STATUS: 'SUCCESS',
+        DATA: [{ USER_ID: 8, SELLER_ID: 42, SELLER_STATUS: 'ACTIVE' }],
+      });
+
+    expect(first).toEqual({ userId: 8, sellerId: 42, sellerStatus: 'ACTIVE' });
+    expect(second).toEqual(first);
+
+    let cached: unknown;
+    service.getSellerForUser(8).subscribe((record) => (cached = record));
+    expect(cached).toEqual(first);
+    http.expectNone((request) => request.url.endsWith('/seller_onboarding/get'));
+  });
+
+  it('fetches seller status again when the authenticated access token changes', () => {
+    const auth = TestBed.inject(AuthService);
+    let status: SellerAccountRecord | null | undefined;
+
+    auth.setSession(
+      { id: '8', email: '', firstName: 'Seller', lastName: '', userType: 'SELLER' },
+      'first-token',
+    );
+    service.getSellerForUser(8).subscribe((record) => (status = record));
+    http
+      .expectOne((request) => request.params.get('USER_ID') === '8')
+      .flush({ STATUS: 'SUCCESS', DATA: [{ USER_ID: 8, SELLER_ID: 42, SELLER_STATUS: 'PENDING' }] });
+    expect(status?.sellerStatus).toBe('PENDING');
+
+    auth.setSession(
+      { id: '8', email: '', firstName: 'Seller', lastName: '', userType: 'SELLER' },
+      'second-token',
+    );
+    service.getSellerForUser(8).subscribe((record) => (status = record));
+    http
+      .expectOne((request) => request.params.get('USER_ID') === '8')
+      .flush({ STATUS: 'SUCCESS', DATA: [{ USER_ID: 8, SELLER_ID: 42, SELLER_STATUS: 'ACTIVE' }] });
+
+    expect(status?.sellerStatus).toBe('ACTIVE');
+  });
+
+  it('returns no seller record when the USER_ID lookup has no matches', () => {
+    let seller: unknown = 'not loaded';
+    service.getSellerForUser(8).subscribe((record) => (seller = record));
+    http
+      .expectOne((request) => request.params.get('USER_ID') === '8')
+      .flush({ STATUS: 'SUCCESS', DATA: [] });
+
+    expect(seller).toBeNull();
+  });
+
+  it('rejects a seller lookup response associated with a different USER_ID', () => {
+    let failure: unknown;
+    service.getSellerForUser(8).subscribe({
+      error: (error: unknown) => (failure = error),
+    });
+    http
+      .expectOne((request) => request.params.get('USER_ID') === '8')
+      .flush({ STATUS: 'SUCCESS', DATA: [{ USER_ID: 9, SELLER_ID: 42 }] });
+
+    expect(failure).toEqual(
+      new Error('The seller lookup API returned USER_ID 9 for the requested USER_ID 8.'),
+    );
   });
 
   it('loads document and bank records with the selected seller record IDs', () => {

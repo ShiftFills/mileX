@@ -1,6 +1,8 @@
 import { Routes } from '@angular/router';
 import { authGuard } from '@core/guards/auth.guard';
 import { guestGuard } from '@core/guards/guest.guard';
+import { roleMatchGuard } from '@core/guards/role-match.guard';
+import { publicSellerOnboardingGuard } from '@core/guards/seller-account.guard';
 import { AccountLayout } from '@layouts/account-layout/account-layout';
 import { AdminLayout } from '@layouts/admin-layout/admin-layout';
 import { AuthLayout } from '@layouts/auth-layout/auth-layout';
@@ -9,7 +11,15 @@ import { MainLayout } from '@layouts/main-layout/main-layout';
 export const routes: Routes = [
   {
     path: 'admin',
+    canMatch: [roleMatchGuard],
+    data: { userType: 'ADMIN' },
     loadChildren: () => import('@features/admin/admin.routes').then((m) => m.ADMIN_ROUTES),
+  },
+  {
+    path: 'seller',
+    canMatch: [roleMatchGuard],
+    data: { userType: 'SELLER' },
+    loadChildren: () => import('@features/seller/seller.routes').then((m) => m.SELLER_ROUTES),
   },
   // Delivery address step uses the storefront shell (header + footer); declared before the
   // `checkout` shell so `/checkout/address` is matched here.
@@ -48,6 +58,7 @@ export const routes: Routes = [
   {
     path: 'sell',
     title: 'Sell on MileX',
+    canActivate: [publicSellerOnboardingGuard],
     loadComponent: () =>
       import('@features/seller/pages/seller-onboarding/seller-onboarding').then(
         (m) => m.SellerOnboarding,

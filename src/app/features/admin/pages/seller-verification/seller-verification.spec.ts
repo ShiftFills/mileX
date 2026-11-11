@@ -985,6 +985,44 @@ describe('SellerVerification', () => {
     expect(root.querySelectorAll('.sellers-table tbody tr')).toHaveLength(5);
   });
 
+  it('hides seller actions and remarks after approval using the refreshed seller status', async () => {
+    const service = TestBed.inject(SellerVerificationService);
+    const getSellerDetails = vi.spyOn(service, 'getSellerDetails')
+      .mockReturnValueOnce(of(
+        sellerWithDocumentStatuses(
+          REQUIRED_SELLER_DOCUMENT_TYPES.map(() => 'Approved' as const),
+          'Pending',
+          'Approved',
+        ),
+      ))
+      .mockReturnValueOnce(of(
+        sellerWithDocumentStatuses(
+          REQUIRED_SELLER_DOCUMENT_TYPES.map(() => 'Approved' as const),
+          'Approved',
+          'Approved',
+        ),
+      ));
+    const updateDecision = vi.spyOn(service, 'updateSellerDecision');
+    await openFirstSeller();
+
+    expect(root.querySelector('.seller-document-status')?.textContent).toContain('Approved');
+    expect(root.querySelector('#seller-remarks')).not.toBeNull();
+    expect(hasSellerAction('Approve')).toBe(true);
+
+    await clickDialogButton('Approve');
+    await clickDialogButton('Confirm Approve');
+
+    expect(updateDecision).toHaveBeenCalledWith({
+      SELLER_ID: 101,
+      DECISION: 'APPROVED',
+      UPDATED_BY: 1,
+    });
+    expect(getSellerDetails).toHaveBeenCalledTimes(2);
+    expect(hasSellerAction('Approve')).toBe(false);
+    expect(hasSellerAction('Reject')).toBe(false);
+    expect(root.querySelector('#seller-remarks')).toBeNull();
+  });
+
   it('shows Reject but not Approve when any required document is pending', async () => {
     const service = TestBed.inject(SellerVerificationService);
     vi.spyOn(service, 'getSellerDetails').mockReturnValue(
@@ -1072,24 +1110,22 @@ describe('SellerVerification', () => {
     expect(getSellerDetails).toHaveBeenLastCalledWith(101, 'Rejected');
   });
 
-  it('hides seller actions when document verification status is already Approved', async () => {
+  it('hides seller approval actions and remarks when the seller is already Approved', async () => {
     const service = TestBed.inject(SellerVerificationService);
     vi.spyOn(service, 'getSellerDetails').mockReturnValue(
       of({
-        ...sellerWithDocumentStatuses([
-          'Pending',
+        ...sellerWithDocumentStatuses(
+          REQUIRED_SELLER_DOCUMENT_TYPES.map(() => 'Approved' as const),
           'Approved',
           'Approved',
-          'Approved',
-          'Approved',
-          'Approved',
-        ]),
+        ),
         documentVerificationStatus: 'Approved',
       }),
     );
     await openFirstSeller();
 
     expect(root.querySelector('.seller-document-status')?.textContent).toContain('Approved');
+    expect(root.querySelector('#seller-remarks')).toBeNull();
     expect(hasSellerAction('Approve')).toBe(false);
     expect(hasSellerAction('Reject')).toBe(false);
   });
