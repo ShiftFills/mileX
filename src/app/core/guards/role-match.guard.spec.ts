@@ -1,3 +1,4 @@
+// CHANGED: Seller tests now use real paths (`/admin/products/new` etc.), allow all product routes, and check other admin routes stay blocked.
 import { TestBed } from '@angular/core/testing';
 import { CanMatchFn, Router, Route, UrlSegment, UrlTree, provideRouter } from '@angular/router';
 import { AuthService } from '../services/auth.service';

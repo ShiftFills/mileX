@@ -1,3 +1,4 @@
+// CHANGED: category lookups now expect '/all_category/get' (was '/category_management/get') and no longer check CATEGORY_ID=-1.
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
@@ -132,9 +133,8 @@ describe('AllProducts', () => {
   function loadLookups(): void {
     fixture.detectChanges();
     http.expectOne((req) =>
-      req.url.endsWith('/category_management/get') &&
-      req.method === 'GET' &&
-      req.params.get('CATEGORY_ID') === '-1',
+      req.url.endsWith('/all_category/get') &&
+      req.method === 'GET',
     ).flush({
       status: 'SUCCESS',
       data: [
@@ -238,7 +238,7 @@ describe('AllProducts', () => {
     expect(fixture.nativeElement.textContent).toContain('Loading categories');
     expect(fixture.nativeElement.textContent).toContain('Loading brands');
 
-    http.expectOne((req) => req.url.endsWith('/category_management/get')).flush({
+    http.expectOne((req) => req.url.endsWith('/all_category/get')).flush({
       status: 'ERROR',
       message: 'Category service unavailable',
     });
@@ -260,7 +260,7 @@ describe('AllProducts', () => {
     expect(fixture.nativeElement.textContent).toContain('No brands available');
 
     component.retryCategoryLookup();
-    http.expectOne((req) => req.url.endsWith('/category_management/get')).flush({
+    http.expectOne((req) => req.url.endsWith('/all_category/get')).flush({
       status: 'SUCCESS',
       data: [{ CATEGORY_ID: 1, CATEGORY_NAME: 'Electronics' }],
     });

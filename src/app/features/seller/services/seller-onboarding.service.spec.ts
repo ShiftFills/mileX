@@ -91,7 +91,7 @@ describe('SellerOnboardingService', () => {
       CONTACT_PERSON_EMAIL: 'arun@example.com',
       USER_NAME: 'arun_seller',
       USER_PASSWORD: 'Seller@123',
-      CREATED_BY: 1,
+      // CHANGED: CREATED_BY removed from the seller_onboarding/insert payload.
     };
     let result: void | undefined;
     let sellerResult: unknown;
@@ -165,7 +165,7 @@ describe('SellerOnboardingService', () => {
       BANK_PROOF: 'bank-proof.pdf',
       OTHER_SUPPORTING_DOCUMENT: null,
       SELLER_ID: 42,
-      CREATED_BY: 1,
+      // CHANGED: CREATED_BY removed from the seller_docs/insert payload.
     });
     request.flush({ status: true, message: 'Documents saved', DOCUMENT_ID: 17 });
 
@@ -189,7 +189,7 @@ describe('SellerOnboardingService', () => {
       BANK_PROOF: null,
       OTHER_SUPPORTING_DOCUMENT: null,
       SELLER_ID: 3,
-      CREATED_BY: 1,
+      // CHANGED: CREATED_BY removed from the seller_docs/insert payload.
     });
     request.flush({ status: true, DOCUMENT_ID: 18 });
 
@@ -261,7 +261,7 @@ describe('SellerOnboardingService', () => {
       IFSC_CODE: 'ABCD0123456',
       ACCOUNT_TYPE: 2,
       SELLER_ID: 42,
-      CREATED_BY: 1,
+      // CHANGED: CREATED_BY removed from the seller_bank_details/insert payload.
     });
     request.flush({ status: true, message: 'Bank details saved', BANK_DETAIL_ID: 24 });
 

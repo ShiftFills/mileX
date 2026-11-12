@@ -11,6 +11,7 @@ import { Sidebar, SidebarLink } from '../components/sidebar/sidebar';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AdminLayout {
+  // CHANGED (new): AuthService is injected so the sidebar menu can depend on the user's role.
   private readonly auth = inject(AuthService);
 
   private readonly productLinks: SidebarLink = {
@@ -37,6 +38,7 @@ export class AdminLayout {
   // Sellers may only use product management in this area (see roleMatchGuard), so only that
   // menu is shown to them; every other entry would just bounce them back out.
   // Admins keep the full menu.
+  // CHANGED: Sellers see only the Products menu; Admins keep the full menu. Admin menu items are unchanged.
   protected readonly links: SidebarLink[] =
     this.auth.user()?.userType?.trim().toUpperCase() === 'SELLER'
       ? [this.productLinks]

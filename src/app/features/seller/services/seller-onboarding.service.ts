@@ -29,7 +29,7 @@ export interface SellerOnboardingPayload {
   CONTACT_PERSON_EMAIL: string;
   USER_NAME: string;
   USER_PASSWORD: string;
-  CREATED_BY: number;
+  // CHANGED: CREATED_BY was removed from this payload; seller_onboarding/insert no longer receives it.
 }
 
 export interface SellerOnboardingUpdatePayload {
@@ -88,7 +88,7 @@ export interface SellerDocumentsPayload {
   BANK_PROOF: string | null;
   OTHER_SUPPORTING_DOCUMENT: string | null;
   SELLER_ID: number;
-  CREATED_BY: number;
+  // CHANGED: CREATED_BY was removed from this payload; seller_docs/insert no longer receives it.
 }
 
 export interface SellerBankDetails {
@@ -101,7 +101,8 @@ export interface SellerBankDetails {
   ACCOUNT_TYPE: number;
 }
 
-export interface SellerDocumentsUpdatePayload extends Omit<SellerDocumentsPayload, 'CREATED_BY'> {
+// CHANGED: no longer needs Omit<..., 'CREATED_BY'> because SellerDocumentsPayload has no CREATED_BY now.
+export interface SellerDocumentsUpdatePayload extends SellerDocumentsPayload {
   DOCUMENT_ID: number;
   UPDATED_BY: number;
 }
@@ -490,7 +491,7 @@ export class SellerOnboardingService {
     files: Readonly<Record<string, File>>,
     sellerId: number,
   ): Observable<SellerDocumentsResult> {
-    const payload: Omit<SellerDocumentsPayload, 'SELLER_ID' | 'CREATED_BY'> = {
+    const payload: Omit<SellerDocumentsPayload, 'SELLER_ID'> = {
       GST_CERTIFICATE: files['gstCertificate']?.name ?? null,
       PAN_CARD: files['panCard']?.name ?? null,
       BUSINESS_REGISTRATION_CERTIFICATE: files['registrationCertificate']?.name ?? null,
@@ -502,7 +503,7 @@ export class SellerOnboardingService {
     const request: SellerDocumentsPayload = {
       ...payload,
       SELLER_ID: sellerId,
-      CREATED_BY: SELLER_CREATED_BY,
+      // CHANGED: CREATED_BY removed from the seller_docs/insert payload.
     };
     return this.api
       .post<unknown>(API_ENDPOINTS.sellerDocuments.insert, request)
@@ -529,7 +530,8 @@ export class SellerOnboardingService {
     details: SellerBankDetails,
     sellerId: number,
   ): Observable<SellerBankDetailsResult> {
-    const payload = { ...details, SELLER_ID: sellerId, CREATED_BY: SELLER_CREATED_BY };
+    // CHANGED: CREATED_BY was removed; the seller_bank_details/insert payload no longer includes it.
+    const payload = { ...details, SELLER_ID: sellerId };
     return this.api.post<unknown>(API_ENDPOINTS.sellerBankDetails.insert, payload).pipe(
       map((response) => {
         const result = mapInsertResult(

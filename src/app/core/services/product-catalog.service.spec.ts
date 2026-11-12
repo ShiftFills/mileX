@@ -1,3 +1,4 @@
+// CHANGED: category lookups now expect '/all_category/get' (was '/category_management/get') and no longer check CATEGORY_ID=-1.
 import { HttpErrorResponse, provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
@@ -38,8 +39,7 @@ describe('ProductCatalogService', () => {
 
     http.expectOne(
       (request) =>
-        request.url.endsWith('/category_management/get') &&
-        request.params.get('CATEGORY_ID') === '-1' &&
+        request.url.endsWith('/all_category/get') &&
         request.method === 'GET',
     ).flush({
       status: 'SUCCESS',
@@ -106,11 +106,11 @@ describe('ProductCatalogService', () => {
     catalog.loadCategories().subscribe();
 
     http
-      .expectOne((request) => request.url.endsWith('/category_management/get'))
+      .expectOne((request) => request.url.endsWith('/all_category/get'))
       .flush({ status: 'SUCCESS', data: [] });
 
     catalog.loadCategories().subscribe((options) => expect(options).toEqual([]));
-    http.expectNone((request) => request.url.endsWith('/category_management/get'));
+    http.expectNone((request) => request.url.endsWith('/all_category/get'));
   });
 
   it('loads subcategories using both the wildcard subcategory ID and selected category ID', () => {

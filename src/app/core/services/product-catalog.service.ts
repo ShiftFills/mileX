@@ -232,6 +232,8 @@ function mapProductDetailsResponse(response: unknown, requestedId: number): Prod
   };
 }
 
+// CHANGED: accepts `status: "SUCCESS"` OR `success: true` (it used to require a text `status`),
+// which fixed "The products API returned an invalid response." on the Home page.
 function mapProductsResponse(response: unknown): Product[] {
   if (!isRecord(response)) {
     throw new Error('The products API returned an invalid response.');
@@ -585,11 +587,14 @@ function mapLookupOptions(
 const PRODUCT_LOOKUP_DEFINITIONS: Readonly<
   Record<'categories' | 'subCategories' | 'brands' | 'taxRates' | 'productCodes', ProductLookupDefinition>
 > = {
+  // CHANGED: now uses the public all_category/get endpoint and sends no CATEGORY_ID=-1.
   categories: {
+    // `all_category/get` is public and returns every category, so no ID parameter is sent.
     path: API_ENDPOINTS.productLookups.categories,
-    idParameter: 'CATEGORY_ID',
     idField: 'CATEGORY_ID',
+    idAliases: ['CATEGORY_ID', 'ID'],
     labelField: 'CATEGORY_NAME',
+    labelAliases: ['CATEGORY_NAME', 'NAME', 'CATEGORY'],
   },
   subCategories: {
     path: API_ENDPOINTS.productLookups.subCategories,
@@ -742,6 +747,7 @@ export class ProductCatalogService {
       return throwError(() => new RangeError('Page size must be a positive safe integer.'));
     }
 
+    // CHANGED: loadPage() takes an optional categoryId; it is validated here and sent to the API as CATEGORY_ID.
     const hasCategory = categoryId !== undefined && categoryId !== null && String(categoryId).trim() !== '';
     const category = hasCategory ? Number(categoryId) : undefined;
     if (category !== undefined && (!Number.isSafeInteger(category) || category <= 0)) {
@@ -753,6 +759,7 @@ export class ProductCatalogService {
       return throwError(() => new RangeError('The requested page offset is outside the supported range.'));
     }
     // The category is part of the key so pages of different categories never share a cache entry.
+    // CHANGED: the category is part of the cache key (was `${pageSize}:${offset}`), so categories never share cached pages.
     const cacheKey = `${category ?? 'all'}:${pageSize}:${offset}`;
     const cachedRequest = this.pageRequests.get(cacheKey);
     if (cachedRequest) {
@@ -766,6 +773,7 @@ export class ProductCatalogService {
     request = this.api
       .get<unknown>(API_ENDPOINTS.products.get, {
         PRODUCT_ID: -1,
+        // CHANGED: server-side category filtering. CATEGORY_ID is sent only when a category is selected.
         ...(category !== undefined ? { CATEGORY_ID: category } : {}),
         LIMIT: pageSize,
         OFFSET: offset,

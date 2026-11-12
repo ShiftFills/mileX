@@ -1099,7 +1099,7 @@ describe('SellerOnboarding validation', () => {
         CONTACT_PERSON_EMAIL: 'arun@example.com',
         USER_NAME: 'arun_seller',
         USER_PASSWORD: 'Seller@123',
-        CREATED_BY: 1,
+        // CHANGED: CREATED_BY removed from the seller_onboarding/insert payload.
       },
     ]);
     expect(apiCallOrder).toEqual(['onboarding', 'documents', 'bank']);

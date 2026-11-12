@@ -16,6 +16,7 @@ import { ProductService } from '../../services/product.service';
 import { WishlistService } from '../../services/wishlist.service';
 
 const PAGE_SIZE = 5;
+// CHANGED (new): valid sort values, used to read the sort from the URL.
 const SORT_OPTIONS = ['price-low', 'price-high', 'name'] as const;
 
 @Component({
@@ -36,6 +37,7 @@ export class ProductList {
     initialValue: this.route.snapshot.queryParamMap,
   });
   /** Sort lives in the URL (?sort=...) so refresh and back/forward keep it. */
+  // CHANGED: sort now lives in the URL (?sort=...) instead of a plain signal, so refresh and back/forward keep it.
   protected readonly sortBy = computed(() => {
     const sort = this.query().get('sort') ?? '';
     return (SORT_OPTIONS as readonly string[]).includes(sort) ? sort : 'featured';
@@ -49,11 +51,13 @@ export class ProductList {
   private readonly retryCount = signal(0);
   private readonly knownTotal = signal<number | null>(null);
   /** Category of the previous request; used to discard totals that belonged to another category. */
+  // CHANGED (new): used to clear the remembered total when the category changes.
   private lastRequestedCategory: string | null = null;
   private readonly requestedPage = computed(() => {
     const page = Number(this.query().get('page'));
     return Number.isSafeInteger(page) && page > 0 ? page : 1;
   });
+  // CHANGED: `search` was removed from the request object, so typing a search no longer reloads the page.
   // Only values sent to the API belong here. Search and sort are applied to the loaded page in
   // `products`, so changing them must not trigger a reload.
   private readonly pageRequest = computed(() => ({
@@ -86,6 +90,7 @@ export class ProductList {
   protected readonly products = computed(() => {
     const query = this.query();
     const search = (query.get('q') ?? '').trim().toLowerCase();
+    // CHANGED: the in-browser category filter was removed; the server filters by CATEGORY_ID.
     // Category filtering now happens on the server (CATEGORY_ID), so only search is applied here.
     const results = (this.pageData()?.items ?? []).filter(
       (product) =>
@@ -111,6 +116,7 @@ export class ProductList {
         ),
         tap(({ category }) => {
           // A total remembered from another category would show wrong pagination, so drop it.
+          // CHANGED (new): a total remembered from another category is dropped when the category changes.
           if (category !== this.lastRequestedCategory) {
             this.knownTotal.set(null);
             this.lastRequestedCategory = category;
@@ -120,6 +126,7 @@ export class ProductList {
           this.pageData.set(null);
         }),
         switchMap(({ page, category }) =>
+          // CHANGED: the selected category is now passed to the API (server-side filtering and pagination).
           this.productService.loadPage(page, PAGE_SIZE, category || null).pipe(
             tap((pageData) => {
               if (pageData.total !== undefined) this.knownTotal.set(pageData.total);
@@ -181,6 +188,7 @@ export class ProductList {
       void this.router.navigate([this.routes.products], {
         queryParams: {
           ...this.currentQuery(),
+          // CHANGED: the selected sort is written to the URL (?sort=...).
           sort: select.value === 'featured' ? null : select.value,
           page: null,
         },

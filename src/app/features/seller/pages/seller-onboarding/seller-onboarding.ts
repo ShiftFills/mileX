@@ -1088,7 +1088,7 @@ export class SellerOnboarding implements OnDestroy {
       CONTACT_PERSON_EMAIL: value('contactEmail'),
       USER_NAME: value('userName'),
       USER_PASSWORD: value('userPassword'),
-      CREATED_BY: SELLER_CREATED_BY,
+      // CHANGED: CREATED_BY was removed; the seller_onboarding/insert payload no longer includes it.
     };
   }
 

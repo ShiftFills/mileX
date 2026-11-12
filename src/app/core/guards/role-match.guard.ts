@@ -7,6 +7,7 @@ import { AuthService } from '../services/auth.service';
  * Admin-area pages a Seller may open: product management only (list, add, edit, variants).
  * Checked against the path without its leading `admin/`.
  */
+// CHANGED (new): Sellers may open the product pages under /admin (list, add, edit, variants). Everything else stays Admin-only.
 const SELLER_ADMIN_PRODUCT_PATH = /^products(\/(all|new|variants|[^/]+\/edit))?$/;
 
 function defaultRouteFor(userType: string | undefined): string {
@@ -36,6 +37,8 @@ export const roleMatchGuard: CanMatchFn = (route, segments) => {
   // For the top-level `admin` route, Angular passes ALL remaining segments to canMatch, so the
   // path looks like `admin/products/new`. The leading `admin/` is stripped so the relative form
   // (if this guard is ever attached to a nested route) is handled the same way.
+  // CHANGED: compares the FULL path (`admin/products/new`), because Angular passes every remaining segment to canMatch.
+  // The old check compared against `products/all` only, so Sellers were bounced to /seller/dashboard and then onboarding.
   const requestedPath = segments
     .map((segment) => segment.path)
     .join('/')

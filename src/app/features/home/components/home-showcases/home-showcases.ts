@@ -11,6 +11,7 @@ import { Product } from '@shared/models';
 import { WishlistService } from '@core/services/wishlist.service';
 
 /** How many category shelves the home page shows. */
+// CHANGED (new): shelf constants. Shelves are now built per category from the API instead of grouping one unfiltered product list.
 const SHELF_COUNT = 2;
 /** How many products each shelf shows. */
 const SHELF_PRODUCTS = 8;
@@ -55,6 +56,7 @@ export class HomeShowcases {
   constructor() {
     this.productService.load();
 
+    // CHANGED: each shelf loads its own category's products with loadPage(1, 8, categoryId); empty categories are skipped.
     toObservable(this.categories)
       .pipe(
         switchMap((categories) => {

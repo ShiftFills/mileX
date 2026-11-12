@@ -5,7 +5,8 @@ export const API_ENDPOINTS = {
     update: 'products/update',
   },
   productLookups: {
-    categories: 'category_management/get',
+    // Public endpoint: storefront visitors who are not logged in have no access token.
+    categories: 'all_category/get',
     subCategories: 'sub_category/get',
     brands: 'brand_management/get',
     taxRates: 'tax_rate/get',

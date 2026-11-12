@@ -14,6 +14,7 @@ export const guestGuard: CanActivateFn = () => {
     case 'ADMIN':
       return router.parseUrl(APP_ROUTES.adminDashboard);
     case 'SELLER':
+      // CHANGED: a signed-in Seller opening the login page now goes to All Products (was the Seller Dashboard, which led to onboarding).
       return router.parseUrl(APP_ROUTES.allProducts);
     default:
       return router.parseUrl(APP_ROUTES.home);
