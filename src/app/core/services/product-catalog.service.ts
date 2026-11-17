@@ -525,6 +525,17 @@ function offsetForPage(page: number, pageSize: number): number {
   return (page - 1) * pageSize;
 }
 
+// CHANGED (new): page/page-size checks shared by loadPage and loadSellerPage (messages unchanged).
+function invalidPaging(page: number, pageSize: number): RangeError | null {
+  if (!Number.isSafeInteger(page) || page < 1) {
+    return new RangeError('Page must be a positive safe integer.');
+  }
+  if (!Number.isSafeInteger(pageSize) || pageSize < 1) {
+    return new RangeError('Page size must be a positive safe integer.');
+  }
+  return null;
+}
+
 function lookupEntries(response: unknown, resource: string): readonly unknown[] {
   if (!isRecord(response)) {
     throw new Error(`The ${resource} API returned an invalid response.`);
@@ -758,12 +769,8 @@ export class ProductCatalogService {
     pageSize: number,
     categoryId?: string | number | null,
   ): Observable<PaginatedResponse<Product>> {
-    if (!Number.isSafeInteger(page) || page < 1) {
-      return throwError(() => new RangeError('Page must be a positive safe integer.'));
-    }
-    if (!Number.isSafeInteger(pageSize) || pageSize < 1) {
-      return throwError(() => new RangeError('Page size must be a positive safe integer.'));
-    }
+    const pagingError = invalidPaging(page, pageSize);
+    if (pagingError) return throwError(() => pagingError);
 
     // CHANGED: loadPage() takes an optional categoryId; it is validated here and sent to the API as CATEGORY_ID.
     const hasCategory = categoryId !== undefined && categoryId !== null && String(categoryId).trim() !== '';
@@ -772,13 +779,42 @@ export class ProductCatalogService {
       return throwError(() => new RangeError('Category ID must be a positive safe integer.'));
     }
 
+    // The category is part of the key so pages of different categories never share a cache entry.
+    // CHANGED: the category is part of the cache key (was `${pageSize}:${offset}`), so categories never share cached pages.
+    return this.requestProductPage(`${category ?? 'all'}`, {
+      PRODUCT_ID: -1,
+      // CHANGED: server-side category filtering. CATEGORY_ID is sent only when a category is selected.
+      ...(category !== undefined ? { CATEGORY_ID: category } : {}),
+    }, page, pageSize);
+  }
+
+  /**
+   * Seller login: one page of the given seller's own products (`products/get?SELLER_ID=…&LIMIT=…&OFFSET=…`).
+   * Uses the same response mapping and page cache as loadPage, under a per-seller cache key.
+   */
+  // CHANGED (new): Seller variant of loadPage for the All Products listing.
+  loadSellerPage(sellerId: number, page: number, pageSize: number): Observable<PaginatedResponse<Product>> {
+    const pagingError = invalidPaging(page, pageSize);
+    if (pagingError) return throwError(() => pagingError);
+    if (!Number.isSafeInteger(sellerId) || sellerId <= 0) {
+      return throwError(() => new RangeError('Seller ID must be a positive safe integer.'));
+    }
+    // Seller pages never share cache entries with the Admin/storefront pages or with another seller.
+    return this.requestProductPage(`seller:${sellerId}`, { SELLER_ID: sellerId }, page, pageSize);
+  }
+
+  // CHANGED (new): shared page request + cache for loadPage and loadSellerPage (moved from loadPage unchanged).
+  private requestProductPage(
+    scope: string,
+    scopeParams: Record<string, number>,
+    page: number,
+    pageSize: number,
+  ): Observable<PaginatedResponse<Product>> {
     const offset = offsetForPage(page, pageSize);
     if (!Number.isSafeInteger(offset)) {
       return throwError(() => new RangeError('The requested page offset is outside the supported range.'));
     }
-    // The category is part of the key so pages of different categories never share a cache entry.
-    // CHANGED: the category is part of the cache key (was `${pageSize}:${offset}`), so categories never share cached pages.
-    const cacheKey = `${category ?? 'all'}:${pageSize}:${offset}`;
+    const cacheKey = `${scope}:${pageSize}:${offset}`;
     const cachedRequest = this.pageRequests.get(cacheKey);
     if (cachedRequest) {
       // Map preserves insertion order, so reinserting marks this page as recently used.
@@ -790,9 +826,7 @@ export class ProductCatalogService {
     let request: Observable<PaginatedResponse<Product>>;
     request = this.api
       .get<unknown>(API_ENDPOINTS.products.get, {
-        PRODUCT_ID: -1,
-        // CHANGED: server-side category filtering. CATEGORY_ID is sent only when a category is selected.
-        ...(category !== undefined ? { CATEGORY_ID: category } : {}),
+        ...scopeParams,
         LIMIT: pageSize,
         OFFSET: offset,
       })

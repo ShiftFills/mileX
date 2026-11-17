@@ -4,6 +4,7 @@ import { provideHttpClientTesting, HttpTestingController } from '@angular/common
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { WritableSignal } from '@angular/core';
 import { provideRouter } from '@angular/router';
+import { AuthService } from '@core/services/auth.service';
 import { AllProducts } from './all-products';
 
 interface ProductRow {
@@ -98,6 +99,11 @@ function response(
   };
 }
 
+/** Access token whose claims carry the given USER_ID (decoded by AuthService.userId()). */
+function tokenFor(userId: number): string {
+  return `header.${btoa(JSON.stringify({ USER_ID: userId })).replace(/=/g, '')}.signature`;
+}
+
 function selectEvent(value: string): Event {
   const select = document.createElement('select');
   const option = document.createElement('option');
@@ -164,6 +170,7 @@ describe('AllProducts', () => {
       req.url.endsWith('/products/get') &&
       req.method === 'GET' &&
       req.params.get('PRODUCT_ID') === '-1' &&
+      req.params.get('SELLER_ID') === null &&
       req.params.get('LIMIT') === '5' &&
       req.params.get('OFFSET') === '0',
     );
@@ -171,9 +178,122 @@ describe('AllProducts', () => {
     fixture.detectChanges();
   }
 
+  // CHANGED (new): Seller login lists only the logged-in seller's products with the same table and controls.
+  describe('for a Seller login', () => {
+    beforeEach(() => {
+      TestBed.inject(AuthService).setSession(
+        { id: '60', email: '', firstName: 'Seller', lastName: '', userType: 'SELLER' },
+        tokenFor(60),
+      );
+    });
+
+    afterEach(() => TestBed.inject(AuthService).clearSession());
+
+    /** The seller record lookup that turns the logged-in USER_ID into its SELLER_ID. */
+    function resolveSeller(sellerId = 44): void {
+      http.expectOne((req) =>
+        req.url.endsWith('/seller_onboarding/get') && req.params.get('USER_ID') === '60',
+      ).flush({
+        STATUS: 'SUCCESS',
+        DATA: [{ USER_ID: 60, SELLER_ID: sellerId, SELLER_STATUS: 'ACTIVE' }],
+      });
+    }
+
+    function expectSellerPage(sellerId: number, limit: number, offset: number) {
+      return http.expectOne((req) =>
+        req.url.endsWith('/products/get') &&
+        req.method === 'GET' &&
+        req.params.get('SELLER_ID') === String(sellerId) &&
+        req.params.get('PRODUCT_ID') === null &&
+        req.params.get('LIMIT') === String(limit) &&
+        req.params.get('OFFSET') === String(offset),
+      );
+    }
+
+    it('requests only the logged-in seller\'s products by SELLER_ID and shows them in the table', () => {
+      loadLookups();
+      resolveSeller(44);
+      expectSellerPage(44, 5, 0).flush(response(API_PRODUCTS, 7));
+      fixture.detectChanges();
+
+      http.expectNone((req) => req.params.get('PRODUCT_ID') === '-1');
+      expect(component.loadStatus()).toBe('success');
+      expect(component.visibleRows().map((row) => row.id)).toEqual([3, 4]);
+      expect(fixture.nativeElement.textContent).toContain('of 7 products');
+    });
+
+    it('uses whichever SELLER_ID the logged-in seller resolves to', () => {
+      loadLookups();
+      resolveSeller(57);
+      expectSellerPage(57, 5, 0).flush(response([], 0));
+      fixture.detectChanges();
+
+      expect(component.loadStatus()).toBe('success');
+    });
+
+    it('paginates and changes page size with the same SELLER_ID, resolving the seller only once', () => {
+      loadLookups();
+      resolveSeller(44);
+      expectSellerPage(44, 5, 0).flush(response(API_PRODUCTS, 12));
+      fixture.detectChanges();
+
+      (fixture.nativeElement.querySelector(
+        '.pagination__nav button[aria-label="Next page"]',
+      ) as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expectSellerPage(44, 5, 5).flush(response([API_PRODUCTS[0]], 12, 2, 5));
+      fixture.detectChanges();
+      expect(component.page()).toBe(2);
+      expect(fixture.nativeElement.textContent).toContain('Showing 6–10 of 12 products');
+
+      const select = fixture.nativeElement.querySelector('#admin-product-page-size') as HTMLSelectElement;
+      select.value = '10';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      fixture.detectChanges();
+      expectSellerPage(44, 10, 0).flush(response(API_PRODUCTS, 12, 1, 10));
+      fixture.detectChanges();
+
+      expect(component.pageSize()).toBe(10);
+      expect(fixture.nativeElement.textContent).toContain('Showing 1–10 of 12 products');
+      // The seller lookup is cached for the session, so no second seller_onboarding request is made.
+      http.expectNone((req) => req.url.endsWith('/seller_onboarding/get'));
+    });
+
+    it('applies search, category, brand and status filters to the seller\'s rows', () => {
+      loadLookups();
+      resolveSeller(44);
+      expectSellerPage(44, 5, 0).flush(response(API_PRODUCTS, 2));
+      fixture.detectChanges();
+
+      component.setQuery(inputEvent('Wireless'));
+      component.setCategory(selectEvent('2'));
+      component.setBrand(selectEvent('2'));
+      component.setStatus('Inactive');
+      fixture.detectChanges();
+
+      expect(component.visibleRows().map((row) => row.id)).toEqual([4]);
+    });
+
+    it('shows an error and loads no products when the user has no seller account', () => {
+      loadLookups();
+      http.expectOne((req) => req.url.endsWith('/seller_onboarding/get')).flush({
+        STATUS: 'SUCCESS',
+        DATA: [],
+      });
+      fixture.detectChanges();
+
+      expect(component.loadStatus()).toBe('error');
+      expect(component.loadError()).toBe('The authenticated user does not have a valid seller account.');
+      expect(component.visibleRows()).toEqual([]);
+      http.expectNone((req) => req.url.endsWith('/products/get'));
+    });
+  });
+
   it('calls the paginated products API and maps actual API rows into the table', () => {
     loadFirstPage();
 
+    // CHANGED: Admin keeps the full catalog request and never resolves a seller.
+    http.expectNone((req) => req.url.endsWith('/seller_onboarding/get'));
     expect(component.loadStatus()).toBe('success');
     expect(component.totalProducts()).toBe(12);
     expect(component.visibleRows()).toEqual([

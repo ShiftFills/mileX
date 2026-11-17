@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, TemplateRef, computed, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
-import { EMPTY, catchError, distinctUntilChanged, map, switchMap, tap } from 'rxjs';
+import { EMPTY, Observable, catchError, defer, distinctUntilChanged, map, switchMap, tap } from 'rxjs';
 import { Badge } from '@shared/components/badge/badge';
 import { Button } from '@shared/components/button/button';
 import { Card } from '@shared/components/card/card';
@@ -13,8 +13,10 @@ import { Pagination } from '@shared/components/pagination/pagination';
 import { Select } from '@shared/components/select/select';
 import { Table, TableCellContext, TableColumn, TableHeaderContext } from '@shared/components/table/table';
 import { ClickOutside } from '@shared/directives/click-outside';
+import { AuthService } from '@core/services/auth.service';
 import { ProductCatalogService, ProductLookupOption } from '@core/services/product-catalog.service';
-import { Product } from '@shared/models';
+import { SellerOnboardingService } from '@features/seller/services/seller-onboarding.service';
+import { PaginatedResponse, Product } from '@shared/models';
 import { AdminProductRow } from '../../data/admin-products';
 
 interface ProductEditForm {
@@ -71,7 +73,13 @@ function mapAdminProduct(product: Product): AdminProductRow {
 export class AllProducts {
   private readonly router = inject(Router);
   private readonly catalog = inject(ProductCatalogService);
+  private readonly auth = inject(AuthService);
+  private readonly sellerOnboarding = inject(SellerOnboardingService);
   private readonly destroyRef = inject(DestroyRef);
+  // CHANGED (new): Sellers list only their own products; Admins keep the full catalog (PRODUCT_ID=-1).
+  private readonly isSeller = computed(
+    () => this.auth.user()?.userType?.trim().toUpperCase() === 'SELLER',
+  );
   protected readonly products = signal<AdminProductRow[]>([]);
   protected readonly loadStatus = signal<'loading' | 'success' | 'error'>('loading');
   protected readonly loadError = signal<string | null>(null);
@@ -204,8 +212,9 @@ export class AllProducts {
           this.products.set([]);
           this.pageData.set(null);
         }),
+        // CHANGED: the request now depends on the role; the response handling below is shared.
         switchMap(({ page, pageSize }) =>
-          this.catalog.loadPage(page, pageSize).pipe(
+          defer(() => this.loadProductPage(page, pageSize)).pipe(
             map((response) => ({
               products: response.items.map(mapAdminProduct),
               response,
@@ -258,6 +267,18 @@ export class AllProducts {
         takeUntilDestroyed(),
       )
       .subscribe();
+  }
+
+  /**
+   * Admin: every product (`PRODUCT_ID=-1`).
+   * Seller: only the logged-in seller's products; SELLER_ID is resolved from their seller record.
+   */
+  // CHANGED (new): picks the Admin or Seller products API for the requested page.
+  private loadProductPage(page: number, pageSize: number): Observable<PaginatedResponse<Product>> {
+    if (!this.isSeller()) return this.catalog.loadPage(page, pageSize);
+    return this.sellerOnboarding.getCurrentSellerId().pipe(
+      switchMap((sellerId) => this.catalog.loadSellerPage(sellerId, page, pageSize)),
+    );
   }
 
   protected retryCategoryLookup(): void {
