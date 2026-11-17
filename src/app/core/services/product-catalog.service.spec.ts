@@ -16,7 +16,7 @@ describe('ProductCatalogService', () => {
     TestBed.configureTestingModule({
       providers: [
         provideHttpClient(withInterceptors([authInterceptor])),
-        { provide: AuthService, useValue: { token: () => 'demo-token' } },
+        { provide: AuthService, useValue: { token: () => 'demo-token', userId: () => 60 } },
         { provide: API_BASE_URL, useValue: '/api' },
         provideHttpClientTesting(),
       ],
@@ -254,13 +254,13 @@ describe('ProductCatalogService', () => {
   });
 
   it('posts product details and rejects API-level validation failures', () => {
-    const payload: ProductInsertPayload = {
+    const payload: Omit<ProductInsertPayload, 'CREATED_BY'> = {
       PRODUCT_NAME: 'Wireless Earbuds', CATEGORY_ID: 3, SUB_CATEGORY_ID: 2, BRAND_ID: 4,
       PRODUCT_IMAGE: 'uploads/products/Screenshot 2026-10-21 153010.png', PRODUCT_VIDEO: null,
       PRODUCT_DESCRIPTION: 'dddd', HSN_CODE: '222223', TAX_RATE: 18,
       SELLING_PRICE: 2222, PRICE: 3333, DISCOUNT: 0,
       STOCK_QUANTITY: 33, MINIMUM_ORDER_QUANTITY: 1, MAXIMUM_ORDER_QUANTITY: 3,
-      WEIGHT: null, LENGTH: null, WIDTH: null, HEIGHT: null, SELLER_ID: 2, CREATED_BY: 2,
+      WEIGHT: null, LENGTH: null, WIDTH: null, HEIGHT: null, SELLER_ID: 2,
     };
     let result: string | undefined;
     catalog.insertProduct(payload).subscribe((message) => (result = message));
@@ -271,7 +271,7 @@ describe('ProductCatalogService', () => {
     expect(request.request.headers.get('Content-Type')).toBe('application/json');
     expect(request.request.headers.get('Authorization')).toBe('Bearer demo-token');
     expect(Object.keys(request.request.body as ProductInsertPayload)).toHaveLength(21);
-    expect(request.request.body).toEqual(payload);
+    expect(request.request.body).toEqual({ ...payload, CREATED_BY: 60 });
     expect(request.request.responseType).toBe('text');
     request.flush('Product inserted successfully');
     expect(result).toBe('Product inserted successfully');
@@ -292,14 +292,14 @@ describe('ProductCatalogService', () => {
   });
 
   it('updates the selected product and invalidates cached listing pages', () => {
-    const payload: ProductUpdatePayload = {
+    const payload: Omit<ProductUpdatePayload, 'CREATED_BY'> = {
       PRODUCT_ID: 83,
       PRODUCT_NAME: 'Wireless Earbuds Updated', CATEGORY_ID: 3, SUB_CATEGORY_ID: 2, BRAND_ID: 4,
       PRODUCT_IMAGE: 'uploads/products/earbuds.png', PRODUCT_VIDEO: 'uploads/videos/earbuds.mp4',
       PRODUCT_DESCRIPTION: 'Updated audio', HSN_CODE: '851762', TAX_RATE: 18,
       SELLING_PRICE: 2200, PRICE: 3000, DISCOUNT: 800,
       STOCK_QUANTITY: 40, MINIMUM_ORDER_QUANTITY: 1, MAXIMUM_ORDER_QUANTITY: 8,
-      WEIGHT: 0.25, LENGTH: 5, WIDTH: 5, HEIGHT: 3, SELLER_ID: 2, CREATED_BY: 2,
+      WEIGHT: 0.25, LENGTH: 5, WIDTH: 5, HEIGHT: 3, SELLER_ID: 2,
     };
     catalog.loadPage(1, 5).subscribe();
     http.expectOne((request) => request.params.get('OFFSET') === '0').flush({
@@ -312,7 +312,7 @@ describe('ProductCatalogService', () => {
     expect(updateRequest.request.method).toBe('PUT');
     expect(updateRequest.request.url).toBe('/api/products/update');
     expect(updateRequest.request.responseType).toBe('text');
-    expect(updateRequest.request.body).toEqual(payload);
+    expect(updateRequest.request.body).toEqual({ ...payload, CREATED_BY: 60 });
     updateRequest.flush('{"status":true,"message":"Product updated successfully"}');
     expect(result).toBe('Product updated successfully');
 
@@ -323,14 +323,14 @@ describe('ProductCatalogService', () => {
   });
 
   it('rejects API-level update failures and invalid product IDs', () => {
-    const payload: ProductUpdatePayload = {
+    const payload: Omit<ProductUpdatePayload, 'CREATED_BY'> = {
       PRODUCT_ID: 83,
       PRODUCT_NAME: 'Product', CATEGORY_ID: 3, SUB_CATEGORY_ID: 2, BRAND_ID: 4,
       PRODUCT_IMAGE: 'uploads/products/product.png', PRODUCT_VIDEO: null,
       PRODUCT_DESCRIPTION: 'Description', HSN_CODE: '851762', TAX_RATE: 18,
       SELLING_PRICE: 2200, PRICE: 3000, DISCOUNT: 800,
       STOCK_QUANTITY: 40, MINIMUM_ORDER_QUANTITY: 1, MAXIMUM_ORDER_QUANTITY: 8,
-      WEIGHT: 0.25, LENGTH: 5, WIDTH: 5, HEIGHT: 3, SELLER_ID: 2, CREATED_BY: 2,
+      WEIGHT: 0.25, LENGTH: 5, WIDTH: 5, HEIGHT: 3, SELLER_ID: 2,
     };
     let apiError: unknown;
     catalog.updateProduct(payload).subscribe({ error: (error: unknown) => (apiError = error) });
@@ -365,6 +365,8 @@ describe('ProductCatalogService', () => {
           PRICE: '80000.00',
           STOCK_QUANTITY: 100,
           MAXIMUM_ORDER_QUANTITY: 5,
+          VARIANT_ID: 14,
+          SELLER_ID: 24,
           IS_ACTIVE: 'ACTIVE',
         },
         {
@@ -391,6 +393,8 @@ describe('ProductCatalogService', () => {
         isActive: true,
         stockLeft: 100,
         maxOrderQuantity: 5,
+        variantId: 14,
+        sellerId: 24,
         originalPrice: 80000,
         discountLabel: '6% OFF',
       },

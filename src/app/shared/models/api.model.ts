@@ -11,3 +11,8 @@ export interface StatusOption {
   id: number;
   label: string;
 }
+
+export interface ReturnReasonOption {
+  REASON_ID: number;
+  REASON: string;
+}

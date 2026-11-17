@@ -1,8 +1,8 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { EMPTY, catchError, finalize, tap } from 'rxjs';
-import { APP_ROUTES } from '@core/constants/app-routes';
+import { EMPTY, catchError, finalize, map, tap } from 'rxjs';
+import { APP_ROUTES, SELLER_LOGIN_QUERY } from '@core/constants/app-routes';
 import { AuthService } from '@core/services/auth.service';
 import { Button } from '@shared/components/button/button';
 import { Input } from '@shared/components/input/input';
@@ -21,6 +21,11 @@ export class Login {
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly routes = APP_ROUTES;
+  /** True when opened from "Sell on MileX" (`/auth/login?audience=seller`). Display only. */
+  protected readonly isSellerLogin = toSignal(
+    this.route.queryParamMap.pipe(map((params) => params.get('audience') === SELLER_LOGIN_QUERY.audience)),
+    { initialValue: this.route.snapshot.queryParamMap.get('audience') === SELLER_LOGIN_QUERY.audience },
+  );
   protected readonly userName = signal('');
   protected readonly password = signal('');
   protected readonly passwordVisible = signal(false);

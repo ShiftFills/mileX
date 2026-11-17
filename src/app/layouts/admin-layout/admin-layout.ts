@@ -25,22 +25,30 @@ export class AdminLayout {
     ],
   };
 
+  // CHANGED (new): shared by the Admin and Seller menus.
+  private readonly returnRequestLink: SidebarLink = {
+    label: 'Return Request',
+    path: '/admin/returns',
+    icon: 'returns',
+  };
+
   private readonly adminLinks: SidebarLink[] = [
     { label: 'Dashboard', path: '/admin/dashboard', icon: 'dashboard' },
     this.productLinks,
     // { label: 'Shopping Cart', path: '/cart', icon: 'cart' },/
     { label: 'Order Management', path: '/admin/orders', icon: 'orders' },
-    { label: 'Return Request', path: '/admin/returns', icon: 'returns' },
+    this.returnRequestLink,
     { label: 'Seller Verification', path: '/admin/sellers', icon: 'sellers' },
     { label: 'My Orders', path: '/admin/my-orders', icon: 'my-orders' },
   ];
 
-  // Sellers may only use product management in this area (see roleMatchGuard), so only that
-  // menu is shown to them; every other entry would just bounce them back out.
-  // Admins keep the full menu.
-  // CHANGED: Sellers see only the Products menu; Admins keep the full menu. Admin menu items are unchanged.
+  // CHANGED: Sellers may use product management and return requests in this area (see roleMatchGuard),
+  // so only those menus are shown to them; every other entry would just bounce them back out.
+  // Admins keep the full menu. Admin menu items are unchanged.
+  private readonly sellerLinks: SidebarLink[] = [this.productLinks, this.returnRequestLink];
+
   protected readonly links: SidebarLink[] =
     this.auth.user()?.userType?.trim().toUpperCase() === 'SELLER'
-      ? [this.productLinks]
+      ? this.sellerLinks
       : this.adminLinks;
 }

@@ -3,6 +3,7 @@ import { Router } from '@angular/router';
 import { of, throwError } from 'rxjs';
 import { ProductCatalogService, ProductLookupOption } from '@core/services/product-catalog.service';
 import { ToastService } from '@core/services/toast.service';
+import { SellerOnboardingService } from '@features/seller/services/seller-onboarding.service';
 import { AddProduct } from './add-product';
 
 interface ValidationHarness {
@@ -46,6 +47,7 @@ describe('AddProduct Pricing & Inventory validation', () => {
       imports: [AddProduct],
       providers: [
         { provide: ProductCatalogService, useValue: productCatalog },
+        { provide: SellerOnboardingService, useValue: { getSellerIdForCurrentUser: (id: number) => of(id) } },
         { provide: ToastService, useValue: toast },
         { provide: Router, useValue: router },
       ],
@@ -243,7 +245,7 @@ describe('AddProduct Pricing & Inventory validation', () => {
       PRODUCT_DESCRIPTION: 'Wireless audio', HSN_CODE: '851830', TAX_RATE: 18,
       SELLING_PRICE: 1800, PRICE: 2200, DISCOUNT: 400,
       STOCK_QUANTITY: 18, MINIMUM_ORDER_QUANTITY: 1, MAXIMUM_ORDER_QUANTITY: 4,
-      WEIGHT: 0.3, LENGTH: 18, WIDTH: 8, HEIGHT: 4, SELLER_ID: 1, CREATED_BY: 2,
+      WEIGHT: 0.3, LENGTH: 18, WIDTH: 8, HEIGHT: 4, SELLER_ID: 1,
     });
     expect(toast.showSuccess).toHaveBeenCalledWith('Product inserted successfully');
     expect(router.navigateByUrl).toHaveBeenCalledWith('/admin/products/new');

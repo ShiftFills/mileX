@@ -3,11 +3,16 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { Component } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
+import { RouterTestingHarness } from '@angular/router/testing';
 import { API_BASE_URL } from '@core/config/api.config';
 import { authInterceptor } from '@core/interceptors/auth.interceptor';
 import { errorInterceptor } from '@core/interceptors/error.interceptor';
 import { AuthService } from '@core/services/auth.service';
 import { Login } from './login';
+
+function tokenFor(userId: number): string {
+  return `header.${btoa(JSON.stringify({ USER_ID: userId })).replace(/=/g, '')}.signature`;
+}
 
 @Component({ template: '' })
 class HomePage {}
@@ -94,7 +99,7 @@ describe('Login', () => {
       USER_NAME: 'rahul_ocean',
       USER_TYPE: 'SELLER',
       USER_TYPE_ID: 1,
-      ACCESSTOKEN: 'access-token-returned-by-api',
+      ACCESSTOKEN: tokenFor(60),
     });
     await fixture.whenStable();
 
@@ -104,7 +109,7 @@ describe('Login', () => {
       userType: 'SELLER',
       userTypeId: 1,
     });
-    expect(TestBed.inject(AuthService).token()).toBe('access-token-returned-by-api');
+    expect(TestBed.inject(AuthService).token()).toBe(tokenFor(60));
     expect(TestBed.inject(Router).url).toBe('/admin/products/all');
     expect(fixture.nativeElement.textContent).not.toContain('Login failed');
   });
@@ -133,7 +138,7 @@ describe('Login', () => {
         USER_NAME: 'dhiya_seller',
         USER_TYPE: 'SELLER',
         USER_TYPE_ID: 1,
-        ACCESSTOKEN: 'access-token-returned-by-api',
+        ACCESSTOKEN: tokenFor(8),
       },
     });
   });
@@ -154,11 +159,11 @@ describe('Login', () => {
       status: 'SUCCESS',
       message: 'Login successful',
       data: {
-        USER_ID: 1,
+        USER_ID: 19,
         USER_NAME: 'admin_user',
         USER_TYPE: 'ADMIN',
         USER_TYPE_ID: 2,
-        ACCESSTOKEN: 'admin-token',
+        ACCESSTOKEN: tokenFor(19),
       },
     });
     await fixture.whenStable();
@@ -186,5 +191,50 @@ describe('Login', () => {
 
     expect(fixture.nativeElement.textContent).toContain('Invalid username or password.');
     expect(TestBed.inject(AuthService).isAuthenticated()).toBe(false);
+  });
+});
+
+describe('Login entry points', () => {
+  async function openLogin(url: string): Promise<RouterTestingHarness> {
+    localStorage.clear();
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([
+          { path: 'auth/login', component: Login },
+          { path: 'auth/register', component: HomePage },
+          { path: 'sell', component: HomePage },
+        ]),
+        provideHttpClient(withInterceptors([authInterceptor, errorInterceptor])),
+        provideHttpClientTesting(),
+        { provide: API_BASE_URL, useValue: '/api' },
+      ],
+    });
+    return RouterTestingHarness.create(url);
+  }
+
+  afterEach(() => localStorage.clear());
+
+  it('shows the seller variant with a Register link to Seller Onboarding when opened from Sell on MileX', async () => {
+    const harness = await openLogin('/auth/login?audience=seller');
+    const root = harness.routeNativeElement as HTMLElement;
+
+    expect(root.querySelector('#login-title')?.textContent).toBe('Seller Login');
+    const link = root.querySelector('.login-register-link a') as HTMLAnchorElement;
+    expect(link.textContent?.trim()).toBe('Register');
+    expect(link.getAttribute('href')).toBe('/sell');
+
+    link.click();
+    await harness.fixture.whenStable();
+    expect(TestBed.inject(Router).url).toBe('/sell');
+  });
+
+  it('keeps the customer Sign Up link on the normal login page', async () => {
+    const harness = await openLogin('/auth/login');
+    const root = harness.routeNativeElement as HTMLElement;
+
+    expect(root.querySelector('#login-title')?.textContent).toBe('Login to Your Account');
+    const link = root.querySelector('.login-register-link a') as HTMLAnchorElement;
+    expect(link.textContent?.trim()).toBe('Sign Up');
+    expect(link.getAttribute('href')).toBe('/auth/register');
   });
 });

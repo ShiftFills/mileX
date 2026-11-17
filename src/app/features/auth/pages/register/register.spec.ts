@@ -24,7 +24,7 @@ describe('Register', () => {
       imports: [Register],
       providers: [
         provideRouter([]),
-        { provide: AuthService, useValue: { user: () => null, registerCustomer, getErrorMessage } },
+        { provide: AuthService, useValue: { userId: () => undefined, registerCustomer, getErrorMessage } },
         { provide: ToastService, useValue: { showSuccess, showError } },
       ],
     }).compileComponents();
@@ -78,7 +78,6 @@ describe('Register', () => {
       USER_NAME: 'john123',
       USER_PASSWORD: 'John@123',
       CONFIRM_PASSWORD: 'John@123',
-      CREATED_BY: 1,
     });
     expect(showSuccess).toHaveBeenCalledWith('Your account was created successfully.');
     expect(showError).not.toHaveBeenCalled();
@@ -87,8 +86,8 @@ describe('Register', () => {
   });
 
   it('uses the authenticated user ID as CREATED_BY when available', () => {
-    const auth = TestBed.inject(AuthService) as unknown as { user: () => { id: string } | null };
-    vi.spyOn(auth, 'user').mockReturnValue({ id: '18' });
+    const auth = TestBed.inject(AuthService) as unknown as { userId: () => number | undefined };
+    vi.spyOn(auth, 'userId').mockReturnValue(18);
     fillForm(validFields);
     submitForm();
 

@@ -1,8 +1,9 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable, map, shareReplay } from 'rxjs';
+import { Observable, map, shareReplay, throwError } from 'rxjs';
 import { API_ENDPOINTS } from '@core/constants/api-endpoints';
 import { ApiService } from '@core/services/api.service';
+import { AuthService } from '@core/services/auth.service';
 
 export interface ProductVariant {
   id: string;
@@ -32,7 +33,6 @@ export interface ProductVariantPage {
 
 export interface ProductVariantInsertPayload {
   VARIANT_NAME: string;
-  SKU: string;
   BARCODE: string | null;
   SIZE_ID?: number;
   COLOUR_ID?: number;
@@ -378,6 +378,7 @@ function mapVariantMutationResponse(response: unknown, action: 'updated' | 'dele
 @Injectable({ providedIn: 'root' })
 export class ProductVariantService {
   private readonly api = inject(ApiService);
+  private readonly auth = inject(AuthService);
   private readonly lookupRequests = new Map<ProductVariantLookup, Observable<ProductVariantLookupOption[]>>();
 
   loadLookup(lookup: ProductVariantLookup): Observable<ProductVariantLookupOption[]> {
@@ -421,21 +422,29 @@ export class ProductVariantService {
       .pipe(map((response) => mapVariantPage(response, limit, offset)));
   }
 
-  insertVariant(payload: ProductVariantInsertPayload): Observable<string> {
+  insertVariant(payload: Omit<ProductVariantInsertPayload, 'CREATED_BY'>): Observable<string> {
+    const createdBy = this.auth.userId();
+    if (createdBy === undefined) {
+      return throwError(() => new Error('A valid authenticated user ID is required to create a variant.'));
+    }
     return this.api
-      .post<unknown>(API_ENDPOINTS.productVariants.insert, payload)
+      .post<unknown>(API_ENDPOINTS.productVariants.insert, { ...payload, CREATED_BY: createdBy })
       .pipe(map(mapVariantInsertResponse));
   }
 
-  updateVariant(payload: ProductVariantUpdatePayload): Observable<string> {
+  updateVariant(payload: Omit<ProductVariantUpdatePayload, 'CREATED_BY'>): Observable<string> {
     if (!Number.isSafeInteger(payload.VARIANT_ID) || payload.VARIANT_ID <= 0) {
       throw new RangeError('Variant ID must be a positive safe integer.');
     }
     if (!Number.isSafeInteger(payload.PRODUCT_ID) || payload.PRODUCT_ID <= 0) {
       throw new RangeError('Product ID must be a positive safe integer.');
     }
+    const createdBy = this.auth.userId();
+    if (createdBy === undefined) {
+      return throwError(() => new Error('A valid authenticated user ID is required to update a variant.'));
+    }
     return this.api
-      .put<unknown>(API_ENDPOINTS.productVariants.update, payload)
+      .put<unknown>(API_ENDPOINTS.productVariants.update, { ...payload, CREATED_BY: createdBy })
       .pipe(map((response) => mapVariantMutationResponse(response, 'updated')));
   }
 

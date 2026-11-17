@@ -359,13 +359,16 @@ export class EditProduct extends AddProduct {
       : this.videoRemoved()
         ? null
         : product.PRODUCT_VIDEO;
-    const payload: ProductUpdatePayload = {
+    const payload: Omit<ProductUpdatePayload, 'CREATED_BY'> = {
       PRODUCT_ID: product.PRODUCT_ID,
       ...this.createProductPayload({ imagePath, videoPath }),
     };
 
     this.isSubmitting.set(true);
-    this.editProductCatalog.updateProduct(payload).pipe(
+    this.sellerOnboarding.getSellerIdForCurrentUser(payload.SELLER_ID).pipe(
+      switchMap((sellerId) =>
+        this.editProductCatalog.updateProduct({ ...payload, SELLER_ID: sellerId }),
+      ),
       tap((message) => {
         this.saved.set(true);
         this.editToast.showSuccess(message);

@@ -4,6 +4,7 @@ import { Observable, ReplaySubject, catchError, map, shareReplay, tap, throwErro
 import { PaginatedResponse, Product } from '@shared/models';
 import { API_ENDPOINTS } from '../constants/api-endpoints';
 import { ApiService } from './api.service';
+import { AuthService } from './auth.service';
 
 export type ProductCatalogStatus = 'idle' | 'loading' | 'success' | 'error';
 
@@ -128,6 +129,10 @@ function mapProduct(value: unknown): Product | null {
   const stock = numericValue(value['STOCK_QUANTITY']);
   const originalPrice = numericValue(value['PRICE']);
   const maxOrderQuantity = numericValue(value['MAXIMUM_ORDER_QUANTITY']);
+  const variantId = numericValue(value['VARIANT_ID']);
+  const sellerId = numericValue(value['SELLER_ID']);
+  const taxRate = numericValue(value['TAX_RATE']);
+  const discount = numericValue(value['DISCOUNT']);
   const categoryId = value['CATEGORY_ID'];
   const brandId = value['BRAND_ID'];
   const isActive = productActiveStatus(value['IS_ACTIVE']);
@@ -169,6 +174,10 @@ function mapProduct(value: unknown): Product | null {
     ...(maxOrderQuantity !== undefined && maxOrderQuantity > 0
       ? { maxOrderQuantity }
       : {}),
+    ...(variantId !== undefined ? { variantId } : {}),
+    ...(sellerId !== undefined && sellerId > 0 ? { sellerId } : {}),
+    ...(taxRate !== undefined ? { taxRate } : {}),
+    ...(discount !== undefined ? { discount } : {}),
     ...(hasDiscount ? { originalPrice, discountLabel: `${Math.round((1 - price / originalPrice) * 100)}% OFF` } : {}),
   };
 }
@@ -630,6 +639,7 @@ const PRODUCT_LOOKUP_DEFINITIONS: Readonly<
 @Injectable({ providedIn: 'root' })
 export class ProductCatalogService {
   private readonly api = inject(ApiService);
+  private readonly auth = inject(AuthService);
   private readonly _products = signal<readonly Product[]>([]);
   private readonly _status = signal<ProductCatalogStatus>('idle');
   private readonly _error = signal<string | null>(null);
@@ -663,18 +673,26 @@ export class ProductCatalogService {
       });
   }
 
-  insertProduct(payload: ProductInsertPayload): Observable<string> {
+  insertProduct(payload: Omit<ProductInsertPayload, 'CREATED_BY'>): Observable<string> {
+    const createdBy = this.auth.userId();
+    if (createdBy === undefined) {
+      return throwError(() => new Error('A valid authenticated user ID is required to create a product.'));
+    }
     return this.api
-      .postText(API_ENDPOINTS.products.insert, payload)
+      .postText(API_ENDPOINTS.products.insert, { ...payload, CREATED_BY: createdBy })
       .pipe(map(productInsertMessage));
   }
 
-  updateProduct(payload: ProductUpdatePayload): Observable<string> {
+  updateProduct(payload: Omit<ProductUpdatePayload, 'CREATED_BY'>): Observable<string> {
     if (!Number.isSafeInteger(payload.PRODUCT_ID) || payload.PRODUCT_ID <= 0) {
       return throwError(() => new RangeError('Product ID must be a positive safe integer.'));
     }
+    const createdBy = this.auth.userId();
+    if (createdBy === undefined) {
+      return throwError(() => new Error('A valid authenticated user ID is required to update a product.'));
+    }
     return this.api
-      .putText(API_ENDPOINTS.products.update, payload)
+      .putText(API_ENDPOINTS.products.update, { ...payload, CREATED_BY: createdBy })
       .pipe(
         map(productUpdateMessage),
         tap(() => this.invalidatePageCache()),

@@ -67,7 +67,9 @@
               </app-select></label>
             }
             <label>Variant Name <b>*</b><app-input class="product-control" size="compact" inputId="variant-name" name="name" placeholder="e.g. Black - Regular" [value]="form().name" [required]="true" (valueInput)="setField('name', $event)" /></label>
-            <label>SKU @if (dialog() === 'add') { <b>*</b> }<app-input class="product-control" size="compact" inputId="variant-sku" name="sku" placeholder="Enter SKU / Product Code" [value]="form().sku" [required]="dialog() === 'add'" [disabled]="dialog() === 'edit' || isSubmitting()" (valueInput)="setField('sku', $event)" /></label>
+            @if (dialog() === 'edit') {
+              <label>SKU<app-input class="product-control" size="compact" inputId="variant-sku" name="sku" placeholder="Enter SKU / Product Code" [value]="form().sku" [required]="false" [disabled]="dialog() === 'edit' || isSubmitting()" (valueInput)="setField('sku', $event)" /></label>
+            }
             <label>Barcode<app-input class="product-control" size="compact" inputId="variant-barcode" name="barcode" placeholder="Enter barcode" [value]="form().barcode" (valueInput)="setField('barcode', $event)" /></label>
             <label>Size<app-select class="product-control" size="compact" inputId="variant-size" name="sizeId" [value]="sizeDropdownValue()" [disabled]="variantLookups().sizes.status !== 'success' || !variantLookups().sizes.options.length" (valueChange)="setSizeField($event)">
               @if (variantLookups().sizes.status === 'loading') { <option value="">Loading sizes…</option> }

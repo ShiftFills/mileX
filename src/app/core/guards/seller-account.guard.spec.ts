@@ -34,6 +34,7 @@ describe('seller account guards', () => {
           useValue: {
             isAuthenticated: () => true,
             user: () => user,
+            userId: () => 8,
           },
         },
         {

@@ -2,6 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
+import { AuthService } from '@core/services/auth.service';
 import { ProductDetail } from './product-detail';
 
 interface ProductDetailHarness {
@@ -12,7 +13,7 @@ interface ProductDetailHarness {
   deliveryMessage(): { ok: boolean; text: string } | null;
   discountPercent(): number;
   related(): { id: string }[];
-  addToCart(): boolean;
+  addToCart(): void;
   selectSize(size: string): void;
   changeQuantity(step: number): void;
   updatePincode(event: Event): void;
@@ -24,6 +25,10 @@ function inputEvent(value: string): Event {
   const input = document.createElement('input');
   input.value = value;
   return { target: input } as unknown as Event;
+}
+
+function tokenWithClaims(claims: Record<string, number>): string {
+  return `header.${btoa(JSON.stringify(claims)).replace(/=/g, '')}.signature`;
 }
 
 describe('ProductDetail', () => {
@@ -44,11 +49,11 @@ describe('ProductDetail', () => {
     http.expectOne((request) => request.url.endsWith('/products/get')).flush({
       status: 'SUCCESS',
       data: [
-        { PRODUCT_ID: 3, PRODUCT_NAME: 'Samsung Galaxy S25', PRODUCT_DESCRIPTION: 'Samsung smartphone', PRICE: '80000.00', SELLING_PRICE: '75000.00', STOCK_QUANTITY: 100, MAXIMUM_ORDER_QUANTITY: 5, CATEGORY_ID: 1, IS_ACTIVE: 1 },
-        { PRODUCT_ID: 4, PRODUCT_NAME: 'Wireless Mouse Updated', PRICE: '999.00', SELLING_PRICE: '749.00', STOCK_QUANTITY: 90, MAXIMUM_ORDER_QUANTITY: 10, CATEGORY_ID: 1, IS_ACTIVE: 1 },
-        { PRODUCT_ID: 5, PRODUCT_NAME: 'Wireless Mouse', PRICE: '999.00', SELLING_PRICE: '799.00', STOCK_QUANTITY: 100, MAXIMUM_ORDER_QUANTITY: 10, CATEGORY_ID: 3, IS_ACTIVE: 1 },
-        { PRODUCT_ID: 6, PRODUCT_NAME: 'laptop', PRICE: '999.00', SELLING_PRICE: '799.00', STOCK_QUANTITY: 100, MAXIMUM_ORDER_QUANTITY: 10, CATEGORY_ID: 3, IS_ACTIVE: 1 },
-        { PRODUCT_ID: 10, PRODUCT_NAME: 'lenovo S25', PRICE: '80000.00', SELLING_PRICE: '75000.00', STOCK_QUANTITY: 100, MAXIMUM_ORDER_QUANTITY: 10, CATEGORY_ID: 1, IS_ACTIVE: 1 },
+        { PRODUCT_ID: 3, VARIANT_ID: 14, SELLER_ID: 24, PRODUCT_NAME: 'Samsung Galaxy S25', PRODUCT_DESCRIPTION: 'Samsung smartphone', PRICE: '80000.00', SELLING_PRICE: '75000.00', STOCK_QUANTITY: 100, MAXIMUM_ORDER_QUANTITY: 5, CATEGORY_ID: 1, IS_ACTIVE: 1 },
+        { PRODUCT_ID: 4, VARIANT_ID: 15, SELLER_ID: 25, PRODUCT_NAME: 'Wireless Mouse Updated', PRICE: '999.00', SELLING_PRICE: '749.00', STOCK_QUANTITY: 90, MAXIMUM_ORDER_QUANTITY: 10, CATEGORY_ID: 1, IS_ACTIVE: 1 },
+        { PRODUCT_ID: 5, VARIANT_ID: 16, SELLER_ID: 26, PRODUCT_NAME: 'Wireless Mouse', PRICE: '999.00', SELLING_PRICE: '799.00', STOCK_QUANTITY: 100, MAXIMUM_ORDER_QUANTITY: 10, CATEGORY_ID: 3, IS_ACTIVE: 1 },
+        { PRODUCT_ID: 6, VARIANT_ID: 17, SELLER_ID: 27, PRODUCT_NAME: 'laptop', PRICE: '999.00', SELLING_PRICE: '799.00', STOCK_QUANTITY: 100, MAXIMUM_ORDER_QUANTITY: 10, CATEGORY_ID: 3, IS_ACTIVE: 1 },
+        { PRODUCT_ID: 10, VARIANT_ID: 18, SELLER_ID: 28, PRODUCT_NAME: 'lenovo S25', PRICE: '80000.00', SELLING_PRICE: '75000.00', STOCK_QUANTITY: 100, MAXIMUM_ORDER_QUANTITY: 10, CATEGORY_ID: 1, IS_ACTIVE: 1 },
       ],
     });
     fixture.detectChanges();
@@ -62,8 +67,25 @@ describe('ProductDetail', () => {
     expect(component.related().some((item) => item.id === '3')).toBe(false);
   });
 
-  it('allows adding products when the API does not include variant fields', () => {
-    expect(component.addToCart()).toBe(true);
+  it('inserts the selected product and its actual variant ID into the cart', () => {
+    const auth = TestBed.inject(AuthService);
+    auth.setSession(
+      { id: '3', email: '', firstName: 'customer', lastName: '', userType: 'CUSTOMER' },
+      tokenWithClaims({ USER_ID: 3, CUSTOMER_ID: 4 }),
+    );
+
+    component.addToCart();
+    const insert = http.expectOne('/api/shopping_cart/insert');
+    expect(insert.request.body).toMatchObject({
+      PRODUCT_ID: 3,
+      SELLER_ID: 24,
+      PRODUCT_VARIANT_ID: 14,
+      CUSTOMER_ID: 4,
+      UNIT_PRICE: 75000,
+    });
+    insert.flush('Shopping cart item added successfully');
+    http.expectOne('/api/shopping_cart/get?CUSTOMER_ID=4').flush({ success: true, data: [] });
+
     expect(component.addedToCart()).toBe(true);
   });
 

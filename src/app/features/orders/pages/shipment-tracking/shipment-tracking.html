@@ -196,16 +196,30 @@
           <app-select
             inputId="return-reason"
             name="reason"
-            [value]="returnReason()"
+            [value]="returnReasonValue()"
+            [disabled]="returnReasonsStatus() !== 'success' || !returnReasons().length"
             [ariaInvalid]="returnReasonError()"
             ariaDescribedBy="return-reason-error"
             (valueChange)="setReturnReason($event)"
           >
             <option value="">Choose a reason</option>
-            @for (reason of returnReasons; track reason) {
-              <option [value]="reason">{{ reason }}</option>
+            @for (reason of returnReasons(); track reason.REASON_ID) {
+              <option [value]="reason.REASON_ID">{{ reason.REASON }}</option>
             }
           </app-select>
+          @if (returnReasonsStatus() === 'loading') {
+            <div class="return-form__lookup-state" role="status">
+              <app-loading-spinner />
+              <span>Loading return reasons…</span>
+            </div>
+          } @else if (returnReasonsStatus() === 'error') {
+            <div class="return-form__lookup-error" role="alert">
+              <span>{{ returnReasonsError() }}</span>
+              <app-button variant="outline" size="small" type="button" (clicked)="loadReturnReasons()">Try again</app-button>
+            </div>
+          } @else if (returnReasonsStatus() === 'success' && !returnReasons().length) {
+            <p class="return-form__lookup-empty" role="status">No return reasons are currently available.</p>
+          }
           @if (returnReasonError()) {
             <p class="return-form__error" id="return-reason-error" role="alert">Select a reason to continue.</p>
           }

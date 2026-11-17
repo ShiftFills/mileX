@@ -1,6 +1,9 @@
 <main class="admin-content admin-list-page">
   <app-page-heading heading="Return Request" subtitle="View and manage all product return requests in one place.">
-    <app-date-range-filter inputId="return-date-range" [value]="range()" (valueChange)="range.set($event)" />
+  <!-- CHANGED: the Seller return request API has no day/status/reason filters, so those controls are Admin-only. -->
+  @if (!isSeller) {
+  <app-date-range-filter inputId="return-date-range" [value]="range()" (valueChange)="setRange($event)" />
+  }
     <app-export-button (exported)="exportRequests()" />
   </app-page-heading>
 
@@ -22,58 +25,115 @@
         <app-input class="admin-list-search-control" inputId="admin-return-search" name="returnSearch" placeholder="Search by order number, customer name, mobile......" size="compact" [value]="query()" (valueInput)="setQuery($event)" />
         <span class="visually-hidden">Search return requests</span>
       </label>
+      @if (!isSeller) {
       <div class="admin-list-filters">
         <label class="visually-hidden" for="admin-return-status">Filter by return status</label>
-        <app-select class="admin-list-filter" inputId="admin-return-status" name="returnStatus" size="compact" [value]="status()" (valueChange)="setFilter('status', $event)">
-          <option value="">All Status</option>
-          @for (item of statuses; track item) { <option [value]="item">{{ item }}</option> }
+        <app-select class="admin-list-filter" inputId="admin-return-status" name="returnStatus" size="compact" [value]="statusValue()" [disabled]="statusLoadStatus() !== 'success'" (valueChange)="setFilter('status', $event)">
+          <option value="-1" [selected]="statusId() === -1">All Status</option>
+          @for (item of statusOptions(); track item.id) { <option [value]="item.id" [selected]="item.id === statusId()">{{ item.label }}</option> }
         </app-select>
         <label class="visually-hidden" for="admin-return-reason">Filter by return reason</label>
-        <app-select class="admin-list-filter admin-list-filter--wide" inputId="admin-return-reason" name="returnReason" size="compact" [value]="reason()" (valueChange)="setFilter('reason', $event)">
-          <option value="">All Return Reasons</option>
-          @for (item of reasons; track item) { <option [value]="item">{{ item }}</option> }
+        <app-select class="admin-list-filter admin-list-filter--wide" inputId="admin-return-reason" name="returnReason" size="compact" [value]="reasonId().toString()" [disabled]="reasonLoadStatus() !== 'success'" (valueChange)="setFilter('reason', $event)">
+          <option value="-1" [selected]="reasonId() === -1">All Return Reasons</option>
+          @for (item of reasons(); track item.REASON_ID) { <option [value]="item.REASON_ID" [selected]="item.REASON_ID === reasonId()">{{ item.REASON }}</option> }
         </app-select>
       </div>
+      }
     </div>
 
-    <app-table
-      class="admin-list-table returns-table"
-      ariaLabel="Return requests"
-      [columns]="tableColumns()"
-      [rows]="visibleRows()"
-      emptyMessage="No return requests match these filters."
-    />
+    <!-- CHANGED: Sellers have no reason filter, so its loading/error messages are Admin-only. -->
+    @if (!isSeller) {
+    @if (reasonLoadStatus() === 'loading') {
+      <div class="admin-list-filter-error small text-muted" role="status">Loading return reasons…</div>
+    } @else if (reasonLoadStatus() === 'error') {
+      <div class="admin-list-filter-error" role="alert">
+        <span>{{ reasonLoadError() }}</span>
+        <button type="button" class="btn btn-link btn-sm" (click)="retryReasons()">Retry reasons</button>
+      </div>
+    } @else if (reasons().length === 0) {
+      <div class="admin-list-filter-error small text-muted" role="status">No return reasons are available.</div>
+    }
+    }
+
+    @if (statusLoadStatus() === 'loading') {
+      <div class="admin-list-filter-error small text-muted" role="status">Loading return statuses…</div>
+    } @else if (statusLoadStatus() === 'error') {
+      <div class="admin-list-filter-error" role="alert">
+        <span>{{ statusLoadError() }}</span>
+        <button type="button" class="btn btn-link btn-sm" (click)="retryStatuses()">Retry statuses</button>
+      </div>
+    }
+
+    @if (requestLoadStatus() === 'loading') {
+      <div class="d-flex justify-content-center align-items-center gap-2 py-4" role="status">
+        <app-loading-spinner /> Loading return requests…
+      </div>
+    } @else if (requestLoadStatus() === 'error') {
+      <div class="alert alert-danger d-flex justify-content-between align-items-center gap-3" role="alert">
+        <span>{{ requestLoadError() }}</span>
+        <button type="button" class="btn btn-outline-danger btn-sm" (click)="retryRequests()">Try again</button>
+      </div>
+    } @else {
+      <app-table
+        class="admin-list-table returns-table"
+        ariaLabel="Return requests"
+        [columns]="tableColumns()"
+        [rows]="visibleRows()"
+        emptyMessage="No return requests match these filters."
+      />
+      <app-pagination ariaLabel="Return request pages" itemLabel="requests" [page]="page()" [pageSize]="pageSize" [total]="totalRecords()" (pageChange)="setPage($event)" />
+    }
 
     <ng-template #selectAllHeader>
       <app-checkbox [checked]="allVisibleSelected()" ariaLabel="Select all return requests on this page" (checkedChange)="toggleAllVisible($event)" />
     </ng-template>
     <ng-template #selectRowCell let-request>
-      <app-checkbox [checked]="selectedIds().has(request.id)" [ariaLabel]="'Select return for ' + request.orderNo" (checkedChange)="toggleSelected(request.id, $event)" />
+      <app-checkbox [checked]="selectedIds().has(request.returnId)" [ariaLabel]="'Select return for ' + (request.orderNumber ?? request.returnId)" (checkedChange)="toggleSelected(request.returnId, $event)" />
     </ng-template>
-    <ng-template #orderNoCell let-request><span class="admin-order-link">{{ request.orderNo }}</span></ng-template>
+    <ng-template #orderNoCell let-request>
+      <span class="admin-order-link">{{ request.orderNumber ?? '—' }}</span>
+      <span class="return-request-detail">Return #{{ request.returnId }} · {{ formatDate(request.createdAt) }}</span>
+    </ng-template>
+    <ng-template #productCell let-request>
+      <span>{{ request.productName ?? '—' }}</span>
+    </ng-template>
+    <ng-template #reasonCell let-request>
+      <span>{{ request.reason ?? '—' }}</span>
+      @if (request.description) { <span class="return-request-detail">{{ request.description }}</span> }
+    </ng-template>
     <ng-template #imagesCell let-request>
       <div class="return-images">
         @for (image of request.images.slice(0, visibleImages); track $index) {
-          <img class="return-images__item" [src]="image" [alt]="'Return photo ' + ($index + 1) + ' for ' + request.orderNo" />
+          <img class="return-images__item" [src]="image" [alt]="'Return photo ' + ($index + 1) + ' for ' + (request.orderNumber ?? request.returnId)" />
         }
         @if (request.images.length > visibleImages) {
           <span class="return-images__more">+{{ request.images.length - visibleImages }}</span>
         }
       </div>
     </ng-template>
-    <ng-template #statusCell let-request><app-badge [tone]="statusTone(request.status)" size="compact">{{ request.status }}</app-badge></ng-template>
+    <ng-template #addressCell let-request>
+      <span>{{ request.address ?? '—' }}</span>
+      @if (request.customerName || request.customerMobile) {
+        <span class="return-request-detail">{{ request.customerName ?? '—' }}@if (request.customerMobile) { · {{ request.customerMobile }} }</span>
+      }
+    </ng-template>
+    <ng-template #statusCell let-request><app-badge [tone]="statusTone(request.status)" size="compact">{{ statusLabel(request.status) }}</app-badge></ng-template>
     <ng-template #actionCell let-request>
-      <div class="return-actions" appClickOutside (clickedOutside)="closeActionMenu(request.id)">
-        <button class="more-actions" type="button" aria-haspopup="menu" [attr.aria-expanded]="openActionMenuId() === request.id" [attr.aria-label]="'More actions for ' + request.orderNo" (click)="toggleActionMenu(request.id)"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="3" r="1" /><circle cx="8" cy="8" r="1" /><circle cx="8" cy="13" r="1" /></svg></button>
-        @if (openActionMenuId() === request.id) {
+      <div class="return-actions" appClickOutside (clickedOutside)="closeActionMenu(request.returnId)">
+        <button class="more-actions" type="button" aria-haspopup="menu" [attr.aria-expanded]="openActionMenuId() === request.returnId" [attr.aria-label]="'More actions for ' + (request.orderNumber ?? request.returnId)" (click)="toggleActionMenu(request.returnId)"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="3" r="1" /><circle cx="8" cy="8" r="1" /><circle cx="8" cy="13" r="1" /></svg></button>
+        @if (openActionMenuId() === request.returnId) {
           <div class="return-action-menu" role="menu">
-            <button type="button" role="menuitem" [disabled]="!canReview(request)" (click)="review(request, 'Approved')">Approve</button>
-            <button type="button" role="menuitem" class="is-danger" [disabled]="!canReview(request)" (click)="review(request, 'Rejected')">Reject</button>
+            @if (actionInProgress() === request.returnId) {
+              <span class="d-flex align-items-center gap-2 px-2 py-1 small" role="status">
+                <app-loading-spinner /> Updating return request…
+              </span>
+            }
+            <button type="button" role="menuitem" [disabled]="!canReview(request) || actionInProgress() !== null" (click)="review(request, 'APPROVED')">Approve</button>
+            <button type="button" role="menuitem" class="is-danger" [disabled]="!canReview(request) || actionInProgress() !== null" (click)="review(request, 'REJECTED')">Reject</button>
           </div>
         }
       </div>
     </ng-template>
 
-    <app-pagination ariaLabel="Return request pages" itemLabel="products" [page]="page()" [pageSize]="pageSize" [total]="filteredRows().length" (pageChange)="page.set($event)" />
   </section>
 </main>

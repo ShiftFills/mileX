@@ -25,3 +25,10 @@ export const APP_ROUTES = {
   support: '/help',
   sell: '/sell',
 } as const;
+
+/**
+ * Query-string marker that opens the shared Login page in its seller variant
+ * (`/auth/login?audience=seller`). It only changes the page copy and the register link;
+ * authentication and role-based redirects are unchanged.
+ */
+export const SELLER_LOGIN_QUERY = { audience: 'seller' } as const;

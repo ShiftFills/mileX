@@ -2,7 +2,12 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { API_BASE_URL } from '@core/config/api.config';
+import { AuthService } from '@core/services/auth.service';
 import { SellerVerificationRecord, SellerVerificationService } from './seller-verification.service';
+
+function tokenFor(userId: number): string {
+  return `header.${btoa(JSON.stringify({ USER_ID: userId })).replace(/=/g, '')}.signature`;
+}
 
 describe('SellerVerificationService', () => {
   let service: SellerVerificationService;
@@ -18,6 +23,10 @@ describe('SellerVerificationService', () => {
     });
     service = TestBed.inject(SellerVerificationService);
     http = TestBed.inject(HttpTestingController);
+    TestBed.inject(AuthService).setSession(
+      { id: '60', email: '', firstName: 'Admin', lastName: '' },
+      tokenFor(60),
+    );
   });
 
   afterEach(() => http.verify());
@@ -353,7 +362,6 @@ describe('SellerVerificationService', () => {
       .updateSellerDecision({
         SELLER_ID: 7,
         DECISION: 'APPROVED',
-        UPDATED_BY: 1,
       })
       .subscribe((message) => (result = message));
 
@@ -362,7 +370,7 @@ describe('SellerVerificationService', () => {
     expect(request.request.body).toEqual({
       SELLER_ID: 7,
       DECISION: 'APPROVED',
-      UPDATED_BY: 1,
+      UPDATED_BY: 60,
     });
     request.flush({ status: 'SUCCESS', message: 'Seller approved.' });
 
@@ -375,7 +383,6 @@ describe('SellerVerificationService', () => {
       .updateSellerDecision({
         SELLER_ID: 9,
         DECISION: 'REJECTED',
-        UPDATED_BY: 1,
       })
       .subscribe({ error: (result: unknown) => (error = result) });
 
@@ -384,7 +391,7 @@ describe('SellerVerificationService', () => {
     expect(request.request.body).toEqual({
       SELLER_ID: 9,
       DECISION: 'REJECTED',
-      UPDATED_BY: 1,
+      UPDATED_BY: 60,
     });
     request.flush({ status: false, message: 'Seller cannot be rejected.' });
 
@@ -397,7 +404,6 @@ describe('SellerVerificationService', () => {
       .approveDocument({
         DOCUMENT_ID: 12,
         PROOF_TYPE: 'GST_CERTIFICATE',
-        UPDATED_BY: 1,
       })
       .subscribe((message) => (result = message));
 
@@ -406,11 +412,27 @@ describe('SellerVerificationService', () => {
     expect(request.request.body).toEqual({
       DOCUMENT_ID: 12,
       PROOF_TYPE: 'GST_CERTIFICATE',
-      UPDATED_BY: 1,
+      UPDATED_BY: 60,
     });
     request.flush({ status: true, message: 'Document approved.' });
 
     expect(result).toBe('Document approved.');
+  });
+
+  it('does not send review requests when the access token has no user ID', () => {
+    TestBed.inject(AuthService).setSession(
+      { id: '60', email: '', firstName: 'Admin', lastName: '' },
+      'invalid-token',
+    );
+    let failure: unknown;
+    service
+      .approveDocument({ DOCUMENT_ID: 12, PROOF_TYPE: 'GST_CERTIFICATE' })
+      .subscribe({ error: (error: unknown) => (failure = error) });
+
+    expect(failure).toEqual(
+      new Error('A valid authenticated user ID is required to review documents.'),
+    );
+    http.expectNone((request) => request.url.endsWith('/document_verification/approve'));
   });
 
   it('rejects a selected proof with a trimmed mandatory reason', () => {
@@ -420,7 +442,6 @@ describe('SellerVerificationService', () => {
         DOCUMENT_ID: 14,
         PROOF_TYPE: 'PAN_CARD',
         REJECTION_REASON: '  PAN copy is unreadable  ',
-        UPDATED_BY: 1,
       })
       .subscribe((message) => (result = message));
 
@@ -430,7 +451,7 @@ describe('SellerVerificationService', () => {
       DOCUMENT_ID: 14,
       PROOF_TYPE: 'PAN_CARD',
       REJECTION_REASON: 'PAN copy is unreadable',
-      UPDATED_BY: 1,
+      UPDATED_BY: 60,
     });
     request.flush({ status: 'SUCCESS', message: 'Document rejected.' });
 
@@ -443,7 +464,6 @@ describe('SellerVerificationService', () => {
         DOCUMENT_ID: 12,
         PROOF_TYPE: 'GST_CERTIFICATE',
         REJECTION_REASON: ' ',
-        UPDATED_BY: 1,
       }),
     ).toThrowError('A rejection reason is required.');
 
@@ -452,7 +472,6 @@ describe('SellerVerificationService', () => {
       .approveDocument({
         DOCUMENT_ID: 12,
         PROOF_TYPE: 'GST_CERTIFICATE',
-        UPDATED_BY: 1,
       })
       .subscribe({ error: (result: unknown) => (error = result) });
     http

@@ -13,6 +13,15 @@
   --badge-compact-padding: 0.24rem 0.6rem;
 }
 
+.return-request-detail {
+  display: block;
+  margin-top: 0.12rem;
+  color: var(--color-text-muted);
+  font-size: 0.72em;
+  font-weight: var(--weight-regular);
+  overflow-wrap: anywhere;
+}
+
 .return-images {
   display: flex;
   align-items: center;

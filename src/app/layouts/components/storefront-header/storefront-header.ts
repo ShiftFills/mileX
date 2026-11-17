@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, computed, i
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { EMPTY, catchError, tap } from 'rxjs';
-import { APP_ROUTES } from '@core/constants/app-routes';
+import { APP_ROUTES, SELLER_LOGIN_QUERY } from '@core/constants/app-routes';
 import { AuthService } from '@core/services/auth.service';
 import { CartService } from '@core/services/cart.service';
 import { ProductCatalogService, ProductLookupOption } from '@core/services/product-catalog.service';
@@ -30,6 +30,7 @@ export class StorefrontHeader {
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
   protected readonly routes = APP_ROUTES;
+  protected readonly sellerLoginQuery = SELLER_LOGIN_QUERY;
   protected readonly categories = signal<ProductLookupOption[]>([]);
   protected readonly categoriesStatus = signal<'loading' | 'success' | 'error'>('loading');
   protected readonly categoriesError = signal<string | null>(null);

@@ -18,14 +18,24 @@
 
   <section class="login-form-panel" aria-labelledby="login-title">
     <div class="login-register-link">
-      <span>Don't have an account?</span>
-      <a [routerLink]="routes.register">Sign Up</a>
+      @if (isSellerLogin()) {
+        <span>Don't have a seller account?</span>
+        <a [routerLink]="routes.sell">Register</a>
+      } @else {
+        <span>Don't have an account?</span>
+        <a [routerLink]="routes.register">Sign Up</a>
+      }
     </div>
 
     <div class="login-form-content">
       <header class="login-heading">
-        <h2 id="login-title">Login to Your Account</h2>
-        <p>Enter your registered credentials to manage orders &amp; track shipments.</p>
+        @if (isSellerLogin()) {
+          <h2 id="login-title">Seller Login</h2>
+          <p>Enter your registered seller credentials to manage your store, products &amp; orders.</p>
+        } @else {
+          <h2 id="login-title">Login to Your Account</h2>
+          <p>Enter your registered credentials to manage orders &amp; track shipments.</p>
+        }
       </header>
 
       <form class="login-form" (submit)="signIn($event)">

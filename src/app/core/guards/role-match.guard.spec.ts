@@ -73,6 +73,15 @@ describe('roleMatchGuard', () => {
     }
   });
 
+  // CHANGED (new): Sellers can open the Return Request listing.
+  it('allows a seller to open the return request listing', () => {
+    userType = 'SELLER';
+
+    expect(runGuard('ADMIN', '/admin/returns')).toBe(true);
+    expect(runGuard('ADMIN', 'returns')).toBe(true);
+  });
+
+  // CHANGED: `/admin/returns` moved to the allowed list above; deeper return paths stay blocked.
   it('continues to block sellers from the other Admin routes', () => {
     userType = 'SELLER';
 
@@ -80,7 +89,7 @@ describe('roleMatchGuard', () => {
       '/admin',
       '/admin/dashboard',
       '/admin/orders',
-      '/admin/returns',
+      '/admin/returns/42',
       '/admin/sellers',
       '/admin/my-orders',
       '/admin/products/new/extra',

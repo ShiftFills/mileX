@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
-import { EMPTY, Observable, Subscription, catchError, finalize, tap } from 'rxjs';
+import { EMPTY, Observable, Subscription, catchError, finalize, switchMap, tap } from 'rxjs';
 import { APP_ROUTES } from '@core/constants/app-routes';
 import { Button } from '@shared/components/button/button';
 import { Card } from '@shared/components/card/card';
@@ -11,6 +11,7 @@ import { Select } from '@shared/components/select/select';
 import { Textarea } from '@shared/components/textarea/textarea';
 import { ProductCatalogService, ProductInsertPayload, ProductLookupOption } from '@core/services/product-catalog.service';
 import { ToastService } from '@core/services/toast.service';
+import { SellerOnboardingService } from '@features/seller/services/seller-onboarding.service';
 
 export const REQUIRED_FIELDS = [
   'productName', 'sku', 'category', 'subcategory', 'brand', 'description', 'hsnCode', 'taxRate',
@@ -18,7 +19,6 @@ export const REQUIRED_FIELDS = [
 ] as const;
 const ADD_PRODUCT_REQUIRED_FIELDS = REQUIRED_FIELDS.filter((field) => field !== 'sku');
 const PRODUCT_SELLER_ID = 1;
-const PRODUCT_CREATED_BY = 2;
 
 type ProductLookupName = 'category' | 'brand' | 'taxRate' | 'subcategory';
 type ProductLookupStatus = 'loading' | 'success' | 'error';
@@ -38,6 +38,7 @@ interface ProductLookupState {
 })
 export class AddProduct implements OnInit {
   private readonly productCatalog = inject(ProductCatalogService);
+  protected readonly sellerOnboarding = inject(SellerOnboardingService);
   private readonly toast = inject(ToastService);
   private readonly addProductRouter = inject(Router);
   private readonly dropdownDestroyRef = inject(DestroyRef);
@@ -318,7 +319,10 @@ export class AddProduct implements OnInit {
     if (validationFields.some((field) => this.fieldError(field) !== null) || !this.productImages().length) return;
     const payload = this.createProductPayload();
     this.isSubmitting.set(true);
-    this.productCatalog.insertProduct(payload).pipe(
+    this.sellerOnboarding.getSellerIdForCurrentUser(payload.SELLER_ID).pipe(
+      switchMap((sellerId) =>
+        this.productCatalog.insertProduct({ ...payload, SELLER_ID: sellerId }),
+      ),
       tap((message) => {
         this.cancel();
         this.saved.set(true);
@@ -334,7 +338,9 @@ export class AddProduct implements OnInit {
     ).subscribe();
   }
 
-  protected createProductPayload(media: { imagePath?: string; videoPath?: string | null } = {}): ProductInsertPayload {
+  protected createProductPayload(
+    media: { imagePath?: string; videoPath?: string | null } = {},
+  ): Omit<ProductInsertPayload, 'CREATED_BY'> {
     const values = this.values();
     const taxRateLabel = this.taxRateLookup().options.find((option) => option.id === values['taxRate'])?.label ?? '';
     const numeric = (name: string): number => Number(values[name]);
@@ -367,7 +373,6 @@ export class AddProduct implements OnInit {
       WIDTH: optionalNumeric('width'),
       HEIGHT: optionalNumeric('height'),
       SELLER_ID: PRODUCT_SELLER_ID,
-      CREATED_BY: PRODUCT_CREATED_BY,
     };
   }
 

@@ -1,12 +1,14 @@
 import { CurrencyPipe, DOCUMENT } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
 import { APP_ROUTES } from '@core/constants/app-routes';
 import { CHECKOUT_STEPS, FREE_SHIPPING_THRESHOLD, MOBILE_PATTERN, PINCODE_PATTERN } from '@core/constants/checkout';
 import { INDIAN_STATES } from '@core/constants/indian-states';
-import { AddressService } from '@core/services/address.service';
+import { AddressInput, AddressService } from '@core/services/address.service';
 import { CartService } from '@core/services/cart.service';
 import { ProductCatalogService } from '@core/services/product-catalog.service';
+import { ToastService } from '@core/services/toast.service';
 import { Alert } from '@shared/components/alert/alert';
 import { Badge, BadgeTone } from '@shared/components/badge/badge';
 import { Button } from '@shared/components/button/button';
@@ -20,9 +22,10 @@ import { Select } from '@shared/components/select/select';
 import { Stepper } from '@shared/components/stepper/stepper';
 import { AddressType, DeliveryAddress, Product } from '@shared/models';
 import { eventValue } from '@shared/utils/form-events';
+import { finalize } from 'rxjs';
 
-type FieldKey = 'fullName' | 'mobile' | 'pincode' | 'house' | 'street' | 'landmark' | 'city' | 'state';
-type AddressForm = Record<FieldKey, string> & { type: AddressType };
+type FieldKey = 'fullName' | 'mobile' | 'pincode' | 'house' | 'street' | 'landmark' | 'city' | 'state' | 'country';
+type AddressForm = Record<FieldKey, string> & { type: AddressType; isDefault: boolean };
 
 interface FieldConfig {
   key: FieldKey;
@@ -51,6 +54,7 @@ const FIELDS: readonly FieldConfig[] = [
     key: 'pincode', label: 'Pincode', placeholder: 'Enter pincode', autocomplete: 'postal-code', noun: 'pincode',
     check: (v) => (PINCODE_PATTERN.test(v) ? null : 'Enter a valid 6-digit pincode'),
   },
+  // house -> ADDRESS_LINE_1, street -> ADDRESS_LINE_2
   { key: 'house', label: 'House / Flat / Building', placeholder: 'Enter house / flat / building', autocomplete: 'address-line1', noun: 'house / flat / building' },
   { key: 'street', label: 'Street / Area', placeholder: 'Enter street / area', autocomplete: 'address-line2', noun: 'street / area' },
   { key: 'landmark', label: 'Landmark', placeholder: 'Enter landmark', autocomplete: 'off', noun: 'landmark', optional: true },
@@ -59,6 +63,10 @@ const FIELDS: readonly FieldConfig[] = [
     check: (v) => (/^[\p{L}][\p{L} .'-]*$/u.test(v) ? null : 'Enter a valid city'),
   },
   { key: 'state', label: 'State', placeholder: 'Select state', autocomplete: 'address-level1', noun: 'state', select: true },
+  {
+    key: 'country', label: 'Country', placeholder: 'Enter country', autocomplete: 'country-name', noun: 'country',
+    check: (v) => (/^[\p{L}][\p{L} .'-]*$/u.test(v) ? null : 'Enter a valid country'),
+  },
 ];
 
 const ADDRESS_TYPES: readonly { value: AddressType; label: string }[] = [
@@ -69,11 +77,15 @@ const ADDRESS_TYPES: readonly { value: AddressType; label: string }[] = [
 
 const TYPE_TONE: Record<AddressType, BadgeTone> = { home: 'info', work: 'neutral', other: 'neutral' };
 const MAX_DIGITS: Partial<Record<FieldKey, number>> = { mobile: 10, pincode: 6 };
+const DEFAULT_COUNTRY = 'India';
+
+/** A blank form. Country (India) and Address Type (Home) are prefilled and are not user changes. */
 const EMPTY_FORM: AddressForm = {
-  fullName: '', mobile: '', pincode: '', house: '', street: '', landmark: '', city: '', state: '', type: 'home',
+  fullName: '', mobile: '', pincode: '', house: '', street: '', landmark: '', city: '', state: '',
+  country: DEFAULT_COUNTRY, type: 'home', isDefault: false,
 };
 
-/** Checkout step 2: pick a saved delivery address or add a new one. */
+/** Checkout step 2: pick a saved delivery address or add a new one (customer_address API). */
 @Component({
   selector: 'app-delivery-address',
   imports: [Alert, Badge, Button, Card, Checkbox, CurrencyPipe, Input, LoadingSpinner, PageHeading, Radio, RouterLink, Select, Stepper],
@@ -85,6 +97,8 @@ export class DeliveryAddressPage {
   protected readonly cart = inject(CartService);
   protected readonly catalog = inject(ProductCatalogService);
   protected readonly addressBook = inject(AddressService);
+  private readonly toast = inject(ToastService);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
   private readonly document = inject(DOCUMENT);
 
@@ -97,11 +111,22 @@ export class DeliveryAddressPage {
   protected readonly typeTone = TYPE_TONE;
 
   protected readonly form = signal<AddressForm>({ ...EMPTY_FORM });
-  protected readonly saveForLater = signal(true);
+  /** The values the form started with (blank, or the address being edited): used to detect unsaved changes. */
+  private readonly baseline = signal<AddressForm>({ ...EMPTY_FORM });
   protected readonly editingId = signal<string | null>(null);
+  /** ADDRESS_TYPE exactly as the backend returned it for the address being edited (for example 'pg'). */
+  private readonly originalApiType = signal('');
+  /** True once the user picks a type in the radio group; until then an edited address keeps its original type. */
+  private readonly typeChosen = signal(false);
   private readonly touched = signal<ReadonlySet<FieldKey>>(new Set());
   private readonly submitted = signal(false);
   protected readonly selectionError = signal(false);
+  /** Shown when Confirm to Payment is pressed while the form holds unsaved changes. */
+  protected readonly unsavedError = signal(false);
+  /** True while an insert or update request is in flight: shows the button loader and blocks repeat clicks. */
+  protected readonly saving = signal(false);
+  /** ADDRESS_ID of the card whose "Set as default" request is in flight. */
+  protected readonly defaultingId = signal<string | null>(null);
 
   // ---- Order summary ----
   protected readonly listTotal = computed(() =>
@@ -126,12 +151,24 @@ export class DeliveryAddressPage {
     }
     return errors;
   });
-  /** True once the user has typed anything or is editing a saved address. */
-  protected readonly formStarted = computed(
-    () => this.editingId() !== null || FIELDS.some((field) => this.form()[field.key].trim() !== ''),
-  );
 
-  /** The error to show under a field: only after it was edited or a submit was attempted. */
+  /** True only when the user has changed something compared with where the form started. */
+  protected readonly isDirty = computed(() => {
+    const form = this.form();
+    const base = this.baseline();
+    return (
+      FIELDS.some((field) => form[field.key].trim() !== base[field.key].trim()) ||
+      form.type !== base.type ||
+      form.isDefault !== base.isDefault
+    );
+  });
+
+  constructor() {
+    // Fetch the logged-in customer's saved addresses; the service selects the default (or the first).
+    this.addressBook.load();
+  }
+
+  /** The error to show under a field: only after it was edited or a save was attempted. */
   protected errorFor(key: FieldKey): string | null {
     return this.submitted() || this.touched().has(key) ? (this.errors()[key] ?? null) : null;
   }
@@ -148,28 +185,78 @@ export class DeliveryAddressPage {
     return ADDRESS_TYPES.find((item) => item.value === type)?.label ?? type;
   }
 
+  protected isDefaulting(id: string): boolean {
+    return this.defaultingId() === id;
+  }
+
   // ---- Saved addresses ----
   protected selectAddress(id: string): void {
     this.addressBook.select(id);
     this.selectionError.set(false);
+    this.unsavedError.set(false);
   }
 
   protected editAddress(address: DeliveryAddress): void {
+    if (this.saving()) return;
     this.addressBook.select(address.id);
+    const values: AddressForm = {
+      fullName: address.fullName,
+      mobile: address.mobile,
+      pincode: address.pincode,
+      house: address.house,
+      street: address.street,
+      landmark: address.landmark ?? '',
+      city: address.city,
+      state: address.state,
+      country: address.country || DEFAULT_COUNTRY,
+      type: address.type,
+      isDefault: address.isDefault,
+      
+    };
+    this.form.set(values);
+    this.baseline.set({ ...values });
     this.editingId.set(address.id);
-    this.form.set({ ...EMPTY_FORM, ...address, landmark: address.landmark ?? '' });
+    this.originalApiType.set(address.apiType);
+    this.typeChosen.set(false);
     this.touched.set(new Set());
     this.submitted.set(false);
+    this.unsavedError.set(false);
     this.focusForm();
   }
 
   protected addNewAddress(): void {
+    if (this.saving()) return;
     this.resetForm();
     this.focusForm();
   }
 
   protected cancelEdit(): void {
+    if (this.saving()) return;
     this.resetForm();
+  }
+
+  /** Makes a saved address the default. Ignored while another save or default change is running. */
+  protected setAsDefault(address: DeliveryAddress): void {
+    if (address.isDefault || this.saving() || this.defaultingId() !== null) return;
+    this.defaultingId.set(address.id);
+    this.addressBook
+      .setDefault(address)
+      .pipe(
+        finalize(() => this.defaultingId.set(null)),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe({
+        next: () => {
+          // Keep an open edit form for this address in step with the new default.
+          if (this.editingId() === address.id) {
+            this.form.update((form) => ({ ...form, isDefault: true }));
+            this.baseline.update((base) => ({ ...base, isDefault: true }));
+          }
+          this.toast.showSuccess('Default address updated.');
+        },
+        error: (error: unknown) =>
+          this.toast.showError(this.addressBook.errorMessage(error, 'The default address could not be updated.')),
+      });
   }
 
   // ---- Form handlers ----
@@ -182,6 +269,7 @@ export class DeliveryAddressPage {
     }
     this.form.update((form) => ({ ...form, [key]: value }));
     this.selectionError.set(false);
+    this.unsavedError.set(false);
   }
 
   protected markTouched(key: FieldKey): void {
@@ -190,24 +278,54 @@ export class DeliveryAddressPage {
 
   protected setType(type: AddressType): void {
     this.form.update((form) => ({ ...form, type }));
+    this.typeChosen.set(true);
+    this.unsavedError.set(false);
   }
 
-  protected setSaveForLater(checked: boolean): void {
-    this.saveForLater.set(checked);
+  protected setDefaultChecked(checked: boolean): void {
+    this.form.update((form) => ({ ...form, isDefault: checked }));
+    this.unsavedError.set(false);
+  }
+
+  // ---- Save (insert or update through the API) ----
+  protected saveAddress(): void {
+    if (this.saving()) return;
+    this.submitted.set(true);
+    const firstInvalid = FIELDS.find((field) => this.errors()[field.key]);
+    if (firstInvalid) {
+      this.document.getElementById(`address-${firstInvalid.key}`)?.focus();
+      return;
+    }
+
+    const input = this.toInput();
+    const editingId = this.editingId();
+    this.saving.set(true);
+    (editingId ? this.addressBook.update(editingId, input) : this.addressBook.add(input))
+      .pipe(
+        finalize(() => this.saving.set(false)),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe({
+        next: () => {
+          this.toast.showSuccess(editingId ? 'Address updated successfully.' : 'Address saved successfully.');
+          this.selectionError.set(false);
+          this.resetForm();
+        },
+        error: (error: unknown) =>
+          this.toast.showError(this.addressBook.errorMessage(error, 'The address could not be saved. Please try again.')),
+      });
   }
 
   // ---- Confirm ----
   protected confirmToPayment(): void {
     if (this.cart.hasUnavailableItems()) return;
-    if (this.formStarted()) {
-      this.submitted.set(true);
-      const firstInvalid = FIELDS.find((field) => this.errors()[field.key]);
-      if (firstInvalid) {
-        this.document.getElementById(`address-${firstInvalid.key}`)?.focus();
-        return;
-      }
-      this.storeFormAddress();
-    } else if (!this.addressBook.selected()) {
+    if (this.saving() || this.defaultingId() !== null) return;
+    if (this.isDirty()) {
+      // Something was typed or changed and not saved: do not continue.
+      this.unsavedError.set(true);
+      return;
+    }
+    if (!this.addressBook.selected()) {
       this.selectionError.set(true);
       return;
     }
@@ -218,10 +336,21 @@ export class DeliveryAddressPage {
     this.catalog.load();
   }
 
-  private storeFormAddress(): void {
+  protected retryAddresses(): void {
+    this.addressBook.load();
+  }
+
+  /**
+   * Builds the service input. ADDRESS_TYPE is HOME / WORK / OTHER from the radio group, except that
+   * an edited address whose type the user never touched keeps its original backend value (for
+   * example 'pg') instead of being converted to OTHER.
+   */
+  private toInput(): AddressInput {
     const form = this.form();
-    const address = {
-      type: form.type,
+    const original = this.originalApiType().trim();
+    const addressType = this.editingId() && original && !this.typeChosen() ? original : form.type.toUpperCase();
+    return {
+      addressType,
       fullName: form.fullName.trim(),
       mobile: form.mobile.trim(),
       pincode: form.pincode.trim(),
@@ -230,18 +359,20 @@ export class DeliveryAddressPage {
       landmark: form.landmark.trim() || undefined,
       city: form.city.trim(),
       state: form.state,
+      country: form.country.trim(),
+      isDefault: form.isDefault,
     };
-    const editingId = this.editingId();
-    if (editingId) this.addressBook.save({ ...address, id: editingId });
-    else if (this.saveForLater()) this.addressBook.save(address);
-    else this.addressBook.useOnce(address);
   }
 
   private resetForm(): void {
     this.form.set({ ...EMPTY_FORM });
+    this.baseline.set({ ...EMPTY_FORM });
     this.editingId.set(null);
+    this.originalApiType.set('');
+    this.typeChosen.set(false);
     this.touched.set(new Set());
     this.submitted.set(false);
+    this.unsavedError.set(false);
   }
 
   private focusForm(): void {

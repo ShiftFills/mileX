@@ -22,7 +22,6 @@ import {
   SellerOnboardingPayload,
   SellerOnboardingUpdatePayload,
   SellerOnboardingService,
-  SELLER_CREATED_BY,
 } from '../../services/seller-onboarding.service';
 
 interface SellerFieldOption {
@@ -1092,7 +1091,7 @@ export class SellerOnboarding implements OnDestroy {
     };
   }
 
-  private createSellerUpdatePayload(): SellerOnboardingUpdatePayload {
+  private createSellerUpdatePayload(): Omit<SellerOnboardingUpdatePayload, 'UPDATED_BY'> {
     const identity = this.editIdentity;
     if (!identity) throw new Error('Seller edit identifiers are unavailable.');
     const value = (name: string) => this.valueFor(name).trim();
@@ -1133,11 +1132,10 @@ export class SellerOnboarding implements OnDestroy {
       USER_ID: identity.userId,
       USER_NAME: value('userName'),
       USER_PASSWORD: value('userPassword') || this.existingSellerPassword,
-      UPDATED_BY: SELLER_CREATED_BY,
     };
   }
 
-  private createDocumentsUpdatePayload(): SellerDocumentsUpdatePayload {
+  private createDocumentsUpdatePayload(): Omit<SellerDocumentsUpdatePayload, 'UPDATED_BY'> {
     const identity = this.editIdentity;
     if (!identity) throw new Error('Document edit identifiers are unavailable.');
     const valueForDocument = (field: keyof typeof DOCUMENT_FIELD_MAP) =>
@@ -1152,7 +1150,6 @@ export class SellerOnboarding implements OnDestroy {
       BANK_PROOF: valueForDocument('bankProof'),
       OTHER_SUPPORTING_DOCUMENT: valueForDocument('supportingDocument'),
       SELLER_ID: identity.sellerId,
-      UPDATED_BY: SELLER_CREATED_BY,
     };
   }
 
@@ -1169,14 +1166,13 @@ export class SellerOnboarding implements OnDestroy {
     };
   }
 
-  private createBankUpdatePayload(): SellerBankDetailsUpdatePayload {
+  private createBankUpdatePayload(): Omit<SellerBankDetailsUpdatePayload, 'UPDATED_BY'> {
     const identity = this.editIdentity;
     if (!identity) throw new Error('Bank detail edit identifiers are unavailable.');
     return {
       ...this.createBankDetails(),
       BANK_DETAIL_ID: identity.bankDetailId,
       SELLER_ID: identity.sellerId,
-      UPDATED_BY: SELLER_CREATED_BY,
     };
   }
 

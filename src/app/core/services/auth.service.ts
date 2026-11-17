@@ -26,8 +26,34 @@ export interface CustomerRegistrationPayload {
   USER_NAME: string;
   USER_PASSWORD: string;
   CONFIRM_PASSWORD: string;
-  CREATED_BY: number;
+  CREATED_BY?: number;
 }
+
+/**
+ * JWT claim names for each ID. The access token is the single source of these values.
+ * Role-specific IDs deliberately have no 'id' / 'sub' fallback: a missing CUSTOMER_ID,
+ * SELLER_ID or ADMIN_ID claim stays undefined and never becomes the USER_ID.
+ */
+const USER_ID_CLAIMS = ['USER_ID', 'user_id', 'userId', 'id', 'sub'] as const;
+const CUSTOMER_ID_CLAIMS = ['CUSTOMER_ID', 'customer_id', 'customerId'] as const;
+const SELLER_ID_CLAIMS = ['SELLER_ID', 'seller_id', 'sellerId'] as const;
+const ADMIN_ID_CLAIMS = ['ADMIN_ID', 'admin_id', 'adminId'] as const;
+
+/** Login response fields that are compared with the matching access-token claim. */
+const LOGIN_BODY_ID_CHECKS = [
+  { field: 'USER_ID', claims: USER_ID_CLAIMS },
+  { field: 'CUSTOMER_ID', claims: CUSTOMER_ID_CLAIMS },
+  { field: 'SELLER_ID', claims: SELLER_ID_CLAIMS },
+  { field: 'ADMIN_ID', claims: ADMIN_ID_CLAIMS },
+] as const;
+
+/** Browser storage that belongs to one signed-in person and must never reach the next account. */
+const USER_DATA_KEYS = [
+  STORAGE_KEYS.cart,
+  STORAGE_KEYS.wishlist,
+  STORAGE_KEYS.addresses,
+  STORAGE_KEYS.selectedAddress,
+] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -53,11 +79,63 @@ function requiredText(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
+/** A positive whole number, or undefined for null, missing, zero, negative or non-numeric values. */
 function positiveInteger(value: unknown): number | undefined {
   if (typeof value !== 'number' && typeof value !== 'string') return undefined;
   if (typeof value === 'string' && !value.trim()) return undefined;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function claimsFromToken(token: string | null): Record<string, unknown> | undefined {
+  if (!token) return undefined;
+  const payload = token.split('.')[1];
+  if (!payload) return undefined;
+
+  try {
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const decoded = atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '='));
+    const bytes = Uint8Array.from(decoded, (character) => character.charCodeAt(0));
+    const claims: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    return isRecord(claims) ? claims : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function idFromClaims(
+  claims: Record<string, unknown> | undefined,
+  keys: readonly string[],
+): number | undefined {
+  if (!claims) return undefined;
+  for (const key of keys) {
+    const id = positiveInteger(claims[key]);
+    if (id !== undefined) return id;
+  }
+  return undefined;
+}
+
+function hasRole(userType: string | undefined, role: string): boolean {
+  return userType?.trim().toUpperCase() === role;
+}
+
+/**
+ * When the login response body and the access token both carry the same ID, they must agree.
+ * A disagreement rejects the login instead of silently trusting one of them.
+ */
+function assertBodyMatchesToken(
+  data: Record<string, unknown>,
+  claims: Record<string, unknown> | undefined,
+): void {
+  for (const { field, claims: keys } of LOGIN_BODY_ID_CHECKS) {
+    const bodyId = positiveInteger(data[field]);
+    const tokenId = idFromClaims(claims, keys);
+    if (bodyId !== undefined && tokenId !== undefined && bodyId !== tokenId) {
+      throw new Error(
+        `Login was rejected: the ${field} in the response does not match the access token.`,
+      );
+    }
+  }
 }
 
 function mapLoginResponse(response: unknown): LoginResult {
@@ -93,14 +171,16 @@ function mapLoginResponse(response: unknown): LoginResult {
   }
   const data = isRecord(responseData) ? responseData : response;
 
-  const userId = positiveInteger(data['USER_ID']);
   const userName = requiredText(data['USER_NAME']);
   const userType = requiredText(data['USER_TYPE']);
   const userTypeId = positiveInteger(data['USER_TYPE_ID']);
   const token = requiredText(data['ACCESSTOKEN']);
+  const claims = token ? claimsFromToken(token) : undefined;
+  const userId = idFromClaims(claims, USER_ID_CLAIMS);
   if (!userId || !userName || !userType || !userTypeId || !token) {
     throw new Error('The login API returned incomplete user details or access token.');
   }
+  assertBodyMatchesToken(data, claims);
 
   return {
     user: {
@@ -156,9 +236,27 @@ export class AuthService {
   private readonly _token = signal<string | null>(
     this.storage.get<string>(STORAGE_KEYS.accessToken),
   );
+  /** The access token's claims, decoded once per token. The single source of every ID below. */
+  private readonly claims = computed(() => claimsFromToken(this._token()));
 
   readonly user = this._user.asReadonly();
   readonly token = this._token.asReadonly();
+  readonly userType = computed(() => this._user()?.userType?.trim() || undefined);
+  readonly userTypeId = computed(() => this._user()?.userTypeId);
+  /** USER_ID: the actual user. Use it for audit fields such as CREATED_BY and UPDATED_BY. */
+  readonly userId = computed(() => idFromClaims(this.claims(), USER_ID_CLAIMS));
+  /** CUSTOMER_ID: only for CUSTOMER sessions. Undefined when missing; never falls back to USER_ID. */
+  readonly customerId = computed(() =>
+    hasRole(this.userType(), 'CUSTOMER') ? idFromClaims(this.claims(), CUSTOMER_ID_CLAIMS) : undefined,
+  );
+  /** SELLER_ID: only for SELLER sessions. Undefined for a seller who has no seller record yet. */
+  readonly sellerId = computed(() =>
+    hasRole(this.userType(), 'SELLER') ? idFromClaims(this.claims(), SELLER_ID_CLAIMS) : undefined,
+  );
+  /** ADMIN_ID: only for ADMIN sessions. */
+  readonly adminId = computed(() =>
+    hasRole(this.userType(), 'ADMIN') ? idFromClaims(this.claims(), ADMIN_ID_CLAIMS) : undefined,
+  );
   readonly isAuthenticated = computed(() => !!this._token() && !!this._user());
 
   login(userName: string, password: string): Observable<string> {
@@ -220,6 +318,13 @@ export class AuthService {
   }
 
   setSession(user: User, token: string): void {
+    // A different person is signing in: drop the previous person's cart, wishlist and addresses.
+    const previousUserId = this.userId();
+    const nextUserId = idFromClaims(claimsFromToken(token), USER_ID_CLAIMS);
+    if (previousUserId !== undefined && previousUserId !== nextUserId) {
+      this.clearUserData();
+    }
+
     this._user.set(user);
     this._token.set(token);
     this.storage.set(STORAGE_KEYS.user, user);
@@ -231,5 +336,10 @@ export class AuthService {
     this._token.set(null);
     this.storage.remove(STORAGE_KEYS.user);
     this.storage.remove(STORAGE_KEYS.accessToken);
+    this.clearUserData();
+  }
+
+  private clearUserData(): void {
+    for (const key of USER_DATA_KEYS) this.storage.remove(key);
   }
 }

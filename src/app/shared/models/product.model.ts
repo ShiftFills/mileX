@@ -24,6 +24,14 @@ export interface Product {
   stockLeft?: number;
   /** Maximum quantity allowed per order by the catalog API. */
   maxOrderQuantity?: number;
+  /** Variant ID from VARIANT_ID in the products API response. */
+  variantId?: number;
+  /** Seller who owns the product (SELLER_ID from products/get). Needed by shopping_cart/insert. */
+  sellerId?: number;
+  /** Tax rate from products/get (TAX_RATE), as returned by the API. */
+  taxRate?: number;
+  /** Discount from products/get (DISCOUNT), as returned by the API. */
+  discount?: number;
   highlights?: string[];
   specifications?: ProductSpecification[];
 }

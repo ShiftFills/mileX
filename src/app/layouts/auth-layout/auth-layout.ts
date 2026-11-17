@@ -16,8 +16,10 @@ export class AuthLayout {
   protected readonly isRegister = signal(false);
 
   protected onActivate(): void {
-    const url = this.router.url;
-    this.isLogin.set(url.endsWith('/login'));
-    this.isRegister.set(url.endsWith('/register'));
+    const segments =
+      this.router.parseUrl(this.router.url).root.children['primary']?.segments ?? [];
+    const page = segments[segments.length - 1]?.path;
+    this.isLogin.set(page === 'login');
+    this.isRegister.set(page === 'register');
   }
 }

@@ -3,6 +3,7 @@ import { Router, provideRouter } from '@angular/router';
 import { of, Subject, throwError } from 'rxjs';
 import { ProductCatalogService, ProductDetails } from '@core/services/product-catalog.service';
 import { ToastService } from '@core/services/toast.service';
+import { SellerOnboardingService } from '@features/seller/services/seller-onboarding.service';
 import { EditProduct } from './edit-product';
 
 interface EditProductHarness {
@@ -126,6 +127,7 @@ describe('EditProduct', () => {
       providers: [
         provideRouter([]),
         { provide: ProductCatalogService, useValue: catalog },
+        { provide: SellerOnboardingService, useValue: { getSellerIdForCurrentUser: (id: number) => of(id) } },
         { provide: ToastService, useValue: toast },
       ],
     }).compileComponents();
@@ -239,7 +241,6 @@ describe('EditProduct', () => {
       WIDTH: 5,
       HEIGHT: 3,
       SELLER_ID: 1,
-      CREATED_BY: 2,
     });
     expect(toast.showSuccess).toHaveBeenCalledWith('Product updated successfully');
     expect(TestBed.inject(Router).navigateByUrl).toHaveBeenCalledWith('/admin/products/all');

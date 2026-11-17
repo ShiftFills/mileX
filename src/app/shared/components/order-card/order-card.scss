@@ -14,6 +14,8 @@
 
 .my-order {
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   padding: u(0.75) 0;
   border-radius: var(--radius-md);
   background: var(--color-surface);
@@ -24,6 +26,7 @@
 
   > div {
     min-width: 0;
+    max-width: 100%;
     padding: u(0.5) u(0.75);
   }
 
@@ -31,6 +34,12 @@
     display: flex;
     align-items: flex-start;
     gap: u(0.75);
+    min-width: 0;
+
+    > div {
+      min-width: 0;
+      flex: 1 1 auto;
+    }
   }
 
   &__bag {
@@ -54,33 +63,48 @@
   }
 
   &__id {
+    max-width: 100%;
+    overflow: hidden;
     margin: 0;
     color: var(--color-text);
     font-size: u(0.68);
     font-weight: var(--weight-bold);
     letter-spacing: 0;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   &__meta {
+    max-width: 100%;
+    overflow: hidden;
     white-space: nowrap;
     margin: u(0.2) 0 0;
     color: var(--color-placeholder);
     font-size: u(0.56);
+    text-overflow: ellipsis;
   }
 
   &__total {
+    max-width: 100%;
+    overflow: hidden;
     margin: u(0.5) 0 0;
     color: var(--color-text);
     font-size: u(0.8);
     font-weight: var(--weight-bold);
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   &__link {
     display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
     margin-top: u(0.5);
     color: var(--color-file-link);
     font-size: u(0.58);
     text-decoration: none;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 
     &:hover {
       text-decoration: underline;
@@ -91,6 +115,7 @@
     display: grid;
     align-content: center;
     gap: u(0.5);
+    min-width: 0;
     border-top: 1px solid var(--color-border-subtle);
   }
 
@@ -98,10 +123,12 @@
     display: flex;
     align-items: center;
     gap: u(0.75);
+    min-width: 0;
 
     img {
       width: u(1.7);
       height: u(1.7);
+      max-width: 100%;
       flex: 0 0 auto;
       padding: u(0.15);
       border: 1px solid var(--color-border-subtle);
@@ -110,17 +137,30 @@
       object-fit: cover;
     }
 
+    > div {
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+
     strong {
       display: block;
+      max-width: 100%;
+      overflow: hidden;
       color: var(--color-text);
       font-size: u(0.64);
       font-weight: var(--weight-medium);
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     span {
+      display: block;
+      max-width: 100%;
+      overflow: hidden;
       white-space: nowrap;
       color: var(--color-placeholder);
       font-size: u(0.54);
+      text-overflow: ellipsis;
 
       i {
         font-style: normal;
@@ -135,31 +175,65 @@
     align-items: center;
     justify-content: space-between;
     gap: u(0.75);
+    min-width: 0;
   }
 
   &__status-text {
     display: grid;
     flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
     justify-items: start;
     gap: u(0.25);
     text-align: left;
+
+    app-badge {
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+    }
+  }
+
+  &__status-label {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   &__note {
+    max-width: 100%;
+    overflow: hidden;
     margin: 0;
     color: var(--color-text);
     font-size: u(0.6);
     font-weight: var(--weight-medium);
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   &__tracking-link {
+    min-width: 0;
+    max-width: 100%;
+    flex: 1 1 auto;
+    display: block;
+    overflow: hidden;
     color: inherit;
     text-decoration: underline;
+    text-overflow: ellipsis;
     text-underline-offset: 2px;
+    white-space: nowrap;
 
     &:hover {
       color: var(--color-primary);
     }
+  }
+
+  &__tracking-label {
+    flex: 0 0 auto;
+    white-space: nowrap;
   }
 
   &__tracking {
@@ -167,8 +241,13 @@
     align-items: center;
     gap: u(0.25);
     margin: 0;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
     color: var(--color-placeholder);
     font-size: u(0.52);
+    white-space: nowrap;
+    text-overflow: ellipsis;
 
     svg {
       width: u(0.6);
@@ -209,7 +288,7 @@
 // Items and status sit beside the summary once the card itself is wide enough.
 @container (min-width: 34rem) {
   .my-order {
-    grid-template-columns: auto auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.3fr) minmax(0, 1fr);
 
     &__items {
       border-top: 0;

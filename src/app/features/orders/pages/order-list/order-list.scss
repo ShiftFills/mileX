@@ -13,6 +13,23 @@ app-pagination {
   margin-top: var(--space-3);
 }
 
+.order-list__loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-6) var(--space-4);
+  color: var(--color-text-muted);
+}
+
+.order-list__retry {
+  margin-left: var(--space-2);
+  border: 0;
+  background: transparent;
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+
 .order-list__empty {
   padding: var(--space-6) var(--space-4);
   border-radius: var(--radius-md);

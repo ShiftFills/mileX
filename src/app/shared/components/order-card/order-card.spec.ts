@@ -41,7 +41,22 @@ describe('OrderCard', () => {
     expect(root.querySelector('.my-order__total')?.textContent?.trim()).toBe('₹4,980');
     expect(root.querySelectorAll('.my-order__item').length).toBe(2);
     expect(root.textContent).toContain('Delivered on 21 Apr 2026');
-    expect(root.textContent).toContain('Tracking No: 732418563210');
+    expect(root.querySelector('.my-order__tracking-label')?.textContent).toContain('Tracking No:');
+    expect(root.querySelector('.my-order__tracking-link')?.textContent).toBe('732418563210');
+  });
+
+  it('displays the API order number instead of the numeric order ID', async () => {
+    await render({ ...ORDER, id: 'ORD0005', orderId: 15 });
+
+    expect(root.querySelector('.my-order__id')?.textContent).toBe('#ORD0005');
+  });
+
+  it('preserves long order numbers in the markup for CSS truncation', async () => {
+    const orderNumber = `ORD${'ABC123'.repeat(12)}`;
+    await render({ ...ORDER, id: orderNumber, orderId: 123456 });
+
+    expect(root.querySelector('.my-order__id')?.textContent).toBe(`#${orderNumber}`);
+    expect(root.querySelector('.my-order__id')?.getAttribute('title')).toBe(orderNumber);
   });
 
   it('links to the order detail page', async () => {

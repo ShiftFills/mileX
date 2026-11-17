@@ -8,6 +8,10 @@ import {
   SellerOnboardingService,
 } from './seller-onboarding.service';
 
+function tokenFor(userId: number): string {
+  return `header.${btoa(JSON.stringify({ USER_ID: userId })).replace(/=/g, '')}.signature`;
+}
+
 describe('SellerOnboardingService', () => {
   let service: SellerOnboardingService;
   let http: HttpTestingController;
@@ -18,6 +22,10 @@ describe('SellerOnboardingService', () => {
     });
     service = TestBed.inject(SellerOnboardingService);
     http = TestBed.inject(HttpTestingController);
+    TestBed.inject(AuthService).setSession(
+      { id: '60', email: '', firstName: 'Seller', lastName: '', userType: 'SELLER' },
+      tokenFor(60),
+    );
   });
 
   afterEach(() => http.verify());
@@ -357,6 +365,57 @@ describe('SellerOnboardingService', () => {
     http.expectNone((request) => request.url.endsWith('/seller_onboarding/get'));
   });
 
+  it('resolves the current Seller role to its seller record ID', () => {
+    let sellerId: number | undefined;
+    service.getSellerIdForCurrentUser(1).subscribe((id) => (sellerId = id));
+
+    http
+      .expectOne(
+        (request) =>
+          request.url.endsWith('/seller_onboarding/get') &&
+          request.params.get('USER_ID') === '60',
+      )
+      .flush({
+        STATUS: 'SUCCESS',
+        DATA: [{ USER_ID: 60, SELLER_ID: 42, SELLER_STATUS: 'ACTIVE' }],
+      });
+
+    expect(sellerId).toBe(42);
+  });
+
+  // CHANGED (new): getCurrentSellerId resolves the logged-in seller without a default ID.
+  it('resolves the logged-in seller ID directly and errors when the user has no seller record', () => {
+    let sellerId: number | undefined;
+    service.getCurrentSellerId().subscribe((id) => (sellerId = id));
+    http
+      .expectOne((request) => request.url.endsWith('/seller_onboarding/get') && request.params.get('USER_ID') === '60')
+      .flush({ STATUS: 'SUCCESS', DATA: [{ USER_ID: 60, SELLER_ID: 24, SELLER_STATUS: 'ACTIVE' }] });
+    expect(sellerId).toBe(24);
+
+    TestBed.inject(AuthService).setSession(
+      { id: '61', email: '', firstName: 'Seller', lastName: '', userType: 'SELLER' },
+      tokenFor(61),
+    );
+    let error: unknown;
+    service.getCurrentSellerId().subscribe({ error: (caught: unknown) => (error = caught) });
+    http
+      .expectOne((request) => request.url.endsWith('/seller_onboarding/get') && request.params.get('USER_ID') === '61')
+      .flush({ STATUS: 'SUCCESS', DATA: [] });
+    expect(error).toEqual(new Error('The authenticated user does not have a valid seller account.'));
+  });
+
+  it('keeps the designated seller ID for an Admin role', () => {
+    TestBed.inject(AuthService).setSession(
+      { id: '60', email: '', firstName: 'Admin', lastName: '', userType: 'ADMIN' },
+      tokenFor(60),
+    );
+    let sellerId: number | undefined;
+    service.getSellerIdForCurrentUser(1).subscribe((id) => (sellerId = id));
+
+    expect(sellerId).toBe(1);
+    http.expectNone((request) => request.url.endsWith('/seller_onboarding/get'));
+  });
+
   it('fetches seller status again when the authenticated access token changes', () => {
     const auth = TestBed.inject(AuthService);
     let status: SellerAccountRecord | null | undefined;
@@ -493,7 +552,6 @@ describe('SellerOnboardingService', () => {
       USER_ID: 2,
       USER_NAME: 'arun_seller',
       USER_PASSWORD: 'Seller@123',
-      UPDATED_BY: 1,
     };
     service.updateSeller(payload).subscribe((response) => (result = response));
 
@@ -501,7 +559,7 @@ describe('SellerOnboardingService', () => {
       (candidate) =>
         candidate.url.endsWith('/seller_onboarding/update') && candidate.method === 'PUT',
     );
-    expect(request.request.body).toEqual(payload);
+    expect(request.request.body).toEqual({ ...payload, UPDATED_BY: 60 });
     request.flush({ STATUS: 'SUCCESS', MESSAGE: 'Seller updated' });
     expect(result).toBe('Seller updated');
   });
@@ -519,7 +577,6 @@ describe('SellerOnboardingService', () => {
       BANK_PROOF: null,
       OTHER_SUPPORTING_DOCUMENT: null,
       SELLER_ID: 42,
-      UPDATED_BY: 1,
     };
     const bankPayload = {
       BANK_DETAIL_ID: 9,
@@ -531,7 +588,6 @@ describe('SellerOnboardingService', () => {
       IFSC_CODE: 'SBIN0001234',
       ACCOUNT_TYPE: 2,
       SELLER_ID: 42,
-      UPDATED_BY: 1,
     };
     service.updateDocuments(documentPayload).subscribe((response) => (documentResult = response));
     service.updateBankDetails(bankPayload).subscribe((response) => (bankResult = response));
@@ -544,8 +600,8 @@ describe('SellerOnboardingService', () => {
       (candidate) =>
         candidate.url.endsWith('/seller_bank_details/update') && candidate.method === 'PUT',
     );
-    expect(documentsRequest.request.body).toEqual(documentPayload);
-    expect(bankRequest.request.body).toEqual(bankPayload);
+    expect(documentsRequest.request.body).toEqual({ ...documentPayload, UPDATED_BY: 60 });
+    expect(bankRequest.request.body).toEqual({ ...bankPayload, UPDATED_BY: 60 });
     documentsRequest.flush({ STATUS: 'SUCCESS' });
     bankRequest.flush({ status: 'SUCCESS' });
 

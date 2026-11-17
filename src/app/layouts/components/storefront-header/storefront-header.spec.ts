@@ -167,6 +167,17 @@ describe('StorefrontHeader auth navigation integration', () => {
     expect(TestBed.inject(Router).url).toBe('/auth/register');
     expect(root.querySelector('.auth.auth--register app-register')).not.toBeNull();
   });
+
+  it('opens the real Login screen in its seller variant from Sell on Milex', async () => {
+    const sellLink = root.querySelector('.store-header__utility-nav a[href="/auth/login?audience=seller"]') as HTMLAnchorElement;
+    expect(sellLink.textContent).toContain('Sell on Milex');
+    sellLink.click();
+    await fixture.whenStable();
+
+    expect(TestBed.inject(Router).url).toBe('/auth/login?audience=seller');
+    expect(root.querySelector('.auth.auth--login app-login')).not.toBeNull();
+    expect(root.querySelector('#login-title')?.textContent).toBe('Seller Login');
+  });
 });
 
 describe('StorefrontHeader Browse All Products menu', () => {

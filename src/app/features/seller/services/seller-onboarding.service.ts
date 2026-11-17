@@ -123,8 +123,6 @@ const DOCUMENT_PAYLOAD_KEYS = {
   supportingDocument: 'OTHER_SUPPORTING_DOCUMENT',
 } as const satisfies Record<string, keyof SellerDocumentsPayload>;
 
-export const SELLER_CREATED_BY = 1;
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -475,15 +473,52 @@ export class SellerOnboardingService {
     );
   }
 
+  getSellerIdForCurrentUser(defaultSellerId: number): Observable<number> {
+    const defaultId = requireId(defaultSellerId, 'SELLER_ID');
+    if (this.auth.user()?.userType?.trim().toUpperCase() !== 'SELLER') {
+    return of(defaultId);
+    }
+
+    return this.getCurrentSellerId();
+  }
+
+  /**
+   * SELLER_ID of the signed-in Seller, resolved from their seller record (cached per session).
+   * Errors when the session has no valid USER_ID or the user has no seller account.
+   */
+  // CHANGED (new): extracted from getSellerIdForCurrentUser so Seller-only screens (Return Request)
+  // can resolve the logged-in seller without a placeholder default ID. Behaviour is unchanged.
+  getCurrentSellerId(): Observable<number> {
+    const userId = this.auth.userId();
+    if (userId === undefined) {
+    return throwError(
+      () => new Error('A valid authenticated user ID is required to resolve the seller account.'),
+    );
+    }
+
+    return this.getSellerForUser(userId).pipe(
+    map((seller) => {
+      if (seller?.sellerId === undefined) {
+        throw new Error('The authenticated user does not have a valid seller account.');
+      }
+      return seller.sellerId;
+    }),
+    );
+  }
+
   submitWithResult(payload: SellerOnboardingPayload): Observable<SellerOnboardingResult> {
     return this.api.post<unknown>(API_ENDPOINTS.sellerOnboarding.insert, payload).pipe(map(mapOnboardingResult));
   }
 
-  updateSeller(payload: SellerOnboardingUpdatePayload): Observable<string> {
+  updateSeller(payload: Omit<SellerOnboardingUpdatePayload, 'UPDATED_BY'>): Observable<string> {
     requireId(payload.SELLER_ID, 'SELLER_ID');
     requireId(payload.USER_ID, 'USER_ID');
+    const updatedBy = this.auth.userId();
+    if (updatedBy === undefined) {
+      return throwError(() => new Error('A valid authenticated user ID is required to update seller details.'));
+    }
     return this.api
-      .put<unknown>(API_ENDPOINTS.sellerOnboarding.update, payload)
+      .put<unknown>(API_ENDPOINTS.sellerOnboarding.update, { ...payload, UPDATED_BY: updatedBy })
       .pipe(map((response) => readSuccess(response, 'seller onboarding', 'Seller details updated successfully.')));
   }
 
@@ -518,11 +553,15 @@ export class SellerOnboardingService {
       }));
   }
 
-  updateDocuments(payload: SellerDocumentsUpdatePayload): Observable<string> {
+  updateDocuments(payload: Omit<SellerDocumentsUpdatePayload, 'UPDATED_BY'>): Observable<string> {
     requireId(payload.DOCUMENT_ID, 'DOCUMENT_ID');
     requireId(payload.SELLER_ID, 'SELLER_ID');
+    const updatedBy = this.auth.userId();
+    if (updatedBy === undefined) {
+      return throwError(() => new Error('A valid authenticated user ID is required to update seller documents.'));
+    }
     return this.api
-      .put<unknown>(API_ENDPOINTS.sellerDocuments.update, payload)
+      .put<unknown>(API_ENDPOINTS.sellerDocuments.update, { ...payload, UPDATED_BY: updatedBy })
       .pipe(map((response) => readSuccess(response, 'seller documents', 'Seller documents updated successfully.')));
   }
 
@@ -545,11 +584,15 @@ export class SellerOnboardingService {
     );
   }
 
-  updateBankDetails(payload: SellerBankDetailsUpdatePayload): Observable<string> {
+  updateBankDetails(payload: Omit<SellerBankDetailsUpdatePayload, 'UPDATED_BY'>): Observable<string> {
     requireId(payload.BANK_DETAIL_ID, 'BANK_DETAIL_ID');
     requireId(payload.SELLER_ID, 'SELLER_ID');
+    const updatedBy = this.auth.userId();
+    if (updatedBy === undefined) {
+      return throwError(() => new Error('A valid authenticated user ID is required to update seller bank details.'));
+    }
     return this.api
-      .put<unknown>(API_ENDPOINTS.sellerBankDetails.update, payload)
+      .put<unknown>(API_ENDPOINTS.sellerBankDetails.update, { ...payload, UPDATED_BY: updatedBy })
       .pipe(map((response) => readSuccess(response, 'seller bank details', 'Bank details updated successfully.')));
   }
 

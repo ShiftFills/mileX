@@ -4,7 +4,9 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { WritableSignal } from '@angular/core';
 import { of } from 'rxjs';
 import { ProductCatalogService } from '@core/services/product-catalog.service';
+import { AuthService } from '@core/services/auth.service';
 import { ToastService } from '@core/services/toast.service';
+import { SellerOnboardingService } from '@features/seller/services/seller-onboarding.service';
 import { ProductVariants } from './product-variants';
 
 interface VariantRow {
@@ -108,7 +110,9 @@ describe('ProductVariants edit action', () => {
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
+        { provide: AuthService, useValue: { userId: () => 60, user: () => ({ userType: 'ADMIN' }) } },
         { provide: ProductCatalogService, useValue: catalog },
+        { provide: SellerOnboardingService, useValue: { getSellerIdForCurrentUser: (id: number) => of(id) } },
         { provide: ToastService, useValue: toast },
       ],
     }).compileComponents();
@@ -247,6 +251,7 @@ describe('ProductVariants edit action', () => {
     fixture.detectChanges();
     expect(component.dialog()).toBe('edit');
     expect(component.selected()?.id).toBe('21');
+    expect(fixture.nativeElement.querySelector('#variant-sku')).not.toBeNull();
     expect((fixture.nativeElement.querySelector('#variant-name') as HTMLInputElement).value)
       .toBe('Black - Regular');
     expect(fixture.nativeElement.querySelector('.action-menu')).toBeNull();
@@ -271,6 +276,7 @@ describe('ProductVariants edit action', () => {
     fixture.detectChanges();
 
     expect(component.dialog()).toBe('edit');
+    expect(fixture.nativeElement.querySelector('#variant-sku')).not.toBeNull();
     expect(component.form()).toMatchObject({
       name: selected.name,
       sku: selected.sku,
@@ -317,7 +323,7 @@ describe('ProductVariants edit action', () => {
       SELLER_ID: 1,
       SELLER_NAME: 'Arun Kumar',
       STATUS: 'INACTIVE',
-      CREATED_BY: 42,
+      CREATED_BY: 60,
     });
     request.flush({ status: 'SUCCESS', message: 'Product variant updated successfully' });
     expect(component.dialog()).toBeNull();
@@ -352,7 +358,7 @@ describe('ProductVariants edit action', () => {
       COLOR_ID: 1,
       MATERIAL_ID: 3,
       SELLER_ID: 1,
-      CREATED_BY: 42,
+      CREATED_BY: 60,
     });
     expect(request.request.body).not.toHaveProperty('SIZE');
     expect(request.request.body).not.toHaveProperty('COLOR');
@@ -490,6 +496,7 @@ describe('ProductVariants edit action', () => {
     component.openAdd();
     flushVariantLookups(http);
     fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('#variant-sku')).toBeNull();
     const sizeSelect = fixture.nativeElement.querySelector('#variant-size') as HTMLSelectElement;
     expect(Array.from(sizeSelect.options).some((option) => option.value === '2' && option.textContent === 'Medium')).toBe(true);
     sizeSelect.value = '2';
@@ -511,7 +518,7 @@ describe('ProductVariants edit action', () => {
     component.form.set({
       productId: '4',
       name: ' Black Leather Medium ',
-      sku: 'SKU-LEATHER-M',
+      sku: '',
       barcode: '',
       size: '',
       sizeId: component.form().sizeId,
@@ -531,9 +538,9 @@ describe('ProductVariants edit action', () => {
 
     const request = http.expectOne((req) => req.url.endsWith('/product_variant/insert'));
     expect(request.request.method).toBe('POST');
+    expect(request.request.body).not.toHaveProperty('SKU');
     expect(request.request.body).toEqual({
       VARIANT_NAME: 'Black Leather Medium',
-      SKU: 'SKU-LEATHER-M',
       BARCODE: null,
       SIZE_ID: 2,
       COLOUR_ID: 1,
@@ -545,7 +552,7 @@ describe('ProductVariants edit action', () => {
       PRODUCT_ID: 4,
       SELLER_ID: 1,
       SELLER_NAME: 'Arun Kumar',
-      CREATED_BY: 2,
+      CREATED_BY: 60,
     });
 
     component.save();
@@ -661,7 +668,7 @@ describe('ProductVariants edit action', () => {
       PRODUCT_ID: 4,
       SELLER_ID: 1,
       SELLER_NAME: 'Arun Kumar',
-      CREATED_BY: 2,
+      CREATED_BY: 60,
     });
     request.flush({
       status: 'SUCCESS',

@@ -22,41 +22,65 @@
             Saved Addresses
           </h2>
 
-          <div class="row g-2" role="radiogroup" aria-labelledby="saved-title">
-            @for (address of addressBook.addresses(); track address.id) {
-              @let isSelected = addressBook.selected()?.id === address.id;
-              <div class="col-12 col-md-6">
-                <article class="address-card" [class.is-selected]="isSelected" (click)="selectAddress(address.id)">
-                  <label class="address-card__select">
-                    <input class="visually-hidden" type="radio" name="saved-address" [value]="address.id" [checked]="isSelected" (change)="selectAddress(address.id)" />
-                    <span class="address-card__radio" aria-hidden="true"></span>
-                    <span class="address-card__head">
-                      <app-badge [tone]="typeTone[address.type]" class="address-card__badge">{{ typeLabel(address.type) }}</app-badge>
-                    </span>
-                    <strong class="address-card__name">{{ address.fullName }}</strong>
-                    <span class="address-card__phone">{{ formatMobile(address.mobile) }}</span>
-                    <span class="address-card__text">
-                      {{ address.house }}, {{ address.street }}{{ address.landmark ? ', ' + address.landmark : '' }},<br />
-                      {{ address.city }}, {{ address.state }} - {{ address.pincode }}
-                    </span>
-                  </label>
-                  <div class="address-card__footer">
-                    <app-button variant="plain" size="small" (clicked)="$event.stopPropagation(); editAddress(address)">
-                      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m10.5 3.5 2 2M3 13l.5-2.5 7-7 2 2-7 7L3 13Z" /></svg>
-                      Edit
-                    </app-button>
-                  </div>
-                </article>
-              </div>
+          @if (addressBook.status() === 'loading' || addressBook.status() === 'idle') {
+            <div class="address-loading-state" role="status"><app-loading-spinner /> Loading your addresses…</div>
+          } @else {
+            @if (addressBook.status() === 'error') {
+              <app-alert class="address-section__alert" tone="danger" role="alert">
+                {{ addressBook.error() }}
+                <button type="button" (click)="retryAddresses()">Try again</button>
+              </app-alert>
             }
-          </div>
+
+            @if (addressBook.addresses().length) {
+              <div class="row g-2" role="radiogroup" aria-labelledby="saved-title">
+                @for (address of addressBook.addresses(); track address.id) {
+                  @let isSelected = addressBook.selected()?.id === address.id;
+                  <div class="col-12 col-md-6">
+                    <article class="address-card" [class.is-selected]="isSelected" (click)="selectAddress(address.id)">
+                      <label class="address-card__select">
+                        <input class="visually-hidden" type="radio" name="saved-address" [value]="address.id" [checked]="isSelected" (change)="selectAddress(address.id)" />
+                        <span class="address-card__radio" aria-hidden="true"></span>
+                        <span class="address-card__head">
+                          <app-badge [tone]="typeTone[address.type]" class="address-card__badge">{{ typeLabel(address.type) }}</app-badge>
+                          @if (address.isDefault) {
+                            <app-badge tone="success" class="address-card__badge address-card__default">Default</app-badge>
+                          }
+                        </span>
+                        <strong class="address-card__name">{{ address.fullName }}</strong>
+                        <span class="address-card__phone">{{ formatMobile(address.mobile) }}</span>
+                        <span class="address-card__text">
+                          {{ address.house }}, {{ address.street }}{{ address.landmark ? ', ' + address.landmark : '' }},<br />
+                          {{ address.city }}, {{ address.state }} - {{ address.pincode }}<br />
+                          {{ address.country }}
+                        </span>
+                      </label>
+                      <div class="address-card__footer">
+                        <app-button variant="plain" size="small" [disabled]="saving() || defaultingId() !== null" (clicked)="$event.stopPropagation(); editAddress(address)">
+                          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m10.5 3.5 2 2M3 13l.5-2.5 7-7 2 2-7 7L3 13Z" /></svg>
+                          Edit
+                        </app-button>
+                        @if (!address.isDefault) {
+                          <app-button variant="plain" size="small" [loading]="isDefaulting(address.id)" [disabled]="saving() || defaultingId() !== null" (clicked)="$event.stopPropagation(); setAsDefault(address)">
+                            Set as default
+                          </app-button>
+                        }
+                      </div>
+                    </article>
+                  </div>
+                }
+              </div>
+            } @else if (addressBook.status() === 'success') {
+              <p class="address-section__empty" role="status">You have no saved addresses yet. Add one below to continue.</p>
+            }
+          }
 
           @if (selectionError()) {
             <app-alert class="address-section__alert" tone="danger" role="alert">Select a saved address or add a new one to continue.</app-alert>
           }
 
           <div class="address-section__actions">
-            <app-button class="address-add" variant="outline" size="small" (clicked)="addNewAddress()">
+            <app-button class="address-add" variant="outline" size="small" [disabled]="saving()" (clicked)="addNewAddress()">
               <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 2.5v7M2.5 6h7" /></svg>
               Add New Address
             </app-button>
@@ -70,11 +94,11 @@
               {{ editingId() ? 'Edit Address' : 'Add New Address' }}
             </h2>
             @if (editingId()) {
-              <app-button variant="link" size="small" (clicked)="cancelEdit()">Cancel</app-button>
+              <app-button variant="link" size="small" [disabled]="saving()" (clicked)="cancelEdit()">Cancel</app-button>
             }
           </div>
 
-          <form class="row address-form__grid" novalidate (submit)="$event.preventDefault(); confirmToPayment()">
+          <form class="row address-form__grid" novalidate (submit)="$event.preventDefault(); saveAddress()">
             @for (field of fields; track field.key) {
               @let error = errorFor(field.key);
               <div class="col-12 col-md-6">
@@ -133,11 +157,15 @@
               </fieldset>
             </div>
 
-            @if (!editingId()) {
-              <div class="col-12 address-form__save">
-                <app-checkbox [checked]="saveForLater()" (checkedChange)="setSaveForLater($event)">Save this address for future orders</app-checkbox>
-              </div>
-            }
+            <div class="col-12 address-form__save">
+              <app-checkbox [checked]="form().isDefault" (checkedChange)="setDefaultChecked($event)">Make this my default address</app-checkbox>
+            </div>
+
+            <div class="col-12 address-form__actions">
+              <app-button type="submit" variant="accent" [loading]="saving()" [disabled]="saving()">
+                {{ editingId() ? 'Update Address' : 'Save Address' }}
+              </app-button>
+            </div>
           </form>
         </section>
       </div>
@@ -169,7 +197,11 @@
 
           <p class="order-summary__total"><span>Order total</span><strong>{{ orderTotal() | currency: 'INR' : 'symbol' : '1.0-0' }}</strong></p>
 
-          <app-button class="order-summary__confirm" variant="accent" [disabled]="cart.hasUnavailableItems()" (clicked)="confirmToPayment()">Confirm to Payment</app-button>
+          @if (unsavedError()) {
+            <app-alert class="order-summary__alert" tone="danger" role="alert">Please save your address before continuing.</app-alert>
+          }
+
+          <app-button class="order-summary__confirm" variant="accent" [disabled]="cart.hasUnavailableItems() || saving() || defaultingId() !== null" (clicked)="confirmToPayment()">Confirm to Payment</app-button>
           <small class="order-summary__secure">
             <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7" width="9" height="7" rx="1" /><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" /></svg>
             Safe and secure checkout

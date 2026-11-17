@@ -5,6 +5,7 @@ import { FormsModule } from '@angular/forms';
 import { EMPTY, catchError, distinctUntilChanged, expand, finalize, map, switchMap, tap, toArray } from 'rxjs';
 import { ProductCatalogService } from '@core/services/product-catalog.service';
 import { ToastService } from '@core/services/toast.service';
+import { SellerOnboardingService } from '@features/seller/services/seller-onboarding.service';
 import { Button } from '@shared/components/button/button';
 import { Dialog } from '@shared/components/dialog/dialog';
 import { Input } from '@shared/components/input/input';
@@ -26,9 +27,7 @@ const PRODUCT_PAGE_SIZE = 100;
 const MAX_VARIANT_IMAGE_SIZE = 5 * 1024 * 1024;
 const VARIANT_SELLER_ID = 1;
 const VARIANT_SELLER_NAME = 'Arun Kumar';
-const VARIANT_CREATED_BY = 2;
 const VARIANT_UPDATE_SELLER_ID = 1;
-const VARIANT_UPDATE_CREATED_BY = 42;
 
 type VariantLookupState = {
   status: 'idle' | 'loading' | 'success' | 'error';
@@ -60,6 +59,7 @@ function hasVariantDimensionSelection(value: string, id: number | null): boolean
 export class ProductVariants {
   private readonly variantService = inject(ProductVariantService);
   private readonly productCatalog = inject(ProductCatalogService);
+  private readonly sellerOnboarding = inject(SellerOnboardingService);
   private readonly toast = inject(ToastService);
   private readonly destroyRef = inject(DestroyRef);
   protected readonly variants = signal<ProductVariant[]>([]);
@@ -404,7 +404,7 @@ export class ProductVariants {
       const selectedProduct = this.products().find((product) => product.id === v.productId);
       if (
         !Number.isSafeInteger(productId) || productId <= 0 ||
-        !v.name.trim() || !v.sku.trim() ||
+        !v.name.trim() ||
         (v.colorId !== null && (!Number.isSafeInteger(v.colorId) || v.colorId <= 0)) ||
         (v.sizeId !== null && (!Number.isSafeInteger(v.sizeId) || v.sizeId <= 0)) ||
         (v.materialId !== null && (!Number.isSafeInteger(v.materialId) || v.materialId <= 0)) ||
@@ -422,9 +422,8 @@ export class ProductVariants {
       }
 
       const imageName = imageFile.name.split(/[\\/]/).pop() ?? imageFile.name;
-      const payload: ProductVariantInsertPayload = {
+      const payload: Omit<ProductVariantInsertPayload, 'CREATED_BY'> = {
         VARIANT_NAME: v.name.trim(),
-        SKU: v.sku.trim(),
         BARCODE: v.barcode.trim() || null,
         ...(v.sizeId !== null && hasVariantDimensionSelection(v.size, v.sizeId) ? { SIZE_ID: v.sizeId } : {}),
         ...(v.colorId !== null && hasVariantDimensionSelection(v.color, v.colorId) ? { COLOUR_ID: v.colorId } : {}),
@@ -434,14 +433,16 @@ export class ProductVariants {
         STOCK_QUANTITY: stock,
         VARIANT_IMAGE: imageName,
         PRODUCT_ID: productId,
-        SELLER_ID: VARIANT_SELLER_ID || 1,
+        SELLER_ID: VARIANT_SELLER_ID,
         SELLER_NAME: VARIANT_SELLER_NAME,
-        CREATED_BY: VARIANT_CREATED_BY || 42,
       };
 
       this.error.set(false);
       this.isSubmitting.set(true);
-      this.variantService.insertVariant(payload).pipe(
+      this.sellerOnboarding.getSellerIdForCurrentUser(payload.SELLER_ID).pipe(
+        switchMap((sellerId) =>
+          this.variantService.insertVariant({ ...payload, SELLER_ID: sellerId }),
+        ),
         tap((message) => {
           this.toast.showSuccess(message);
           this.dialog.set(null);
@@ -494,7 +495,7 @@ export class ProductVariants {
       }
       return;
     }
-    const payload: ProductVariantUpdatePayload = {
+    const payload: Omit<ProductVariantUpdatePayload, 'CREATED_BY'> = {
       VARIANT_ID: variantId,
       PRODUCT_ID: productId,
       VARIANT_NAME: v.name.trim(),
@@ -511,12 +512,14 @@ export class ProductVariants {
       SELLER_ID: VARIANT_UPDATE_SELLER_ID,
       SELLER_NAME: sellerName,
       STATUS: v.status.trim(),
-      CREATED_BY: VARIANT_UPDATE_CREATED_BY,
     };
 
     this.error.set(false);
     this.isSubmitting.set(true);
-    this.variantService.updateVariant(payload).pipe(
+    this.sellerOnboarding.getSellerIdForCurrentUser(payload.SELLER_ID).pipe(
+      switchMap((sellerId) =>
+        this.variantService.updateVariant({ ...payload, SELLER_ID: sellerId }),
+      ),
       tap((message) => {
         this.toast.showSuccess(message);
         this.dialog.set(null);

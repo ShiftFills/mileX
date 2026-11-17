@@ -578,7 +578,6 @@ describe('SellerVerification', () => {
     expect(approveDocument).toHaveBeenCalledWith({
       DOCUMENT_ID: 201,
       PROOF_TYPE: 'GST_CERTIFICATE',
-      UPDATED_BY: 1,
     });
     expect(getSellerDetails).toHaveBeenNthCalledWith(2, 101, 'Pending');
     expect(root.querySelector('.seller-document-preview__notice')?.textContent).toContain(
@@ -696,7 +695,6 @@ describe('SellerVerification', () => {
       DOCUMENT_ID: 201,
       PROOF_TYPE: 'GST_CERTIFICATE',
       REJECTION_REASON: 'GST certificate is unreadable.',
-      UPDATED_BY: 1,
     });
     expect(getSellerDetails).toHaveBeenNthCalledWith(2, 101, 'Pending');
     expect(root.querySelector('.seller-document-preview app-badge')?.textContent).toContain(
@@ -974,7 +972,6 @@ describe('SellerVerification', () => {
     expect(updateDecision).toHaveBeenCalledWith({
       SELLER_ID: 101,
       DECISION: 'APPROVED',
-      UPDATED_BY: 1,
     });
     expect(root.querySelector('.seller-status')?.textContent).toContain('Approved');
     expect(hasSellerAction('Approve')).toBe(false);
@@ -1015,7 +1012,6 @@ describe('SellerVerification', () => {
     expect(updateDecision).toHaveBeenCalledWith({
       SELLER_ID: 101,
       DECISION: 'APPROVED',
-      UPDATED_BY: 1,
     });
     expect(getSellerDetails).toHaveBeenCalledTimes(2);
     expect(hasSellerAction('Approve')).toBe(false);
@@ -1102,7 +1098,6 @@ describe('SellerVerification', () => {
     expect(updateDecision).toHaveBeenCalledWith({
       SELLER_ID: 101,
       DECISION: 'REJECTED',
-      UPDATED_BY: 1,
     });
 
     expect(root.querySelector('.seller-status')?.textContent).toContain('Rejected');
@@ -1176,7 +1171,6 @@ describe('SellerVerification', () => {
     expect(approveDocument).toHaveBeenCalledWith({
       DOCUMENT_ID: 201,
       PROOF_TYPE: 'GST_CERTIFICATE',
-      UPDATED_BY: 1,
     });
     expect(getSellerDetails).toHaveBeenCalledTimes(2);
     expect(root.querySelector('.seller-document-preview app-badge')?.textContent).toContain(
@@ -1240,7 +1234,6 @@ describe('SellerVerification', () => {
     expect(rejectDocument).toHaveBeenCalledWith({
       DOCUMENT_ID: 201,
       PROOF_TYPE: 'GST_CERTIFICATE',
-      UPDATED_BY: 1,
       REJECTION_REASON: 'Document information is outdated.',
     });
     expect(getSellerDetails).toHaveBeenCalledTimes(2);

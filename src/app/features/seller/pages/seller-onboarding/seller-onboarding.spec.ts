@@ -404,7 +404,6 @@ describe('SellerOnboarding validation', () => {
       STATE: 33,
       COUNTRY: 1,
       USER_PASSWORD: 'Seller@123',
-      UPDATED_BY: 1,
     });
     expect(updatedDocuments).toHaveLength(1);
     expect(updatedDocuments[0]).toMatchObject({
@@ -412,13 +411,11 @@ describe('SellerOnboarding validation', () => {
       SELLER_ID: 42,
       GST_CERTIFICATE: 'gst-updated.pdf',
       PAN_CARD: 'pan.pdf',
-      UPDATED_BY: 1,
     });
     expect(updatedBankDetails[0]).toMatchObject({
       BANK_DETAIL_ID: 9,
       SELLER_ID: 42,
       BANK_NAME: 'Updated Bank',
-      UPDATED_BY: 1,
     });
     expect(apiOrder).toEqual(['seller', 'documents', 'bank']);
     expect(toast.showSuccess).toHaveBeenCalledTimes(1);

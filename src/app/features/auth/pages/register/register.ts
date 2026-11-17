@@ -89,7 +89,7 @@ export class Register {
     const form = event.currentTarget;
     if (!(form instanceof HTMLFormElement) || !form.checkValidity() || Object.keys(this.fieldErrors()).length) return;
 
-    const userId = Number(this.auth.user()?.id);
+    const userId = this.auth.userId();
     const payload: CustomerRegistrationPayload = {
       FIRST_NAME: this.firstName().trim(),
       LAST_NAME: this.lastName().trim(),
@@ -98,7 +98,7 @@ export class Register {
       USER_NAME: this.userName().trim(),
       USER_PASSWORD: this.password(),
       CONFIRM_PASSWORD: this.confirmPassword(),
-      CREATED_BY: Number.isSafeInteger(userId) && userId > 0 ? userId : 1,
+      ...(userId !== undefined ? { CREATED_BY: userId } : {}),
     };
 
     this.isSubmitting.set(true);

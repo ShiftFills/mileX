@@ -4,11 +4,12 @@ import { APP_ROUTES } from '../constants/app-routes';
 import { AuthService } from '../services/auth.service';
 
 /**
- * Admin-area pages a Seller may open: product management only (list, add, edit, variants).
- * Checked against the path without its leading `admin/`.
+ * Admin-area pages a Seller may open: product management (list, add, edit, variants) and the
+ * Return Request listing. Checked against the path without its leading `admin/`.
  */
-// CHANGED (new): Sellers may open the product pages under /admin (list, add, edit, variants). Everything else stays Admin-only.
-const SELLER_ADMIN_PRODUCT_PATH = /^products(\/(all|new|variants|[^/]+\/edit))?$/;
+// CHANGED: Sellers may open the product pages (list, add, edit, variants) and Return Request under /admin.
+// Everything else stays Admin-only.
+const SELLER_ADMIN_PATH = /^(products(\/(all|new|variants|[^/]+\/edit))?|returns)$/;
 
 function defaultRouteFor(userType: string | undefined): string {
   switch (userType?.trim().toUpperCase()) {
@@ -43,11 +44,11 @@ export const roleMatchGuard: CanMatchFn = (route, segments) => {
     .map((segment) => segment.path)
     .join('/')
     .replace(/^admin\//, '');
-  const isSellerProductRoute =
+  const isSellerAllowedRoute =
     expectedType === 'ADMIN' &&
     actualType?.trim().toUpperCase() === 'SELLER' &&
-    SELLER_ADMIN_PRODUCT_PATH.test(requestedPath);
-  if (isSellerProductRoute) return true;
+    SELLER_ADMIN_PATH.test(requestedPath);
+  if (isSellerAllowedRoute) return true;
 
   if (
     typeof expectedType !== 'string' ||

@@ -846,7 +846,6 @@ export class SellerVerification {
       .updateSellerDecision({
         SELLER_ID: seller.sellerId,
         DECISION: decision === 'approve' ? 'APPROVED' : 'REJECTED',
-        UPDATED_BY: 1,
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -896,13 +895,11 @@ export class SellerVerification {
         ? this.verificationService.approveDocument({
             DOCUMENT_ID: documentId,
             PROOF_TYPE: document.proofType,
-            UPDATED_BY: 1,
           })
         : this.verificationService.rejectDocument({
             DOCUMENT_ID: documentId,
             PROOF_TYPE: document.proofType,
             REJECTION_REASON: this.documentRemarks().trim(),
-            UPDATED_BY: 1,
           });
 
     this.isSubmitting.set(true);

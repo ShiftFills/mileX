@@ -1,17 +1,21 @@
 import { CurrencyPipe, DatePipe, DOCUMENT } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 import { APP_ROUTES } from '@core/constants/app-routes';
+import { ToastService } from '@core/services/toast.service';
 import { Alert } from '@shared/components/alert/alert';
 import { Button } from '@shared/components/button/button';
 import { Card } from '@shared/components/card/card';
 import { Dialog } from '@shared/components/dialog/dialog';
+import { LoadingSpinner } from '@shared/components/loading-spinner/loading-spinner';
 import { PageHeading } from '@shared/components/page-heading/page-heading';
 import { Select } from '@shared/components/select/select';
 import { Stepper, StepperStep } from '@shared/components/stepper/stepper';
 import { Textarea } from '@shared/components/textarea/textarea';
+import { ReturnReasonOption } from '@shared/models';
 import { ShipmentMap } from '../../components/shipment-map/shipment-map';
 import { OrderService } from '../../services/order.service';
 
@@ -22,7 +26,7 @@ const COPIED_RESET_MS = 2000;
 
 @Component({
   selector: 'app-shipment-tracking',
-  imports: [Alert, Button, Card, CurrencyPipe, DatePipe, Dialog, PageHeading, RouterLink, Select, ShipmentMap, Stepper, Textarea],
+  imports: [Alert, Button, Card, CurrencyPipe, DatePipe, Dialog, LoadingSpinner, PageHeading, RouterLink, Select, ShipmentMap, Stepper, Textarea],
   templateUrl: './shipment-tracking.html',
   styleUrl: './shipment-tracking.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -48,10 +52,17 @@ export class ShipmentTrackingPage {
   protected readonly copied = signal(false);
   protected readonly notice = signal('');
   protected readonly returnRequestOpen = signal(false);
-  protected readonly returnReason = signal('');
+  protected readonly returnReason = signal<number | null>(null);
+  protected readonly returnReasonValue = computed(() => {
+    const reasonId = this.returnReason();
+    return reasonId === null ? '' : String(reasonId);
+  });
   protected readonly returnDetails = signal('');
   protected readonly returnReasonError = signal(false);
-  protected readonly returnReasons = ['Change in plans', 'Found a better price', 'Ordered by mistake', 'Other reason'];
+  protected readonly returnReasons = signal<ReturnReasonOption[]>([]);
+  protected readonly returnReasonsStatus = signal<'idle' | 'loading' | 'success' | 'error'>('idle');
+  protected readonly returnReasonsError = signal('');
+  private readonly toast = inject(ToastService);
   private readonly timers: ReturnType<typeof setTimeout>[] = [];
 
   constructor() {
@@ -65,10 +76,11 @@ export class ShipmentTrackingPage {
   }
 
   protected openReturnRequest(): void {
-    this.returnReason.set('');
+    this.returnReason.set(null);
     this.returnDetails.set('');
     this.returnReasonError.set(false);
     this.returnRequestOpen.set(true);
+    this.loadReturnReasons();
   }
 
   protected closeReturnRequest(): void {
@@ -77,8 +89,40 @@ export class ShipmentTrackingPage {
   }
 
   protected setReturnReason(event: Event): void {
-    this.returnReason.set((event.target as HTMLSelectElement).value);
-    if (this.returnReason()) this.returnReasonError.set(false);
+    const value = (event.target as HTMLSelectElement).value;
+    const reasonId = Number(value);
+    this.returnReason.set(
+      value && Number.isSafeInteger(reasonId) && reasonId > 0 ? reasonId : null,
+    );
+    if (this.returnReason() !== null) this.returnReasonError.set(false);
+  }
+
+  protected loadReturnReasons(): void {
+    const status = this.returnReasonsStatus();
+    if (status === 'loading' || status === 'success') return;
+
+    this.returnReasonsStatus.set('loading');
+    this.returnReasonsError.set('');
+    this.orders
+      .getReturnReasons()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (reasons) => {
+          this.returnReasons.set(reasons);
+          this.returnReasonsStatus.set('success');
+        },
+        error: (error: unknown) => {
+          const message =
+            error instanceof HttpErrorResponse
+              ? 'Return reasons could not be loaded. Please try again.'
+              : error instanceof Error
+                ? error.message
+                : 'Return reasons could not be loaded. Please try again.';
+          this.returnReasonsError.set(message);
+          this.returnReasonsStatus.set('error');
+          this.toast.showError(message);
+        },
+      });
   }
 
   protected setReturnDetails(event: Event): void {

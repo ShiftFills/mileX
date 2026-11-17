@@ -55,10 +55,10 @@ export const API_ENDPOINTS = {
     paymentStatuses: 'payment_status/get',
     shippingStatuses: 'shipping_status/get',
   },
-   sellerDashboard: {
+  sellerDashboard: {
     summary: 'seller_dashboard/dashboard',
   },
-    dateFilter: {
+  dateFilter: {
     get: 'date_filter/get',
   },
   status: {
@@ -70,5 +70,34 @@ export const API_ENDPOINTS = {
   },
   customerRegistration: {
     insert: 'customer_registration/insert',
+  },
+  customerAddress: {
+    get: 'customer_address/get',
+    insert: 'customer_address/insert',
+    update: 'customer_address/update',
+  },
+  customerOrders: {
+    get: 'customer_orders/get',
+  },
+  returnReasons: {
+    get: 'return_reason/get',
+  },
+  returnRequests: {
+    get: 'return_request/get',
+    update: 'return_request/update',
+  },
+  paymentMethod: {
+    get: 'payment_method/get',
+  },
+  placeOrder: {
+    insert: 'place_order',
+  },
+  shoppingCart: {
+    get: 'shopping_cart/get',
+    insert: 'shopping_cart/insert',
+    delete: 'shopping_cart/delete',
+  },
+  wishlist: {
+    saveForLater: 'wishlist/save_for_later',
   },
 } as const;

@@ -639,6 +639,37 @@ button {
     color: var(--color-danger);
     font-size: 0.65rem;
   }
+
+  &__lookup-state,
+  &__lookup-error {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    color: var(--color-text-muted);
+    font-size: 0.65rem;
+  }
+
+  &__lookup-state {
+    app-loading-spinner {
+      flex: 0 0 auto;
+    }
+  }
+
+  &__lookup-error {
+    flex-wrap: wrap;
+    justify-content: space-between;
+    color: var(--color-danger);
+
+    app-button {
+      margin-left: auto;
+    }
+  }
+
+  &__lookup-empty {
+    margin: 0;
+    color: var(--color-text-muted);
+    font-size: 0.65rem;
+  }
 }
 
 @media (max-width: 767.98px) {

@@ -79,4 +79,16 @@ describe('ApiService status lookup', () => {
     http.expectOne('/api/status/get/-1').flush({ status: 'SUCCESS', data: [] });
     expect(options).toEqual([]);
   });
+
+  it('sends DELETE with a JSON body and returns the plain-text response', () => {
+    let result: string | undefined;
+    api.deleteText('shopping_cart/delete', { CART_ID: 1 }).subscribe((value) => (result = value));
+
+    const request = http.expectOne('/api/shopping_cart/delete');
+    expect(request.request.method).toBe('DELETE');
+    expect(request.request.body).toEqual({ CART_ID: 1 });
+    expect(request.request.responseType).toBe('text');
+    request.flush('SUCCESS');
+    expect(result).toBe('SUCCESS');
+  });
 });

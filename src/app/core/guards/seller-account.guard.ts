@@ -37,7 +37,7 @@ function sellerUserId(): number | undefined {
   const auth = inject(AuthService);
   const user = auth.user();
   if (user?.userType?.trim().toUpperCase() !== 'SELLER') return undefined;
-  return positiveId(user.id);
+  return auth.userId();
 }
 
 function routeToRoleHome(router: Router): ReturnType<Router['parseUrl']> {
@@ -64,6 +64,9 @@ export const publicSellerOnboardingGuard: CanActivateFn = () => {
       return router.parseUrl(APP_ROUTES.sellerOnboarding);
     default:
       return true;
+
+
+      
   }
 };
 

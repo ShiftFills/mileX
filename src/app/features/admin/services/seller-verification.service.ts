@@ -1,8 +1,9 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable, map } from 'rxjs';
+import { Observable, map, throwError } from 'rxjs';
 import { API_ENDPOINTS } from '@core/constants/api-endpoints';
 import { ApiService } from '@core/services/api.service';
+import { AuthService } from '@core/services/auth.service';
 import type { StatusOption } from '@shared/models/api.model';
 
 export type { StatusOption } from '@shared/models/api.model';
@@ -513,39 +514,52 @@ function requestErrorMessage(error: unknown, subject: string): string {
 @Injectable({ providedIn: 'root' })
 export class SellerVerificationService {
   private readonly api = inject(ApiService);
+  private readonly auth = inject(AuthService);
 
-  approveDocument(payload: DocumentVerificationApprovePayload): Observable<string> {
-    this.validateDocumentAction(payload);
+  approveDocument(payload: Omit<DocumentVerificationApprovePayload, 'UPDATED_BY'>): Observable<string> {
+    const updatedBy = this.auth.userId();
+    if (updatedBy === undefined) {
+      return throwError(() => new Error('A valid authenticated user ID is required to review documents.'));
+    }
+    const request = { ...payload, UPDATED_BY: updatedBy };
+    this.validateDocumentAction(request);
     return this.api
-      .put<unknown>(API_ENDPOINTS.documentVerification.approve, payload)
+      .put<unknown>(API_ENDPOINTS.documentVerification.approve, request)
       .pipe(map((response) => mapActionResponse(response, 'Document', 'approval')));
   }
 
-  rejectDocument(payload: DocumentVerificationRejectPayload): Observable<string> {
-    this.validateDocumentAction(payload);
+  rejectDocument(payload: Omit<DocumentVerificationRejectPayload, 'UPDATED_BY'>): Observable<string> {
+    const updatedBy = this.auth.userId();
+    if (updatedBy === undefined) {
+      return throwError(() => new Error('A valid authenticated user ID is required to review documents.'));
+    }
+    const request = { ...payload, UPDATED_BY: updatedBy };
+    this.validateDocumentAction(request);
     if (!payload.REJECTION_REASON.trim()) {
       throw new RangeError('A rejection reason is required.');
     }
     return this.api
       .put<unknown>(API_ENDPOINTS.documentVerification.reject, {
-        ...payload,
-        REJECTION_REASON: payload.REJECTION_REASON.trim(),
+        ...request,
+        REJECTION_REASON: request.REJECTION_REASON.trim(),
       })
       .pipe(map((response) => mapActionResponse(response, 'Document', 'rejection')));
   }
 
-  updateSellerDecision(payload: SellerDecisionPayload): Observable<string> {
+  updateSellerDecision(payload: Omit<SellerDecisionPayload, 'UPDATED_BY'>): Observable<string> {
     if (!Number.isSafeInteger(payload.SELLER_ID) || payload.SELLER_ID <= 0) {
       throw new RangeError('A valid seller ID is required.');
     }
     if (!['APPROVED', 'REJECTED'].includes(payload.DECISION)) {
       throw new RangeError('A valid seller decision is required.');
     }
-    if (!Number.isSafeInteger(payload.UPDATED_BY) || payload.UPDATED_BY <= 0) {
-      throw new RangeError('A valid updated-by ID is required.');
+    const updatedBy = this.auth.userId();
+    if (updatedBy === undefined) {
+      return throwError(() => new Error('A valid authenticated user ID is required to review sellers.'));
     }
+    const request = { ...payload, UPDATED_BY: updatedBy };
     return this.api
-      .put<unknown>(API_ENDPOINTS.sellerVerification.updateDecision, payload)
+      .put<unknown>(API_ENDPOINTS.sellerVerification.updateDecision, request)
       .pipe(
         map((response) =>
           mapActionResponse(

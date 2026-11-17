@@ -134,4 +134,74 @@ describe('CartService', () => {
     expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.cart) ?? 'null')).toEqual([]);
     controller.verify();
   });
+
+  it('merges fetched cart items with existing local items and replaces local duplicates', () => {
+    const localProduct = productById(catalog, '4');
+    const fetchedItem = {
+      product: { ...localProduct, name: 'Server product', price: 600 },
+      quantity: 2,
+      apiDetails: {
+        cartId: '70',
+        sellerId: 12,
+        customerId: 3,
+        originalQuantity: 2,
+        unitPrice: 600,
+        cartDiscount: 50,
+        productDiscount: 0,
+        tax: 45,
+        totalAmount: 945,
+        saveForLater: false,
+      },
+    };
+
+    cart.mergeFetchedItems([fetchedItem]);
+
+    expect(cart.items()).toEqual([fetchedItem]);
+    expect(cart.count()).toBe(2);
+    expect(cart.subtotal()).toBe(1200);
+  });
+
+  it('updates and removes an API cart row by CART_ID when product IDs are shared', () => {
+    const product = productById(catalog, '4');
+    cart.mergeFetchedItems([
+      {
+        product,
+        quantity: 2,
+        apiDetails: {
+          cartId: '70',
+          sellerId: 12,
+          customerId: 3,
+          originalQuantity: 2,
+          unitPrice: product.price,
+          cartDiscount: 0,
+          productDiscount: 0,
+          tax: 0,
+          totalAmount: product.price * 2,
+          saveForLater: false,
+        },
+      },
+      {
+        product: { ...product, variantDetails: 'Blue' },
+        quantity: 1,
+        apiDetails: {
+          cartId: '71',
+          sellerId: 12,
+          customerId: 3,
+          originalQuantity: 1,
+          unitPrice: product.price,
+          cartDiscount: 0,
+          productDiscount: 0,
+          tax: 0,
+          totalAmount: product.price,
+          saveForLater: false,
+        },
+      },
+    ]);
+
+    cart.setQuantity(product.id, 3, '71');
+    expect(cart.items().map((item) => item.quantity)).toEqual([2, 3]);
+
+    cart.remove(product.id, '70');
+    expect(cart.items().map((item) => item.apiDetails?.cartId)).toEqual(['71']);
+  });
 });

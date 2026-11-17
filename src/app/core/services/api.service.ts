@@ -115,6 +115,15 @@ export class ApiService {
     return this.http.delete<T>(this.url(path), body === undefined ? {} : { body });
   }
 
+  /** DELETE with a JSON body for endpoints whose response is plain text or an unknown shape. */
+  deleteText(path: string, body: unknown): Observable<string> {
+    return this.http.delete(this.url(path), {
+      body,
+      responseType: 'text',
+      headers: new HttpHeaders({ 'Content-Type': 'application/json' }),
+    });
+  }
+
   private url(path: string): string {
     return `${this.baseUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
   }
