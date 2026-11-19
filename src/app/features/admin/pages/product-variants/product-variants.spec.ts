@@ -2,7 +2,8 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { WritableSignal } from '@angular/core';
-import { of } from 'rxjs';
+import { Observable, of, throwError } from 'rxjs';
+import type { Mock } from 'vitest';
 import { ProductCatalogService } from '@core/services/product-catalog.service';
 import { AuthService } from '@core/services/auth.service';
 import { ToastService } from '@core/services/toast.service';
@@ -201,6 +202,42 @@ describe('ProductVariants edit action', () => {
     fixture.detectChanges();
     expect(component.form()).toMatchObject({ size: 'M', color: 'Black', material: 'Plastic' });
     expect(fixture.nativeElement.textContent).toContain('Plastic');
+  });
+
+  // CHANGED (new): the product dropdown is the shared searchable select (its list scrolls inside the dialog).
+  it('picks the Add Variant product from a searchable list', () => {
+    catalog.loadPage.mockReturnValueOnce(of({
+      items: [
+        { id: '4', name: 'Lenovo 110', sellerId: 1 },
+        { id: '7', name: 'Dell Inspiron 15', sellerId: 1 },
+        { id: '9', name: 'Lenovo Tab M10', sellerId: 1 },
+      ],
+      hasNext: false,
+    }));
+    component.openAdd();
+    flushVariantLookups(http);
+    fixture.detectChanges();
+    const trigger = fixture.nativeElement.querySelector('#variant-product') as HTMLButtonElement;
+    const options = (): HTMLButtonElement[] =>
+      Array.from(fixture.nativeElement.querySelectorAll('#variant-product-options [role="option"]'));
+
+    expect(fixture.nativeElement.querySelector('select[name="productId"]')).toBeNull();
+    expect(trigger.textContent?.trim()).toBe('Select product');
+    trigger.click();
+    fixture.detectChanges();
+    expect(options().map((option) => option.textContent?.trim())).toEqual(['Lenovo 110', 'Dell Inspiron 15', 'Lenovo Tab M10']);
+
+    const search = fixture.nativeElement.querySelector('.searchable-select__search') as HTMLInputElement;
+    search.value = 'lenovo';
+    search.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(options().map((option) => option.textContent?.trim())).toEqual(['Lenovo 110', 'Lenovo Tab M10']);
+
+    options()[1].click();
+    fixture.detectChanges();
+    expect(component.form().productId).toBe('9');
+    expect(trigger.textContent?.trim()).toBe('Lenovo Tab M10');
+    expect(fixture.nativeElement.querySelector('#variant-product-options')).toBeNull();
   });
 
   it('shows lookup errors and retries a failed dropdown request', () => {
@@ -678,5 +715,220 @@ describe('ProductVariants edit action', () => {
     expect(toast.showError).not.toHaveBeenCalled();
     fixture.detectChanges();
     http.expectOne((req) => req.url.endsWith('/product_variant/get')).flush({ status: 'SUCCESS', data: [] });
+  });
+});
+
+// CHANGED (new): the listing request depends on the signed-in role.
+describe('ProductVariants listing by role', () => {
+  let fixture: ComponentFixture<ProductVariants>;
+  let http: HttpTestingController;
+  let getCurrentSellerId: Mock<() => Observable<number>>;
+
+  /**
+   * Renders the page for a session of `userType` whose access token carries `sellerId` (if any).
+   * The real ProductCatalogService is used, so the Add Variant product requests can be checked.
+   * `recordSellerId` is the SELLER_ID of the seller's record (getCurrentSellerId).
+   */
+  async function render(userType: string, sellerId?: number, recordSellerId = 31): Promise<void> {
+    getCurrentSellerId = vi.fn(() => of(recordSellerId));
+    await TestBed.configureTestingModule({
+      imports: [ProductVariants],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: AuthService, useValue: { userId: () => 60, user: () => ({ userType }), sellerId: () => sellerId } },
+        {
+          provide: SellerOnboardingService,
+          // Like the real service: the given default for an Admin, the seller's record for a Seller.
+          useValue: {
+            getSellerIdForCurrentUser: (id: number) => (userType === 'SELLER' ? getCurrentSellerId() : of(id)),
+            getCurrentSellerId,
+          },
+        },
+        { provide: ToastService, useValue: { showError: vi.fn(), showSuccess: vi.fn() } },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(ProductVariants);
+    http = TestBed.inject(HttpTestingController);
+    fixture.detectChanges();
+  }
+
+  /** A listing row like the API sends it. */
+  function variantRow(id: number, sellerId: number): Record<string, unknown> {
+    return {
+      VARIANT_ID: id, VARIANT_NAME: `Variant ${id}`, SKU: `SKU000${id}`, PRICE: '6000.00', STOCK_QUANTITY: 5,
+      VARIANT_IMAGE: null, PRODUCT_ID: 16, SELLER_ID: sellerId, SELLER_NAME: 'Arun Kumar', STATUS: 'ACTIVE',
+    };
+  }
+
+  afterEach(() => http.verify());
+
+  it('keeps the Admin request unchanged: LIMIT=5 with no product, variant or seller filter', async () => {
+    await render('ADMIN');
+    const request = http.expectOne((req) => req.url.endsWith('/product_variant/get'));
+    expect(request.request.urlWithParams).toBe('/api/product_variant/get?LIMIT=5&OFFSET=0');
+    request.flush({ status: 'SUCCESS', data: [variantRow(1, 24), variantRow(2, 49)] });
+    fixture.detectChanges();
+
+    expect(getCurrentSellerId).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.textContent).toContain('Variant 1');
+    expect(fixture.nativeElement.textContent).toContain('Variant 2');
+  });
+
+  it('sends the Seller request with the session SELLER_ID and LIMIT=10, and pages by 10', async () => {
+    await render('SELLER', 24);
+    const request = http.expectOne((req) => req.url.endsWith('/product_variant/get'));
+    expect(request.request.urlWithParams).toBe(
+      '/api/product_variant/get?PRODUCT_ID=-1&VARIANT_ID=-1&SELLER_ID=24&LIMIT=10&OFFSET=0',
+    );
+    request.flush({ status: 'SUCCESS', data: [variantRow(25, 24)], pagination: { totalRecords: 15 } });
+    fixture.detectChanges();
+    expect(getCurrentSellerId).not.toHaveBeenCalled();
+
+    (fixture.componentInstance as unknown as { setPage(page: number): void }).setPage(2);
+    fixture.detectChanges();
+    http.expectOne('/api/product_variant/get?PRODUCT_ID=-1&VARIANT_ID=-1&SELLER_ID=24&LIMIT=10&OFFSET=10')
+      .flush({ status: 'SUCCESS', data: [], pagination: { totalRecords: 15 } });
+  });
+
+  it('never shows another seller\'s variant to a Seller', async () => {
+    await render('SELLER', 24);
+    http.expectOne((req) => req.url.endsWith('/product_variant/get'))
+      .flush({ status: 'SUCCESS', data: [variantRow(25, 24), variantRow(26, 49)] });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Variant 25');
+    expect(fixture.nativeElement.textContent).not.toContain('Variant 26');
+  });
+
+  it('resolves the SELLER_ID from the seller record when the session token has none', async () => {
+    await render('SELLER');
+    expect(getCurrentSellerId).toHaveBeenCalledTimes(1);
+    http.expectOne('/api/product_variant/get?PRODUCT_ID=-1&VARIANT_ID=-1&SELLER_ID=31&LIMIT=10&OFFSET=0')
+      .flush({ status: 'SUCCESS', data: [] });
+  });
+
+  // CHANGED (new): the Add Variant product dropdown for each role.
+  describe('Add Variant product dropdown', () => {
+    interface DropdownHarness {
+      openAdd(): void;
+      save(): void;
+      productOptions(): { label: string; value: string }[];
+      productPlaceholder(): string;
+      form: WritableSignal<VariantForm>;
+      selectedImage: WritableSignal<File | null>;
+    }
+    const page = (): DropdownHarness => fixture.componentInstance as unknown as DropdownHarness;
+    // CHANGED: the Seller's dropdown request also sends STATUS=ACTIVE.
+    const SELLER_PRODUCTS_URL =
+      '/api/products/get?PRODUCT_ID=-1&CATEGORY_ID=-1&BRAND_ID=-1&SELLER_ID=24&STATUS=ACTIVE&LIMIT=100&OFFSET=0';
+
+    /** A products/get row (the API sends one per product variant). */
+    function productRow(id: number, name: string, sellerId: number, status = 'ACTIVE'): Record<string, unknown> {
+      return { PRODUCT_ID: id, PRODUCT_NAME: name, SELLING_PRICE: '100.00', SELLER_ID: sellerId, IS_ACTIVE: status };
+    }
+
+    async function openSellerDropdown(): Promise<void> {
+      await render('SELLER', 24, 24);
+      http.expectOne((req) => req.url.endsWith('/product_variant/get')).flush({ status: 'SUCCESS', data: [] });
+      fixture.detectChanges();
+      page().openAdd();
+      fixture.detectChanges();
+      flushVariantLookups(http);
+    }
+
+    // CHANGED: only active products (STATUS=ACTIVE); an inactive row the API still returns is not listed either.
+    it('lists only the logged-in Seller\'s active products, once each, from the products API with their SELLER_ID', async () => {
+      await openSellerDropdown();
+      expect(page().productPlaceholder()).toBe('Loading products…');
+
+      http.expectOne(SELLER_PRODUCTS_URL).flush({
+        status: 'SUCCESS',
+        data: [
+          productRow(16, 'Head Set', 24), productRow(16, 'Head Set', 24),
+          productRow(17, 'Dell Inspiron 15', 24), productRow(18, 'Other seller product', 49),
+          productRow(19, 'Retired product', 24, 'INACTIVE'),
+        ],
+      });
+      fixture.detectChanges();
+
+      expect(page().productOptions()).toEqual([
+        { label: 'Head Set', value: '16' },
+        { label: 'Dell Inspiron 15', value: '17' },
+      ]);
+      expect(page().productPlaceholder()).toBe('Select product');
+    });
+
+    it('creates the variant with the selected product\'s PRODUCT_ID and the Seller\'s SELLER_ID', async () => {
+      await openSellerDropdown();
+      http.expectOne(SELLER_PRODUCTS_URL).flush({ status: 'SUCCESS', data: [productRow(17, 'Dell Inspiron 15', 24)] });
+      fixture.detectChanges();
+
+      page().form.update((form) => ({ ...form, productId: '17', name: 'Silver - 8GB', price: '45000', stock: '5' }));
+      page().selectedImage.set(new File(['image'], 'silver.png', { type: 'image/png' }));
+      page().save();
+
+      const insert = http.expectOne((req) => req.url.endsWith('/product_variant/insert'));
+      expect(insert.request.body).toMatchObject({ PRODUCT_ID: 17, SELLER_ID: 24, VARIANT_NAME: 'Silver - 8GB' });
+      insert.flush({ status: 'SUCCESS', message: 'Product variant inserted successfully' });
+      fixture.detectChanges();
+      http.expectOne('/api/product_variant/get?PRODUCT_ID=-1&VARIANT_ID=-1&SELLER_ID=24&LIMIT=10&OFFSET=0')
+        .flush({ status: 'SUCCESS', data: [] });
+    });
+
+    it('shows the empty state, and the API error with a retry, for the Seller\'s products', async () => {
+      await openSellerDropdown();
+      http.expectOne(SELLER_PRODUCTS_URL).flush({ message: 'Products are unavailable.' }, { status: 500, statusText: 'Server Error' });
+      fixture.detectChanges();
+      const alert = fixture.nativeElement.querySelector('.variant-dialog [role="alert"]') as HTMLElement;
+      expect(alert.textContent).toContain('Products are unavailable.');
+
+      (alert.querySelector('app-button button') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      http.expectOne(SELLER_PRODUCTS_URL).flush({ status: 'SUCCESS', data: [] });
+      fixture.detectChanges();
+      expect(fixture.nativeElement.textContent).toContain('No products are available for variants.');
+      expect(page().productPlaceholder()).toBe('No products available');
+    });
+
+    it('keeps the Admin product request unchanged', async () => {
+      await render('ADMIN');
+      http.expectOne((req) => req.url.endsWith('/product_variant/get')).flush({ status: 'SUCCESS', data: [] });
+      fixture.detectChanges();
+      page().openAdd();
+      flushVariantLookups(http);
+
+      http.expectOne('/api/products/get?PRODUCT_ID=-1&LIMIT=100&OFFSET=0')
+        .flush({ status: 'SUCCESS', data: [productRow(16, 'Head Set', 24), productRow(18, 'Other seller product', 49)] });
+      fixture.detectChanges();
+      expect(page().productOptions().map((option) => option.value)).toEqual(['16', '18']);
+      expect(getCurrentSellerId).not.toHaveBeenCalled();
+    });
+  });
+
+  it('sends no listing request for a Seller without a seller account', async () => {
+    await TestBed.configureTestingModule({
+      imports: [ProductVariants],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: AuthService, useValue: { userId: () => 60, user: () => ({ userType: 'SELLER' }), sellerId: () => undefined } },
+        { provide: ProductCatalogService, useValue: { loadPage: vi.fn(), getErrorMessage: vi.fn() } },
+        {
+          provide: SellerOnboardingService,
+          useValue: {
+            getSellerIdForCurrentUser: (id: number) => of(id),
+            getCurrentSellerId: () => throwError(() => new Error('The authenticated user does not have a valid seller account.')),
+          },
+        },
+        { provide: ToastService, useValue: { showError: vi.fn(), showSuccess: vi.fn() } },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(ProductVariants);
+    http = TestBed.inject(HttpTestingController);
+    fixture.detectChanges();
+
+    http.expectNone((req) => req.url.endsWith('/product_variant/get'));
+    expect(fixture.nativeElement.textContent).toContain('The authenticated user does not have a valid seller account.');
   });
 });

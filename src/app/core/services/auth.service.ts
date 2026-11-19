@@ -1,6 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { Observable, map } from 'rxjs';
+import { Observable, finalize, map, shareReplay, throwError } from 'rxjs';
 import { User } from '@shared/models';
 import { API_ENDPOINTS } from '../constants/api-endpoints';
 import { STORAGE_KEYS } from '../constants/storage-keys';
@@ -258,6 +258,8 @@ export class AuthService {
     hasRole(this.userType(), 'ADMIN') ? idFromClaims(this.claims(), ADMIN_ID_CLAIMS) : undefined,
   );
   readonly isAuthenticated = computed(() => !!this._token() && !!this._user());
+  /** The refresh in progress; every request that failed with 401 meanwhile waits for this one. */
+  private refreshRequest: Observable<string> | null = null;
 
   login(userName: string, password: string): Observable<string> {
     const payload: LoginPayload = {
@@ -269,7 +271,9 @@ export class AuthService {
     }
 
     return this.api
-      .post<unknown>(API_ENDPOINTS.user.login, payload)
+      // CHANGED: withCredentials so the browser keeps the HttpOnly refresh-token cookie the login sets
+      // (needed when the API is on another origin; same-origin requests store it either way).
+      .post<unknown>(API_ENDPOINTS.user.login, payload, { withCredentials: true })
       .pipe(
         map(mapLoginResponse),
         map((result) => {
@@ -277,6 +281,42 @@ export class AuthService {
           return result.message;
         }),
       );
+  }
+
+  /**
+   * Gets a new access token for the signed-in user: `POST user/refresh` with no body. The backend reads
+   * the HttpOnly `refreshToken` cookie set at login (the app never sees or stores it). The response has
+   * the login fields; only its ACCESSTOKEN is used, so the signed-in user and role stay as they are.
+   *
+   * Callers share one request while it runs. Errors (and nothing is stored) when there is no session,
+   * the refresh session is invalid or expired, the response has no valid token, or the token belongs to
+   * another user (or the session changed, e.g. logout, while the request was running).
+   */
+  // CHANGED (new): used by the error interceptor when an API request returns 401.
+  refreshAccessToken(): Observable<string> {
+    if (this.refreshRequest) return this.refreshRequest;
+    const userId = this.userId();
+    if (!this.isAuthenticated() || userId === undefined) {
+      return throwError(() => new Error('There is no signed-in session to refresh.'));
+    }
+
+    this.refreshRequest = this.api
+      .post<unknown>(API_ENDPOINTS.user.refresh, null, { withCredentials: true })
+      .pipe(
+        // The refresh response has the same fields as the login response, so it is checked the same way.
+        map(mapLoginResponse),
+        map(({ token }) => {
+          if (this.userId() !== userId || idFromClaims(claimsFromToken(token), USER_ID_CLAIMS) !== userId) {
+            throw new Error('The refreshed access token does not belong to the signed-in user.');
+          }
+          this._token.set(token);
+          this.storage.set(STORAGE_KEYS.accessToken, token);
+          return token;
+        }),
+        finalize(() => (this.refreshRequest = null)),
+        shareReplay({ bufferSize: 1, refCount: false }),
+      );
+    return this.refreshRequest;
   }
 
   registerCustomer(payload: CustomerRegistrationPayload): Observable<string> {

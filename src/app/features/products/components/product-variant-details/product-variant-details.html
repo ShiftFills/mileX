@@ -1,0 +1,23 @@
+<!-- CHANGED (new): the selected variant; updates whenever another variant is chosen. -->
+<section class="variant-details" aria-labelledby="variant-details-title">
+  <header class="variant-details__head">
+    <h2 class="variant-details__title" id="variant-details-title">Selected variant</h2>
+    <app-badge [tone]="stock().tone">{{ stock().label }}</app-badge>
+  </header>
+  <div class="variant-details__summary">
+    <img class="variant-details__image" [src]="image()" alt="" (error)="useFallbackImage()" />
+    <div class="variant-details__text">
+      <p class="variant-details__name">{{ variant().name }}</p>
+      @if (options()) { <p class="variant-details__options">{{ options() }}</p> }
+      <p class="variant-details__price">{{ variant().price | currency: 'INR' : 'symbol' : '1.0-0' }}</p>
+    </div>
+  </div>
+  <dl class="variant-details__facts">
+    @for (fact of facts(); track fact.label) {
+      <div>
+        <dt>{{ fact.label }}</dt>
+        <dd>{{ fact.value }}</dd>
+      </div>
+    }
+  </dl>
+</section>

@@ -1,0 +1,91 @@
+// CHANGED (new): selected-variant card. Border, radius and type sizes follow the Product View's buy box.
+:host {
+  display: block;
+  margin-top: var(--space-4);
+}
+
+.variant-details {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+
+  &__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+  }
+
+  &__title {
+    margin: 0;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-bold);
+  }
+
+  &__summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  &__image {
+    flex: 0 0 4rem;
+    width: 4rem;
+    height: 4rem;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg);
+    object-fit: contain;
+  }
+
+  &__text {
+    min-width: 0;
+
+    p { margin: 0; }
+    .variant-details__price { margin-top: var(--space-1); }
+  }
+
+  &__name {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-bold);
+    overflow-wrap: anywhere;
+  }
+
+  &__options {
+    color: var(--color-text-muted);
+    font-size: var(--text-xs);
+  }
+
+  &__price {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-bold);
+  }
+
+  &__facts {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-3);
+    margin: var(--space-3) 0 0;
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--color-border-subtle);
+    font-size: var(--text-xs);
+
+    dt {
+      color: var(--color-text-muted);
+      font-weight: var(--weight-regular);
+    }
+
+    dd {
+      margin: 0;
+      overflow-wrap: anywhere;
+    }
+  }
+}
+
+@media (max-width: 575.98px) {
+  .variant-details__facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

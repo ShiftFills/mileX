@@ -1,12 +1,13 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { CurrencyPipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, signal, untracked } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
 import { APP_ROUTES } from '@core/constants/app-routes';
 import { AuthService } from '@core/services/auth.service';
 import { CartService } from '@core/services/cart.service';
 import { ToastService } from '@core/services/toast.service';
+import { ProductVariant, ProductVariantService } from '@features/admin/services/product-variant.service';
 import { ShoppingCartService } from '@features/cart/services/shopping-cart.service';
 import { Alert } from '@shared/components/alert/alert';
 import { Badge } from '@shared/components/badge/badge';
@@ -17,14 +18,20 @@ import { Input } from '@shared/components/input/input';
 import { LoadingSpinner } from '@shared/components/loading-spinner/loading-spinner';
 import { ProductCard } from '@shared/components/product-card/product-card';
 import { Product } from '@shared/models';
-import { finalize } from 'rxjs';
+import { EMPTY, catchError, distinctUntilChanged, finalize, map, of, switchMap, tap } from 'rxjs';
 import { ProductGallery } from '../../components/product-gallery/product-gallery';
-import { ProductInfoTabs } from '../../components/product-info-tabs/product-info-tabs';
+import { ProductInfoNames, ProductInfoTabs } from '../../components/product-info-tabs/product-info-tabs';
+import { ProductVariantDetails } from '../../components/product-variant-details/product-variant-details';
+import { ProductVariantSelector, variantImageUrl } from '../../components/product-variant-selector/product-variant-selector';
 import { ProductService } from '../../services/product.service';
 import { WishlistService } from '../../services/wishlist.service';
 
 const PINCODE_PATTERN = /^[1-9]\d{5}$/;
 const RELATED_COUNT = 4;
+const CATEGORY_PREFIX = 'category-';
+
+// CHANGED (new): state of the product_variant/get call (moved here from the info tabs, which no longer show variants).
+type VariantLoadStatus = 'idle' | 'loading' | 'success' | 'error';
 
 /** DISCOUNT, TAX and TOTAL_AMOUNT sent to shopping_cart/insert. */
 interface CartAmounts {
@@ -35,7 +42,7 @@ interface CartAmounts {
 
 @Component({
   selector: 'app-product-detail',
-  imports: [Alert, Badge, Button, Card, CurrencyPipe, Dialog, Input, LoadingSpinner, ProductCard, ProductGallery, ProductInfoTabs, RouterLink],
+  imports: [Alert, Badge, Button, Card, CurrencyPipe, Dialog, Input, LoadingSpinner, ProductCard, ProductGallery, ProductInfoTabs, ProductVariantDetails, ProductVariantSelector, RouterLink],
   templateUrl: './product-detail.html',
   styleUrl: './product-detail.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -69,22 +76,80 @@ export class ProductDetail {
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
   private readonly productService = inject(ProductService);
-  protected readonly catalogStatus = this.productService.status;
-  protected readonly catalogError = this.productService.error;
+  private readonly variantService = inject(ProductVariantService);
 
-  protected readonly product = computed(() => this.productService.findById(this.id()));
+  // CHANGED: the viewed product is loaded by its PRODUCT_ID (products/get?PRODUCT_ID=<id>). It used to be looked
+  // up in the full catalog, which does not contain most products, so the page showed "Product not found".
+  protected readonly productStatus = signal<'loading' | 'success' | 'error'>('loading');
+  protected readonly productError = signal('');
+  private readonly loadedProduct = signal<Product | null>(null);
+  private readonly productRetry = signal(0);
+  protected readonly product = this.loadedProduct.asReadonly();
+
+  // CHANGED (new): product_variant/get state for the viewed product.
+  protected readonly variantStatus = signal<VariantLoadStatus>('idle');
+  protected readonly variantError = signal('');
+  private readonly loadedVariants = signal<readonly ProductVariant[]>([]);
+  private readonly variantRetry = signal(0);
+  protected readonly selectedVariantId = signal<string | null>(null);
+  /** Category name from the public category lookup, used when products/get sends no CATEGORY_NAME. */
+  private readonly lookedUpCategory = signal('');
+
+  /** Variants a customer can choose: only this product's (PRODUCT_ID) and only STATUS "ACTIVE". */
+  // CHANGED (new)
+  protected readonly variants = computed(() => {
+    const productId = Number(this.id());
+    return this.loadedVariants().filter(
+      (variant) => variant.productId === productId && variant.status.trim().toUpperCase() === 'ACTIVE',
+    );
+  });
+  protected readonly selectedVariant = computed(
+    () => this.variants().find((variant) => variant.id === this.selectedVariantId()) ?? null,
+  );
+
+  // CHANGED (new): what the buy box shows. A selected variant supplies price and stock; otherwise the product does.
+  protected readonly price = computed(() => this.selectedVariant()?.price ?? this.product()?.price ?? 0);
+  protected readonly inStock = computed(() => {
+    const variant = this.selectedVariant();
+    return variant ? variant.stock > 0 : (this.product()?.inStock ?? false);
+  });
+  protected readonly stockLeft = computed(() => this.selectedVariant()?.stock ?? this.product()?.stockLeft);
+  protected readonly lowStock = computed(() => {
+    const left = this.stockLeft();
+    return left !== undefined && left > 0 && left <= 5;
+  });
+  /** Add to Cart / Buy Now are off when out of stock, while adding, and while the variants load. */
+  protected readonly cartBlocked = computed(
+    () => !this.inStock() || this.adding() || this.variantStatus() === 'loading',
+  );
+  protected readonly productNames = computed<ProductInfoNames>(() => {
+    const item = this.product();
+    return {
+      category: item?.categoryName ?? this.lookedUpCategory(),
+      subCategory: item?.subCategoryName ?? '',
+      brand: item?.brandName ?? '',
+    };
+  });
+
+  // CHANGED: the selected variant's image comes first; the gallery skips it if it fails to load.
   protected readonly images = computed(() => {
     const item = this.product();
-    return item ? (item.images?.length ? item.images : [item.imageUrl]) : [];
+    if (!item) return [];
+    const productImages = item.images?.length ? item.images : [item.imageUrl];
+    const variant = this.selectedVariant();
+    const variantImage = variant ? variantImageUrl(variant) : '';
+    return variantImage && !productImages.includes(variantImage) ? [variantImage, ...productImages] : productImages;
   });
   protected readonly colorName = computed(() => this.selectedColor() ?? this.product()?.colors?.[0]?.name ?? '');
+  // CHANGED: limited by the selected variant's stock when there is one.
   protected readonly maxQuantity = computed(() => {
     const item = this.product();
-    return Math.max(1, Math.min(item?.stockLeft ?? 10, item?.maxOrderQuantity ?? 10));
+    return Math.max(1, Math.min(this.stockLeft() ?? 10, item?.maxOrderQuantity ?? 10));
   });
+  // CHANGED: no struck-through price or "% OFF" while a variant is selected (the variant API has no MRP).
   protected readonly discountPercent = computed(() => {
     const item = this.product();
-    return item?.originalPrice && item.originalPrice > item.price
+    return !this.selectedVariant() && item?.originalPrice && item.originalPrice > item.price
       ? Math.round((1 - item.price / item.originalPrice) * 100)
       : 0;
   });
@@ -98,12 +163,102 @@ export class ProductDetail {
   });
 
   constructor() {
+    // The full catalog is still used for "You may also like" and to restore the saved cart.
     this.productService.load();
     // The same component instance is reused when navigating between products (e.g. "You may also like").
     effect(() => {
       this.id();
       untracked(() => this.resetSelection());
     });
+
+    // CHANGED (new): loads the viewed product by its PRODUCT_ID (again for another product, or on Try again).
+    toObservable(computed(() => ({ id: this.id(), retry: this.productRetry() })))
+      .pipe(
+        switchMap(({ id }) => {
+          this.loadedProduct.set(null);
+          this.productError.set('');
+          const productId = Number(id);
+          if (!id.trim() || !Number.isSafeInteger(productId) || productId <= 0) {
+            // Not a product ID: there is nothing to load, so the page shows "Product not found".
+            this.productStatus.set('success');
+            return EMPTY;
+          }
+          this.productStatus.set('loading');
+          return this.productService.loadProduct(productId).pipe(
+            tap((item) => {
+              this.loadedProduct.set(item);
+              this.productStatus.set('success');
+            }),
+            catchError((error: unknown) => {
+              this.productError.set(this.productService.getErrorMessage(error));
+              this.productStatus.set('error');
+              return EMPTY;
+            }),
+          );
+        }),
+        takeUntilDestroyed(),
+      )
+      .subscribe();
+
+    // CHANGED (new): loads the viewed product's variants once per product (and again on Retry).
+    toObservable(computed(() => ({ id: this.id(), retry: this.variantRetry() })))
+      .pipe(
+        switchMap(({ id }) => {
+          this.loadedVariants.set([]);
+          this.selectedVariantId.set(null);
+          this.variantError.set('');
+          this.variantStatus.set('loading');
+          return this.variantService.loadProductVariants(Number(id)).pipe(
+            tap((variants) => {
+              this.loadedVariants.set(variants);
+              // Default: the first variant in stock, otherwise the first one.
+              const choices = this.variants();
+              this.selectedVariantId.set((choices.find((variant) => variant.stock > 0) ?? choices[0])?.id ?? null);
+              this.variantStatus.set('success');
+            }),
+            catchError((error: unknown) => {
+              this.variantError.set(this.variantService.getErrorMessage(error));
+              this.variantStatus.set('error');
+              return EMPTY;
+            }),
+          );
+        }),
+        takeUntilDestroyed(),
+      )
+      .subscribe();
+
+    // CHANGED (new): category name from the public (cached) category lookup when products/get has no CATEGORY_NAME.
+    toObservable(this.product)
+      .pipe(
+        map((item) =>
+          item && !item.categoryName && item.category.startsWith(CATEGORY_PREFIX)
+            ? item.category.slice(CATEGORY_PREFIX.length)
+            : null,
+        ),
+        distinctUntilChanged(),
+        switchMap((categoryId) =>
+          categoryId === null
+            ? of('')
+            : this.productService.loadCategories().pipe(
+                map((categories) => categories.find((category) => category.id === categoryId)?.label ?? ''),
+                catchError(() => of('')),
+              ),
+        ),
+        takeUntilDestroyed(),
+      )
+      .subscribe((name) => this.lookedUpCategory.set(name));
+  }
+
+  // CHANGED (new): a variant chip was clicked.
+  protected selectVariant(variantId: string): void {
+    this.selectedVariantId.set(variantId);
+    this.addedToCart.set(false);
+    this.quantity.update((value) => Math.min(value, this.maxQuantity()));
+  }
+
+  // CHANGED (new): Retry after the variants call failed.
+  protected retryVariants(): void {
+    this.variantRetry.update((count) => count + 1);
   }
 
   protected selectColor(name: string): void {
@@ -130,19 +285,20 @@ export class ProductDetail {
     }
   }
 
+  // CHANGED: sends the selected variant (if any); blocked while out of stock or while variants load.
   protected addToCart(): void {
     const item = this.product();
-    if (!item || !this.hasValidSelection(item)) return;
-    this.submitToCart(item, this.quantity(), () => this.addedToCart.set(true));
+    if (!item || this.cartBlocked() || !this.hasValidSelection(item)) return;
+    this.submitToCart(item, this.quantity(), () => this.addedToCart.set(true), this.selectedVariant());
   }
 
   protected buyNow(): void {
     const item = this.product();
-    if (!item || !this.hasValidSelection(item)) return;
+    if (!item || this.cartBlocked() || !this.hasValidSelection(item)) return;
     // Go to checkout only after the cart API has accepted the item.
     this.submitToCart(item, this.quantity(), () => {
       void this.router.navigateByUrl(this.routes.checkout);
-    });
+    }, this.selectedVariant());
   }
 
   protected addRelatedToCart(id: string): void {
@@ -150,7 +306,9 @@ export class ProductDetail {
     if (item) this.submitToCart(item, 1);
   }
 
+  // CHANGED: retries the product request (and the catalog, if it failed).
   protected retryLoad(): void {
+    this.productRetry.update((count) => count + 1);
     this.productService.load();
   }
 
@@ -185,8 +343,15 @@ export class ProductDetail {
   /**
    * Sends the product to the customer's cart through POST shopping_cart/insert,
    * then refreshes the cart from shopping_cart/get. `onAdded` runs after a successful insert.
+   * With a `variant`, its VARIANT_ID, PRICE and SELLER_ID (when present) are sent instead of the product's.
    */
-  private submitToCart(item: Product, quantity: number, onAdded?: () => void): void {
+  // CHANGED: optional selected variant.
+  private submitToCart(
+    item: Product,
+    quantity: number,
+    onAdded?: () => void,
+    variant: ProductVariant | null = null,
+  ): void {
     if (this.adding()) return;
 
     if (!this.auth.isAuthenticated()) {
@@ -197,24 +362,29 @@ export class ProductDetail {
       this.toast.showError('Only customer accounts can add items to the cart.');
       return;
     }
-    if (item.sellerId === undefined) {
+    // CHANGED: the selected variant's seller, ID and price; the product's when no variant is selected.
+    const sellerId = variant?.sellerId ?? item.sellerId;
+    const variantId = variant ? Number(variant.id) : item.variantId;
+    const unitPrice = variant ? variant.price : item.price;
+    if (sellerId === undefined) {
       this.toast.showError('This product cannot be added to the cart right now. Seller details are missing.');
       return;
     }
-    if (item.variantId === undefined) {
+    if (variantId === undefined || !Number.isSafeInteger(variantId)) {
       this.toast.showError('This product cannot be added to the cart right now. Variant details are missing.');
       return;
     }
 
-    const amounts = this.cartAmounts(item, quantity);
+    const amounts = this.cartAmounts(unitPrice, quantity);
+    const itemName = variant ? `${item.name} (${variant.name})` : item.name;
     this.adding.set(true);
     this.shoppingCart
       .addItem({
         PRODUCT_ID: Number(item.id),
-        SELLER_ID: item.sellerId,
-        PRODUCT_VARIANT_ID: item.variantId,
+        SELLER_ID: sellerId,
+        PRODUCT_VARIANT_ID: variantId,
         QUANTITY: quantity,
-        UNIT_PRICE: item.price,
+        UNIT_PRICE: unitPrice,
         DISCOUNT: amounts.discount,
         TAX: amounts.tax,
         TOTAL_AMOUNT: amounts.total,
@@ -225,7 +395,7 @@ export class ProductDetail {
       )
       .subscribe({
         next: () => {
-          this.toast.showSuccess(`${item.name} added to your cart.`);
+          this.toast.showSuccess(`${itemName} added to your cart.`);
           this.refreshCart();
           onAdded?.();
         },
@@ -239,8 +409,9 @@ export class ProductDetail {
    * 0 discount, 0 tax and unit price x quantity. Do not use these values for real orders
    * until the confirmed calculation replaces this method.
    */
-  private cartAmounts(item: Product, quantity: number): CartAmounts {
-    return { discount: 0, tax: 0, total: item.price * quantity };
+  // CHANGED: takes the unit price (the selected variant's or the product's) instead of the product.
+  private cartAmounts(unitPrice: number, quantity: number): CartAmounts {
+    return { discount: 0, tax: 0, total: unitPrice * quantity };
   }
 
   /** Re-reads the customer's cart so the header count and the cart page show the new row. */

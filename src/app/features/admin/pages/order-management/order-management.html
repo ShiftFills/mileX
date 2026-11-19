@@ -115,8 +115,9 @@
         [rows]="visibleRows()"
         emptyMessage="No orders match these filters."
       />
+      <!-- CHANGED: total is total_records for a Seller (API paging) and the filtered list length for an Admin. -->
       <app-pagination ariaLabel="Order pages" itemLabel="orders" [page]="page()" [pageSize]="pageSize"
-        [total]="filteredRows().length" (pageChange)="page.set($event)" />
+        [total]="totalOrders()" (pageChange)="page.set($event)" />
     }
   </section>
 </main>

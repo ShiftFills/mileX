@@ -12,13 +12,27 @@
       <p class="product-detail__rating"><span aria-hidden="true">★</span> <strong>{{ item.rating }}</strong> <small>({{
           item.reviewCount }} reviews)</small></p>
       }
+      <!-- CHANGED: price() is the selected variant's PRICE (else the product's); no MRP / % OFF for a variant. -->
       <p class="product-detail__price">
-        <strong>{{ item.price | currency: 'INR' : 'symbol' : '1.0-0' }}</strong>
-        @if (item.originalPrice) { <del>{{ item.originalPrice | currency: 'INR' : 'symbol' : '1.0-0' }}</del> }
+        <strong>{{ price() | currency: 'INR' : 'symbol' : '1.0-0' }}</strong>
+        @if (item.originalPrice && !selectedVariant()) { <del>{{ item.originalPrice | currency: 'INR' : 'symbol' : '1.0-0' }}</del> }
         @if (discountPercent()) { <app-badge tone="success">{{ discountPercent() }}% OFF</app-badge> }
       </p>
       <p class="product-detail__tax">Inclusive of all taxes <span aria-hidden="true">|</span> Free Shipping on orders
         above ₹999</p>
+
+      <!-- CHANGED (new): product_variant/get states and the variant picker (swatches, chips, cards). No variants = nothing shown (as before). -->
+      @if (variantStatus() === 'loading') {
+      <p class="product-detail__label" role="status">Loading variants…</p>
+      } @else if (variantStatus() === 'error') {
+      <app-alert class="product-detail__group" tone="danger" role="alert">
+        {{ variantError() || 'Variants could not be loaded.' }}
+        <button type="button" class="product-detail__retry" (click)="retryVariants()">Try again</button>
+      </app-alert>
+      } @else if (variants().length) {
+      <app-product-variant-selector [variants]="variants()" [selectedId]="selectedVariantId()"
+        [fallbackImage]="item.imageUrl" (selectedChange)="selectVariant($event)" />
+      }
 
       @if (item.colors?.length) {
       <div class="product-detail__group" role="radiogroup" aria-label="Color">
@@ -59,19 +73,26 @@
           <button type="button" aria-label="Increase quantity" [disabled]="quantity() >= maxQuantity()"
             (click)="changeQuantity(1)">+</button>
         </div>
-        <app-badge [tone]="item.inStock ? 'success' : 'danger'">
-          @if (!item.inStock) { Out of stock } @else if (item.stockLeft && item.stockLeft <= 5) { In stock (Only {{
-            item.stockLeft }} left) } @else { In stock } </app-badge>
+        <!-- CHANGED: stock of the selected variant (else the product). -->
+        <app-badge [tone]="inStock() ? 'success' : 'danger'">
+          @if (!inStock()) { Out of stock } @else if (lowStock()) { In stock (Only {{
+            stockLeft() }} left) } @else { In stock } </app-badge>
       </div>
 
+      <!-- CHANGED: also disabled while the variants load. -->
       <div class="product-detail__actions">
-        <app-button variant="accent" [disabled]="!item.inStock || adding()" [loading]="adding()"
+        <app-button variant="accent" [disabled]="cartBlocked()" [loading]="adding()"
           (clicked)="addToCart()">Add to Cart</app-button>
-        <app-button [disabled]="!item.inStock || adding()" (clicked)="buyNow()">Buy Now</app-button>
+        <app-button [disabled]="cartBlocked()" (clicked)="buyNow()">Buy Now</app-button>
       </div>
       @if (addedToCart()) {
       <app-alert class="product-detail__success" tone="success">Added to cart. <a [routerLink]="routes.cart">View
           cart</a></app-alert>
+      }
+
+      <!-- CHANGED (new): the selected variant's details. -->
+      @if (selectedVariant(); as variant) {
+      <app-product-variant-details [variant]="variant" [fallbackImage]="item.imageUrl" />
       }
 
       <form class="product-detail__delivery" (submit)="$event.preventDefault(); checkDelivery()" novalidate>
@@ -110,7 +131,8 @@
         </li>
       </ul>
 
-      <app-product-info-tabs [product]="item" />
+      <!-- CHANGED: product names and the selected variant (Specifications). -->
+      <app-product-info-tabs [product]="item" [names]="productNames()" [selectedVariant]="selectedVariant()" />
     </div>
   </section>
 
@@ -163,15 +185,16 @@
   </section>
 </app-dialog>
 }
-} @else if (catalogStatus() === 'loading' || catalogStatus() === 'idle') {
+} @else if (productStatus() === 'loading') {
+<!-- CHANGED: loading / error / not found now follow the product's own request, not the full catalog. -->
 <main class="container product-detail__empty product-detail__loading" role="status">
   <app-loading-spinner />
   <p>Loading product…</p>
 </main>
-} @else if (catalogStatus() === 'error') {
+} @else if (productStatus() === 'error') {
 <main class="container product-detail__empty">
   <app-alert tone="danger" role="alert">
-    {{ catalogError() }}
+    {{ productError() }}
     <button type="button" class="product-detail__retry" (click)="retryLoad()">Try again</button>
   </app-alert>
 </main>

@@ -75,6 +75,13 @@
   }
 
   &__muted { margin: 0; color: var(--color-text-muted); font-size: var(--text-sm); }
+
+  // CHANGED (new): Specifications "Selected variant" heading.
+  &__subheading {
+    margin: var(--space-4) 0 var(--space-2);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-bold);
+  }
 }
 
 @media (max-width: 991.98px) {

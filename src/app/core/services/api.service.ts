@@ -89,8 +89,13 @@ export class ApiService {
     return this.statusOptionsRequest;
   }
 
-  post<T>(path: string, body: unknown): Observable<T> {
-    return this.http.post<T>(this.url(path), body);
+  /**
+   * `withCredentials` lets the browser store and send cookies for this request even when the API is on
+   * another origin (login and refresh use the HttpOnly refresh-token cookie).
+   */
+  // CHANGED: optional withCredentials (default off, so every other POST is unchanged).
+  post<T>(path: string, body: unknown, options: { withCredentials?: boolean } = {}): Observable<T> {
+    return this.http.post<T>(this.url(path), body, options);
   }
 
   postText(path: string, body: unknown): Observable<string> {

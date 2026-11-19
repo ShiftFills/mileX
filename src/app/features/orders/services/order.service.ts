@@ -27,6 +27,15 @@ export interface OrderManagementFilters {
   SHIPPING_STATUS: number;
 }
 
+/** Seller login: `order_dashboard/get` scoped to one seller, searched and paged by the API. */
+// CHANGED (new): query for the Seller variant of the Order Management listing.
+export interface SellerOrderManagementQuery extends OrderManagementFilters {
+  SELLER_ID: number;
+  SEARCH: string;
+  LIMIT: number;
+  OFFSET: number;
+}
+
 export interface OrderManagementOrder {
   id: number;
   orderNo: string;
@@ -34,6 +43,8 @@ export interface OrderManagementOrder {
   customer: string;
   mobile: string;
   productId: number | null;
+  // CHANGED (new): PRODUCT_NAME when the API sends it (the Seller response does); null otherwise.
+  productName: string | null;
   quantity: number | null;
   amount: number | null;
   paymentStatusId: number | null;
@@ -47,6 +58,14 @@ export interface OrderManagementCounts {
   pendingOrders: number;
   shippedOrders: number;
   deliveredOrders: number;
+}
+
+/** One API page of orders with its `total_records` and the `dashboard` summary counts. */
+// CHANGED (new): Seller response shape (dashboard + total_records + data).
+export interface OrderManagementPage {
+  orders: OrderManagementOrder[];
+  totalRecords: number;
+  counts: OrderManagementCounts;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -238,13 +257,27 @@ function mapReturnRequestsResponse(response: unknown): ReturnRequestsPage {
   };
 }
 
-// CHANGED (new): shared LIMIT/OFFSET validation for the Admin and Seller return request listings.
-function assertReturnRequestPaging(limit: number, offset: number): void {
+// CHANGED: shared LIMIT/OFFSET validation for the paged listings (return requests, Seller orders).
+// `subject` keeps the original messages, e.g. "Return request page size must be …".
+function assertPaging(limit: number, offset: number, subject: string): void {
   if (!Number.isSafeInteger(limit) || limit <= 0) {
-    throw new RangeError('Return request page size must be a positive safe integer.');
+    throw new RangeError(`${subject} page size must be a positive safe integer.`);
   }
   if (!Number.isSafeInteger(offset) || offset < 0) {
-    throw new RangeError('Return request page offset must be a non-negative safe integer.');
+    throw new RangeError(`${subject} page offset must be a non-negative safe integer.`);
+  }
+}
+
+// CHANGED (new): DAYS + status filter validation shared by the Admin and Seller order listings (moved, messages unchanged).
+function assertOrderManagementFilters(params: OrderManagementFilters): void {
+  if (!Number.isSafeInteger(params.DAYS) || params.DAYS < 1) {
+    throw new RangeError('The order date filter must be a positive number of days.');
+  }
+  for (const key of ['ORDER_STATUS', 'PAYMENT_STATUS', 'SHIPPING_STATUS'] as const) {
+    const value = params[key];
+    if (!Number.isSafeInteger(value) || (value !== -1 && value <= 0)) {
+      throw new RangeError(`${key} must be -1 or a positive safe integer.`);
+    }
   }
 }
 
@@ -338,6 +371,7 @@ function mapOrder(value: unknown): OrderManagementOrder | null {
     customer: readText(value, 'CUSTOMER_NAME') || '—',
     mobile: readText(value, 'CUSTOMER_MOBILE') || '—',
     productId: readNumber(value['PRODUCT_ID']),
+    productName: readText(value, 'PRODUCT_NAME') || null,
     quantity: readNumber(value['QUANTITY']),
     amount: readNumber(value['ORDER_AMOUNT']),
     paymentStatusId: readNumber(value['PAYMENT_STATUS']),
@@ -346,9 +380,14 @@ function mapOrder(value: unknown): OrderManagementOrder | null {
   };
 }
 
-function mapOrderManagementResponse(response: unknown): OrderManagementOrder[] {
+// CHANGED (new): status check shared by the order dashboard and order count responses (moved, messages unchanged).
+function successfulOrderManagementResponse(
+  response: unknown,
+  api: string,
+  fallback: string,
+): Record<string, unknown> {
   if (!isRecord(response)) {
-    throw new Error('The order management API returned an invalid response.');
+    throw new Error(`The ${api} API returned an invalid response.`);
   }
   const status = response['status'] ?? response['STATUS'];
   const message = response['message'] ?? response['MESSAGE'];
@@ -360,13 +399,13 @@ function mapOrderManagementResponse(response: unknown): OrderManagementOrder[] {
       ['SUCCESS', 'OK', '200', '201'].includes(status.trim().toUpperCase())
     )
   ) {
-    throw new Error(
-      typeof message === 'string' && message.trim()
-        ? message.trim()
-        : 'Orders could not be loaded.',
-    );
+    throw new Error(typeof message === 'string' && message.trim() ? message.trim() : fallback);
   }
+  return response;
+}
 
+// CHANGED (new): the `data` order list, shared by the Admin and Seller dashboard responses (moved unchanged).
+function mapOrderList(response: Record<string, unknown>): OrderManagementOrder[] {
   const data = response['data'] ?? response['DATA'];
   if (data === null || data === undefined) return [];
   if (!Array.isArray(data)) {
@@ -375,36 +414,17 @@ function mapOrderManagementResponse(response: unknown): OrderManagementOrder[] {
   return data.map(mapOrder).filter((order): order is OrderManagementOrder => order !== null);
 }
 
-function mapOrderManagementCountsResponse(response: unknown): OrderManagementCounts {
-  if (!isRecord(response)) {
-    throw new Error('The order count API returned an invalid response.');
-  }
-  const status = response['status'] ?? response['STATUS'];
-  const message = response['message'] ?? response['MESSAGE'];
-  if (
-    status !== undefined &&
-    status !== true &&
-    !(
-      typeof status === 'string' &&
-      ['SUCCESS', 'OK', '200', '201'].includes(status.trim().toUpperCase())
-    )
-  ) {
-    throw new Error(
-      typeof message === 'string' && message.trim()
-        ? message.trim()
-        : 'Order counts could not be loaded.',
-    );
-  }
-
-  const data = response['data'] ?? response['DATA'];
-  if (!isRecord(data)) {
-    throw new Error('The order count API returned no usable count data.');
-  }
-
+/**
+ * Summary counts (TOTAL_ORDERS … DELIVERED_ORDERS). `nullAsZero` reads a null/missing total as 0,
+ * which is what an SQL SUM/COUNT over no orders returns.
+ */
+// CHANGED (new): shared by the order count response (Admin) and the `dashboard` block (Seller).
+function mapOrderCounts(data: Record<string, unknown>, api: string, nullAsZero = false): OrderManagementCounts {
   const readRequiredCount = (key: string, integer: boolean): number => {
-    const value = readNumber(data[key]);
+    const raw = data[key];
+    const value = nullAsZero && (raw === null || raw === undefined) ? 0 : readNumber(raw);
     if (value === null || value < 0 || (integer && !Number.isSafeInteger(value))) {
-      throw new Error(`The order count API returned an invalid ${key} value.`);
+      throw new Error(`The ${api} API returned an invalid ${key} value.`);
     }
     return value;
   };
@@ -416,6 +436,39 @@ function mapOrderManagementCountsResponse(response: unknown): OrderManagementCou
     shippedOrders: readRequiredCount('SHIPPED_ORDERS', true),
     deliveredOrders: readRequiredCount('DELIVERED_ORDERS', true),
   };
+}
+
+function mapOrderManagementResponse(response: unknown): OrderManagementOrder[] {
+  return mapOrderList(
+    successfulOrderManagementResponse(response, 'order management', 'Orders could not be loaded.'),
+  );
+}
+
+// CHANGED (new): Seller response: `dashboard` counts, `total_records` and one page of `data`.
+function mapSellerOrderManagementResponse(response: unknown): OrderManagementPage {
+  const record = successfulOrderManagementResponse(response, 'order management', 'Orders could not be loaded.');
+  const dashboard = record['dashboard'] ?? record['DASHBOARD'];
+  if (!isRecord(dashboard)) {
+    throw new Error('The order management API returned no usable dashboard data.');
+  }
+  const totalRecords = readNumber(record['total_records'] ?? record['TOTAL_RECORDS']);
+  if (totalRecords === null || !Number.isSafeInteger(totalRecords) || totalRecords < 0) {
+    throw new Error('The order management API returned an invalid total_records value.');
+  }
+  return {
+    orders: mapOrderList(record),
+    totalRecords,
+    counts: mapOrderCounts(dashboard, 'order management', true),
+  };
+}
+
+function mapOrderManagementCountsResponse(response: unknown): OrderManagementCounts {
+  const record = successfulOrderManagementResponse(response, 'order count', 'Order counts could not be loaded.');
+  const data = record['data'] ?? record['DATA'];
+  if (!isRecord(data)) {
+    throw new Error('The order count API returned no usable count data.');
+  }
+  return mapOrderCounts(data, 'order count');
 }
 
 const CUSTOMER_ORDER_SUCCESS_VALUES = ['SUCCESS', 'OK', '200', '201', 'TRUE', '1'];
@@ -625,7 +678,7 @@ export class OrderService {
         throw new RangeError(`${key} must be -1 or a positive safe integer.`);
       }
     }
-    assertReturnRequestPaging(filters.LIMIT, filters.OFFSET);
+    assertPaging(filters.LIMIT, filters.OFFSET, 'Return request');
 
     return this.api
       .get<unknown>(API_ENDPOINTS.returnRequests.get, {
@@ -644,7 +697,7 @@ export class OrderService {
     if (!Number.isSafeInteger(query.SELLER_ID) || query.SELLER_ID <= 0) {
       throw new RangeError('SELLER_ID must be a positive safe integer.');
     }
-    assertReturnRequestPaging(query.LIMIT, query.OFFSET);
+    assertPaging(query.LIMIT, query.OFFSET, 'Return request');
 
     return this.api
       .get<unknown>(API_ENDPOINTS.returnRequests.get, {
@@ -717,15 +770,7 @@ export class OrderService {
       PAYMENT_STATUS: filters.PAYMENT_STATUS ?? -1,
       SHIPPING_STATUS: filters.SHIPPING_STATUS ?? -1,
     };
-    if (!Number.isSafeInteger(params.DAYS) || params.DAYS < 1) {
-      throw new RangeError('The order date filter must be a positive number of days.');
-    }
-    for (const key of ['ORDER_STATUS', 'PAYMENT_STATUS', 'SHIPPING_STATUS'] as const) {
-      const value = params[key];
-      if (!Number.isSafeInteger(value) || (value !== -1 && value <= 0)) {
-        throw new RangeError(`${key} must be -1 or a positive safe integer.`);
-      }
-    }
+    assertOrderManagementFilters(params);
 
     return this.api
       .get<unknown>(API_ENDPOINTS.orderManagement.get, {
@@ -735,6 +780,32 @@ export class OrderService {
         SHIPPING_STATUS: params.SHIPPING_STATUS,
       })
       .pipe(map(mapOrderManagementResponse));
+  }
+
+  /**
+   * Seller login: one page of the seller's orders with the `dashboard` summary counts, from the same
+   * endpoint as getManagementOrders. Search and paging are done by the API (SEARCH, LIMIT, OFFSET).
+   */
+  // CHANGED (new): Seller variant of getManagementOrders.
+  getSellerManagementOrders(query: SellerOrderManagementQuery): Observable<OrderManagementPage> {
+    if (!Number.isSafeInteger(query.SELLER_ID) || query.SELLER_ID <= 0) {
+      throw new RangeError('SELLER_ID must be a positive safe integer.');
+    }
+    assertOrderManagementFilters(query);
+    assertPaging(query.LIMIT, query.OFFSET, 'Order');
+
+    return this.api
+      .get<unknown>(API_ENDPOINTS.orderManagement.get, {
+        SELLER_ID: query.SELLER_ID,
+        DAYS: query.DAYS,
+        SEARCH: query.SEARCH.trim(),
+        ORDER_STATUS: query.ORDER_STATUS,
+        PAYMENT_STATUS: query.PAYMENT_STATUS,
+        SHIPPING_STATUS: query.SHIPPING_STATUS,
+        LIMIT: query.LIMIT,
+        OFFSET: query.OFFSET,
+      })
+      .pipe(map(mapSellerOrderManagementResponse));
   }
 
   getManagementCounts(days: number): Observable<OrderManagementCounts> {

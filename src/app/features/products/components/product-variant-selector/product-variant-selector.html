@@ -1,0 +1,62 @@
+<!-- CHANGED: colour swatches, size / material chips and variant cards, all built from product_variant/get.
+     Same radio pattern as the Product View's colour and size pickers. -->
+@for (group of groups(); track group.key) {
+  <div class="variant-selector__group" role="radiogroup" [attr.aria-labelledby]="'variant-option-' + group.key">
+    <p class="variant-selector__label" [id]="'variant-option-' + group.key">
+      {{ group.label }}: <strong>{{ group.selected || '-' }}</strong>
+    </p>
+    <div class="variant-selector__choices">
+      @for (choice of group.choices; track choice.value) {
+        <button
+          type="button"
+          role="radio"
+          [class.variant-selector__swatch]="group.key === 'colour'"
+          [class.variant-selector__chip]="group.key !== 'colour'"
+          [class.is-active]="choice.selected"
+          [class.is-out]="choice.status === 'out'"
+          [class.is-unavailable]="choice.status === 'unavailable'"
+          [attr.aria-checked]="choice.selected"
+          [title]="choice.status === 'out' ? choice.value + ': out of stock' : choice.status === 'unavailable' ? choice.value + ': changes the other options' : choice.value"
+          (click)="choose(group.key, choice.value)"
+        >
+          @if (group.key === 'colour') {
+            <span class="variant-selector__dot" aria-hidden="true" [style.--swatch]="choice.swatch || null">
+              @if (!choice.swatch) { {{ choice.value.charAt(0) }} }
+            </span>
+            <span class="variant-selector__swatch-name">{{ choice.value }}</span>
+          } @else {
+            {{ choice.value }}
+          }
+          @if (choice.status === 'out') { <span class="visually-hidden">(out of stock)</span> }
+        </button>
+      }
+    </div>
+  </div>
+}
+
+@if (cards().length) {
+  <div class="variant-selector__group" role="radiogroup" aria-labelledby="variant-option-variant">
+    <p class="variant-selector__label" id="variant-option-variant">
+      Variant: <strong>{{ selected()?.name || '-' }}</strong><span class="variant-selector__count"> ({{ cards().length }} available)</span>
+    </p>
+    <div class="variant-selector__cards" #cardStrip>
+      @for (card of cards(); track card.variant.id) {
+        <button
+          type="button"
+          role="radio"
+          class="variant-selector__card"
+          [class.is-active]="card.variant.id === selectedId()"
+          [class.is-out]="card.variant.stock <= 0"
+          [attr.aria-checked]="card.variant.id === selectedId()"
+          (click)="select(card.variant)"
+        >
+          <img class="variant-selector__card-image" [src]="card.image" alt="" (error)="hideImage(card.variant.id)" />
+          <span class="variant-selector__card-name">{{ card.variant.name }}</span>
+          @if (card.options) { <span class="variant-selector__card-options" [title]="card.options">{{ card.options }}</span> }
+          <span class="variant-selector__card-price">{{ card.variant.price | currency: 'INR' : 'symbol' : '1.0-0' }}</span>
+          <span class="variant-selector__card-stock" [attr.data-tone]="card.stock.tone">{{ card.stock.label }}</span>
+        </button>
+      }
+    </div>
+  </div>
+}

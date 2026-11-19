@@ -27,7 +27,9 @@ describe('CartService', () => {
   let catalog: ProductCatalogService;
   let http: HttpTestingController;
 
+  // CHANGED: CartService no longer loads the catalog itself; a page does, so the tests load it here.
   function loadProducts(): void {
+    catalog.load();
     http.expectOne((request) => request.url.endsWith('/products/get')).flush(PRODUCTS_RESPONSE);
   }
 
@@ -87,11 +89,41 @@ describe('CartService', () => {
     });
     const restoredCart = TestBed.inject(CartService);
     const controller = TestBed.inject(HttpTestingController);
+    TestBed.inject(ProductCatalogService).load();
     controller.expectOne((request) => request.url.endsWith('/products/get')).flush(PRODUCTS_RESPONSE);
 
     expect(restoredCart.count()).toBe(2);
     expect(restoredCart.items()[0]?.product.id).toBe(product.id);
     expect(restoredCart.subtotal()).toBe(product.price * 2);
+    controller.verify();
+  });
+
+  // CHANGED (new): the storefront header creates CartService on every page, including the Home page.
+  it('does not request the product catalog by itself, but counts saved rows for the header badge', () => {
+    localStorage.setItem(
+      STORAGE_KEYS.cart,
+      JSON.stringify([{ product: { id: '4' }, quantity: 2 }, { product: { id: '5' }, quantity: 1 }]),
+    );
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    const restoredCart = TestBed.inject(CartService);
+    const controller = TestBed.inject(HttpTestingController);
+
+    controller.expectNone((request) => request.url.endsWith('/products/get'));
+    expect(restoredCart.badgeCount()).toBe(3);
+    // Totals only include restored rows, so they are unchanged until the catalog is loaded.
+    expect(restoredCart.count()).toBe(0);
+    expect(restoredCart.items()).toEqual([]);
+
+    // A page that shows the cart loads the catalog, which restores the rows with the latest values.
+    TestBed.inject(ProductCatalogService).load();
+    controller.expectOne((request) => request.url.endsWith('/products/get')).flush(PRODUCTS_RESPONSE);
+    expect(restoredCart.items().map((item) => [item.product.id, item.quantity])).toEqual([['4', 2], ['5', 1]]);
+    expect(restoredCart.count()).toBe(3);
+    expect(restoredCart.badgeCount()).toBe(3);
     controller.verify();
   });
 
@@ -128,6 +160,7 @@ describe('CartService', () => {
     });
     const restoredCart = TestBed.inject(CartService);
     const controller = TestBed.inject(HttpTestingController);
+    TestBed.inject(ProductCatalogService).load();
     controller.expectOne((request) => request.url.endsWith('/products/get')).flush(PRODUCTS_RESPONSE);
 
     expect(restoredCart.items()).toEqual([]);

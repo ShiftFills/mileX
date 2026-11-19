@@ -1,7 +1,11 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, TemplateRef, computed, inject, signal, viewChild } from '@angular/core';
+import {
+  ChangeDetectionStrategy, Component, DestroyRef, TemplateRef, WritableSignal, computed, inject, signal, viewChild,
+} from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
-import { EMPTY, Observable, catchError, defer, distinctUntilChanged, map, switchMap, tap } from 'rxjs';
+import {
+  EMPTY, Observable, Subject, catchError, defer, distinctUntilChanged, map, shareReplay, switchMap, tap, throwError,
+} from 'rxjs';
 import { Badge } from '@shared/components/badge/badge';
 import { Button } from '@shared/components/button/button';
 import { Card } from '@shared/components/card/card';
@@ -14,10 +18,22 @@ import { Select } from '@shared/components/select/select';
 import { Table, TableCellContext, TableColumn, TableHeaderContext } from '@shared/components/table/table';
 import { ClickOutside } from '@shared/directives/click-outside';
 import { AuthService } from '@core/services/auth.service';
-import { ProductCatalogService, ProductLookupOption } from '@core/services/product-catalog.service';
+import {
+  ProductCatalogService,
+  ProductListingFilters,
+  ProductListingStatus,
+  ProductLookupOption,
+} from '@core/services/product-catalog.service';
 import { SellerOnboardingService } from '@features/seller/services/seller-onboarding.service';
+import {
+  VARIANT_OPTIONS,
+  variantImageUrl,
+  variantOptionValue,
+  variantText,
+} from '@features/products/components/product-variant-selector/product-variant-selector';
 import { PaginatedResponse, Product } from '@shared/models';
 import { AdminProductRow } from '../../data/admin-products';
+import { ProductVariant, ProductVariantService } from '../../services/product-variant.service';
 
 interface ProductEditForm {
   name: string;
@@ -32,10 +48,75 @@ interface ProductEditForm {
 const DEFAULT_PAGE_SIZE = 5;
 const PAGE_SIZES = [5, 10, 20] as const;
 
+type ProductStatusTab = 'All' | 'Active' | 'Inactive';
+
+// CHANGED (new): the status tab sent to the API as STATUS ("All" sends no STATUS).
+const LISTING_STATUS: Readonly<Record<Exclude<ProductStatusTab, 'All'>, ProductListingStatus>> = {
+  Active: 'ACTIVE',
+  Inactive: 'INACTIVE',
+};
+
+// CHANGED (new): everything one products/get request depends on.
+interface ProductPageRequest {
+  page: number;
+  pageSize: number;
+  category: string;
+  brand: string;
+  status: ProductStatusTab;
+  retry: number;
+}
+
 interface ProductFilterLookup {
   status: 'loading' | 'success' | 'error';
   options: ProductLookupOption[];
   error: string | null;
+}
+
+// CHANGED (new): the Variants dialog for one product row.
+interface VariantDialogState {
+  product: AdminProductRow;
+  status: 'loading' | 'success' | 'error';
+  variants: readonly ProductVariant[];
+  error: string | null;
+}
+
+/** One variant as the Variants dialog shows it (no seller, creator or other internal IDs). */
+interface VariantRow {
+  id: string;
+  name: string;
+  sku: string;
+  options: { label: string; value: string }[];
+  price: string;
+  stock: number;
+  status: AdminProductRow['status'];
+  image: string;
+}
+
+/** Prices as the product table shows them, e.g. "₹6,000". */
+// CHANGED (new): shared by the product rows and the Variants dialog (same format as before).
+function formatPrice(price: number): string {
+  return `₹${price.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+}
+
+// CHANGED (new): the variant STATUS shown with the same labels and badge tones as the product status.
+function variantStatus(status: string): AdminProductRow['status'] {
+  const value = status.trim().toUpperCase();
+  return value === 'ACTIVE' ? 'Active' : value === 'INACTIVE' ? 'Inactive' : 'Unknown';
+}
+
+function mapVariantRow(variant: ProductVariant): VariantRow {
+  return {
+    id: variant.id,
+    name: variant.name,
+    sku: variantText(variant.sku) || '—',
+    // Size, colour and material only when the variant has them.
+    options: VARIANT_OPTIONS.map(({ key, label }) => ({ label, value: variantOptionValue(variant, key) }))
+      .filter((option) => option.value),
+    price: formatPrice(variant.price),
+    stock: variant.stock,
+    status: variantStatus(variant.status),
+    image: variantImageUrl(variant),
+  };
 }
 
 function mapAdminProduct(product: Product): AdminProductRow {
@@ -51,7 +132,7 @@ function mapAdminProduct(product: Product): AdminProductRow {
     ...(product.productCodeId ? { productCodeId: product.productCodeId } : {}),
     category: product.category,
     brand: product.brand ?? 'Unknown',
-    price: `₹${product.price.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
+    price: formatPrice(product.price),
     stock: product.stockLeft ?? null,
     status:
       product.isActive === undefined
@@ -75,6 +156,7 @@ export class AllProducts {
   private readonly catalog = inject(ProductCatalogService);
   private readonly auth = inject(AuthService);
   private readonly sellerOnboarding = inject(SellerOnboardingService);
+  private readonly variantService = inject(ProductVariantService);
   private readonly destroyRef = inject(DestroyRef);
   // CHANGED (new): Sellers list only their own products; Admins keep the full catalog (PRODUCT_ID=-1).
   private readonly isSeller = computed(
@@ -86,7 +168,9 @@ export class AllProducts {
   protected readonly query = signal('');
   protected readonly category = signal('');
   protected readonly brand = signal('');
-  protected readonly statusTab = signal<'All' | 'Active' | 'Inactive'>('All');
+  // CHANGED: Admins and Sellers both start on the Active tab, so the first request sends STATUS=ACTIVE
+  // (a Seller used to start on "All", with no STATUS). The tabs and the status filter still switch freely.
+  protected readonly statusTab = signal<ProductStatusTab>('Active');
   protected readonly page = signal(1);
   protected readonly pageSize = signal(DEFAULT_PAGE_SIZE);
   protected readonly paginationNotice = signal<string | null>(null);
@@ -105,6 +189,14 @@ export class AllProducts {
   protected readonly editingProduct = signal<AdminProductRow | null>(null);
   protected readonly editForm = signal<ProductEditForm | null>(null);
   protected readonly editError = signal('');
+  // CHANGED (new): Variants dialog. One product_variant/get request per product, kept for this page visit,
+  // so reopening a product (or reopening it while its request is still running) makes no new call.
+  protected readonly variantDialog = signal<VariantDialogState | null>(null);
+  protected readonly variantRows = computed(() => (this.variantDialog()?.variants ?? []).map(mapVariantRow));
+  /** Variant IDs whose image failed to load; they show the product image instead. */
+  protected readonly failedVariantImages = signal<ReadonlySet<string>>(new Set());
+  private readonly variantRequests = new Map<number, Observable<readonly ProductVariant[]>>();
+  private readonly openVariantsFor = new Subject<AdminProductRow>();
   protected readonly categoryLookup = signal<ProductFilterLookup>({
     status: 'loading', options: [], error: null,
   });
@@ -164,9 +256,13 @@ export class AllProducts {
   protected readonly effectivePageSize = computed(
     () => this.pageData()?.pageSize ?? this.pageSize(),
   );
-  protected readonly pageRequest = computed(() => ({
+  protected readonly pageRequest = computed<ProductPageRequest>(() => ({
     page: this.page(),
     pageSize: this.pageSize(),
+    // CHANGED: category, brand and status are API filters, so changing one requests a new page.
+    category: this.category(),
+    brand: this.brand(),
+    status: this.statusTab(),
     retry: this.retryCount(),
   }));
   protected readonly activeOnPage = computed(
@@ -175,15 +271,12 @@ export class AllProducts {
   protected readonly inactiveOnPage = computed(
     () => this.products().filter((product) => product.status === 'Inactive').length,
   );
+  // CHANGED: category, brand and status are filtered by the API; search still applies to the loaded page.
   protected readonly filteredRows = computed(() => {
     const query = this.query().trim().toLowerCase();
-    return this.products().filter((row) => {
-      const matchesQuery = !query || `${row.name} ${row.sku} ${row.category} ${row.brand}`.toLowerCase().includes(query);
-      const matchesCategory = !this.category() || row.category === `category-${this.category()}`;
-      const matchesBrand = !this.brand() || row.brand === `brand-${this.brand()}`;
-      const matchesStatus = this.statusTab() === 'All' || row.status === this.statusTab();
-      return matchesQuery && matchesCategory && matchesBrand && matchesStatus;
-    });
+    return this.products().filter(
+      (row) => !query || `${row.name} ${row.sku} ${row.category} ${row.brand}`.toLowerCase().includes(query),
+    );
   });
   protected readonly visibleRows = computed(() => {
     return this.filteredRows();
@@ -195,16 +288,25 @@ export class AllProducts {
     return 'neutral';
   }
 
+  /**
+   * The selected tab shows the API total for its filter. With "All" selected, Active and Inactive show
+   * their count on the loaded page; otherwise their totals are unknown, so no count is shown.
+   */
+  // CHANGED (new): the status filter is server-side, so the "on page" counts only make sense under "All".
+  protected tabCount(tab: ProductStatusTab): string | null {
+    if (tab === this.statusTab()) return String(this.totalProducts() ?? 'total unavailable');
+    if (this.statusTab() !== 'All') return null;
+    return `${tab === 'Active' ? this.activeOnPage() : this.inactiveOnPage()} on page`;
+  }
+
   constructor() {
     this.loadCategoryLookup();
     this.loadBrandLookup();
     toObservable(this.pageRequest)
       .pipe(
-        distinctUntilChanged(
-          (previous, current) =>
-            previous.page === current.page &&
-            previous.pageSize === current.pageSize &&
-            previous.retry === current.retry,
+        // CHANGED: compares every request field (page, page size, filters, retry).
+        distinctUntilChanged((previous, current) =>
+          (Object.keys(current) as (keyof ProductPageRequest)[]).every((key) => previous[key] === current[key]),
         ),
         tap(() => {
           this.loadStatus.set('loading');
@@ -212,9 +314,9 @@ export class AllProducts {
           this.products.set([]);
           this.pageData.set(null);
         }),
-        // CHANGED: the request now depends on the role; the response handling below is shared.
-        switchMap(({ page, pageSize }) =>
-          defer(() => this.loadProductPage(page, pageSize)).pipe(
+        // CHANGED: the request now depends on the role and the filters; the response handling below is shared.
+        switchMap((request) =>
+          defer(() => this.loadProductPage(request)).pipe(
             map((response) => ({
               products: response.items.map(mapAdminProduct),
               response,
@@ -267,17 +369,70 @@ export class AllProducts {
         takeUntilDestroyed(),
       )
       .subscribe();
+
+    // CHANGED (new): loads the variants of the product whose Variant button was clicked. switchMap only stops
+    // listening to a previous product; its request still finishes and stays cached (see productVariants).
+    this.openVariantsFor
+      .pipe(
+        switchMap((product) =>
+          this.productVariants(product.id).pipe(
+            tap((variants) => this.updateVariantDialog(product.id, { status: 'success', variants, error: null })),
+            catchError((error: unknown) => {
+              this.updateVariantDialog(product.id, {
+                status: 'error',
+                variants: [],
+                error: this.variantService.getErrorMessage(error),
+              });
+              return EMPTY;
+            }),
+          ),
+        ),
+        takeUntilDestroyed(),
+      )
+      .subscribe();
   }
 
   /**
-   * Admin: every product (`PRODUCT_ID=-1`).
-   * Seller: only the logged-in seller's products; SELLER_ID is resolved from their seller record.
+   * The variants of one product: `product_variant/get?PRODUCT_ID=<row PRODUCT_ID>&VARIANT_ID=-1&LIMIT=10&OFFSET=…`
+   * through the existing ProductVariantService.loadProductVariants. Rows of another product are dropped.
+   * A failed request is forgotten, so "Try again" calls the API again.
    */
-  // CHANGED (new): picks the Admin or Seller products API for the requested page.
-  private loadProductPage(page: number, pageSize: number): Observable<PaginatedResponse<Product>> {
-    if (!this.isSeller()) return this.catalog.loadPage(page, pageSize);
+  // CHANGED (new): one cached request per product for this page visit.
+  private productVariants(productId: number): Observable<readonly ProductVariant[]> {
+    const cached = this.variantRequests.get(productId);
+    if (cached) return cached;
+
+    const request: Observable<readonly ProductVariant[]> = this.variantService.loadProductVariants(productId).pipe(
+      map((variants) => variants.filter((variant) => variant.productId === null || variant.productId === productId)),
+      catchError((error: unknown) => {
+        if (this.variantRequests.get(productId) === request) this.variantRequests.delete(productId);
+        return throwError(() => error);
+      }),
+      shareReplay({ bufferSize: 1, refCount: false }),
+    );
+    this.variantRequests.set(productId, request);
+    return request;
+  }
+
+  /** Applies a result only while the dialog still shows that product. */
+  private updateVariantDialog(productId: number, state: Omit<VariantDialogState, 'product'>): void {
+    this.variantDialog.update((dialog) => dialog?.product.id === productId ? { ...dialog, ...state } : dialog);
+  }
+
+  /**
+   * Admin: every product (`PRODUCT_ID=-1`) matching the category, brand and status filters.
+   * Seller: the same request plus SELLER_ID, which is resolved from the logged-in seller's record.
+   */
+  // CHANGED: both roles use loadListingPage with the selected filters; only a Seller adds SELLER_ID.
+  private loadProductPage({ page, pageSize, category, brand, status }: ProductPageRequest): Observable<PaginatedResponse<Product>> {
+    const filters: ProductListingFilters = {
+      ...(category ? { categoryId: Number(category) } : {}),
+      ...(brand ? { brandId: Number(brand) } : {}),
+      ...(status !== 'All' ? { status: LISTING_STATUS[status] } : {}),
+    };
+    if (!this.isSeller()) return this.catalog.loadListingPage(filters, page, pageSize);
     return this.sellerOnboarding.getCurrentSellerId().pipe(
-      switchMap((sellerId) => this.catalog.loadSellerPage(sellerId, page, pageSize)),
+      switchMap((sellerId) => this.catalog.loadListingPage({ ...filters, sellerId }, page, pageSize)),
     );
   }
 
@@ -336,33 +491,32 @@ export class AllProducts {
 
   protected setCategory(event: Event): void {
     const select = event.target;
-    if (select instanceof HTMLSelectElement) {
-      this.category.set(select.value);
-      this.paginationNotice.set(null);
-      this.page.set(1);
-    }
+    if (select instanceof HTMLSelectElement) this.changeFilter(this.category, select.value);
   }
 
   protected setBrand(event: Event): void {
     const select = event.target;
-    if (select instanceof HTMLSelectElement) {
-      this.brand.set(select.value);
-      this.paginationNotice.set(null);
-      this.page.set(1);
-    }
+    if (select instanceof HTMLSelectElement) this.changeFilter(this.brand, select.value);
   }
 
-  protected setStatus(status: 'All' | 'Active' | 'Inactive'): void {
-    this.statusTab.set(status);
-    this.paginationNotice.set(null);
-    this.page.set(1);
+  protected setStatus(status: ProductStatusTab): void {
+    this.changeFilter(this.statusTab, status);
   }
 
   protected statusChange(event: Event): void {
     const select = event.target;
     if (select instanceof HTMLSelectElement && ['All', 'Active', 'Inactive'].includes(select.value)) {
-      this.setStatus(select.value as 'All' | 'Active' | 'Inactive');
+      this.setStatus(select.value as ProductStatusTab);
     }
+  }
+
+  // CHANGED (new): a new category/brand/status is a different API result set, so the remembered total
+  // no longer applies; the listing restarts at page 1 (as before).
+  private changeFilter<T>(filter: WritableSignal<T>, value: T): void {
+    if (filter() !== value) this.knownTotal.set(null);
+    filter.set(value);
+    this.paginationNotice.set(null);
+    this.page.set(1);
   }
 
   protected toggleSelected(id: number, checked: boolean): void {
@@ -427,8 +581,33 @@ export class AllProducts {
     void this.router.navigate(['/admin/products', product.id, 'edit']);
   }
 
+  /** The Variants management page ("Manage Variants" in the Variants dialog). */
+  // CHANGED: no longer called by the row's Variant button, which now opens the Variants dialog.
   protected variants(): void {
     void this.router.navigateByUrl('/admin/products/variants');
+  }
+
+  /** Variant button: shows the variants of this row's product (its PRODUCT_ID) in a dialog. */
+  // CHANGED (new)
+  protected openVariants(product: AdminProductRow): void {
+    this.openActionMenuId.set(null);
+    this.variantDialog.set({ product, status: 'loading', variants: [], error: null });
+    this.openVariantsFor.next(product);
+  }
+
+  protected retryVariants(): void {
+    const dialog = this.variantDialog();
+    if (!dialog) return;
+    this.variantDialog.set({ ...dialog, status: 'loading', variants: [], error: null });
+    this.openVariantsFor.next(dialog.product);
+  }
+
+  protected closeVariants(): void {
+    this.variantDialog.set(null);
+  }
+
+  protected variantImageFailed(variantId: string): void {
+    this.failedVariantImages.update((failed) => failed.has(variantId) ? failed : new Set(failed).add(variantId));
   }
 
   protected toggleActionMenu(productId: number): void {

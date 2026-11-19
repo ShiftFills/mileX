@@ -2,7 +2,8 @@ import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, computed,
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { EMPTY, catchError, distinctUntilChanged, expand, finalize, map, switchMap, tap, toArray } from 'rxjs';
+import { EMPTY, Observable, catchError, distinctUntilChanged, expand, finalize, map, of, switchMap, tap, toArray } from 'rxjs';
+import { AuthService } from '@core/services/auth.service';
 import { ProductCatalogService } from '@core/services/product-catalog.service';
 import { ToastService } from '@core/services/toast.service';
 import { SellerOnboardingService } from '@features/seller/services/seller-onboarding.service';
@@ -10,19 +11,23 @@ import { Button } from '@shared/components/button/button';
 import { Dialog } from '@shared/components/dialog/dialog';
 import { Input } from '@shared/components/input/input';
 import { Pagination } from '@shared/components/pagination/pagination';
+import { SearchableSelect, SearchableSelectOption } from '@shared/components/searchable-select/searchable-select';
 import { Select } from '@shared/components/select/select';
 import { LoadingSpinner } from '@shared/components/loading-spinner/loading-spinner';
-import { Product } from '@shared/models';
+import { PaginatedResponse, Product } from '@shared/models';
 import {
   ProductVariantLookup,
   ProductVariantLookupOption,
   ProductVariant,
   ProductVariantInsertPayload,
+  ProductVariantPage,
   ProductVariantService,
   ProductVariantUpdatePayload,
 } from '../../services/product-variant.service';
 
 const PAGE_SIZE = 5;
+// CHANGED (new): a Seller's listing page size (LIMIT=10); the Admin listing keeps PAGE_SIZE (LIMIT=5).
+const SELLER_PAGE_SIZE = 10;
 const PRODUCT_PAGE_SIZE = 100;
 const MAX_VARIANT_IMAGE_SIZE = 5 * 1024 * 1024;
 const VARIANT_SELLER_ID = 1;
@@ -51,7 +56,8 @@ function hasVariantDimensionSelection(value: string, id: number | null): boolean
 
 @Component({
   selector: 'app-product-variants',
-  imports: [DecimalPipe, FormsModule, Button, Dialog, Input, LoadingSpinner, Pagination, Select],
+  // CHANGED: SearchableSelect for the Add Variant product dropdown.
+  imports: [DecimalPipe, FormsModule, Button, Dialog, Input, LoadingSpinner, Pagination, SearchableSelect, Select],
   templateUrl: './product-variants.html',
   styleUrl: './product-variants.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -61,15 +67,31 @@ export class ProductVariants {
   private readonly productCatalog = inject(ProductCatalogService);
   private readonly sellerOnboarding = inject(SellerOnboardingService);
   private readonly toast = inject(ToastService);
+  private readonly auth = inject(AuthService);
   private readonly destroyRef = inject(DestroyRef);
+  // CHANGED (new): a Seller lists only their own variants; Admins (and any other role) keep the full listing.
+  private readonly isSeller = computed(
+    () => this.auth.user()?.userType?.trim().toUpperCase() === 'SELLER',
+  );
   protected readonly variants = signal<ProductVariant[]>([]);
   protected readonly products = signal<Product[]>([]);
   protected readonly productsStatus = signal<'idle' | 'loading' | 'success' | 'error'>('idle');
   protected readonly productsError = signal<string | null>(null);
+  // CHANGED (new): Add Variant product dropdown. Its list scrolls inside the dialog (a native <select> list
+  // is drawn by the browser and runs off the screen with many products) and can be searched.
+  protected readonly productOptions = computed<SearchableSelectOption[]>(() =>
+    this.products().map((product) => ({ label: product.name, value: product.id })),
+  );
+  protected readonly productPlaceholder = computed(() => {
+    if (this.productsStatus() === 'loading') return 'Loading products…';
+    if (this.productsStatus() === 'success' && !this.products().length) return 'No products available';
+    return 'Select product';
+  });
   protected readonly loadStatus = signal<'loading' | 'success' | 'error'>('loading');
   protected readonly loadError = signal<string | null>(null);
   protected readonly page = signal(1);
-  protected readonly pageSize = PAGE_SIZE;
+  // CHANGED: depends on the role (Admin 5, Seller 10 per page).
+  protected readonly pageSize = computed(() => (this.isSeller() ? SELLER_PAGE_SIZE : PAGE_SIZE));
   private readonly retryCount = signal(0);
   private readonly totalVariants = signal<number | null>(null);
   private readonly hasNextPage = signal(false);
@@ -77,7 +99,7 @@ export class ProductVariants {
   protected readonly totalCount = computed(() => this.totalVariants());
   protected readonly totalPages = computed(() => {
     const total = this.totalVariants();
-    return total === null ? undefined : Math.ceil(total / PAGE_SIZE);
+    return total === null ? undefined : Math.ceil(total / this.pageSize());
   });
   protected readonly canGoNext = computed(() =>
     this.totalPages() === undefined ? this.hasNextPage() : this.page() < this.totalPages()!,
@@ -113,7 +135,8 @@ export class ProductVariants {
           }
           this.loadStatus.set('loading');
           this.loadError.set(null);
-          return this.variantService.loadPage(page, PAGE_SIZE).pipe(
+          // CHANGED: the request depends on the role (see loadVariantPage); the response handling is shared.
+          return this.loadVariantPage(page).pipe(
             tap((result) => {
               this.variants.set(result.items);
               this.totalVariants.set(result.total ?? null);
@@ -130,6 +153,80 @@ export class ProductVariants {
         takeUntilDestroyed(),
       )
       .subscribe();
+  }
+
+  /**
+   * Admin: `product_variant/get?LIMIT=5&OFFSET=…` (unchanged).
+   * Seller: `product_variant/get?PRODUCT_ID=-1&VARIANT_ID=-1&SELLER_ID=<own SELLER_ID>&LIMIT=10&OFFSET=…`.
+   * The SELLER_ID comes from the signed-in session (the access token's SELLER_ID claim); when the token has
+   * none it is resolved from the seller's record (cached per session). Without a SELLER_ID no request is
+   * sent, so a Seller never gets the unfiltered listing. Rows of another seller are never shown.
+   */
+  // CHANGED (new): role-based Variant listing request.
+  private loadVariantPage(page: number): Observable<ProductVariantPage> {
+    if (!this.isSeller()) return this.variantService.loadPage(page, PAGE_SIZE);
+
+    return this.currentSellerId().pipe(
+      switchMap((sellerId) =>
+        this.variantService.loadPage(page, SELLER_PAGE_SIZE, sellerId).pipe(
+          map((result) => ({
+            ...result,
+            items: result.items.filter((variant) => variant.sellerId === null || variant.sellerId === sellerId),
+          })),
+        ),
+      ),
+    );
+  }
+
+  /**
+   * The signed-in Seller's SELLER_ID: the access token's SELLER_ID claim, else the seller's record
+   * (cached per session). Errors when the user has no seller account.
+   */
+  // CHANGED (new): shared by the Seller's variant listing and Add Variant product dropdown.
+  private currentSellerId(): Observable<number> {
+    const sessionSellerId = this.auth.sellerId();
+    return sessionSellerId !== undefined ? of(sessionSellerId) : this.sellerOnboarding.getCurrentSellerId();
+  }
+
+  /**
+   * Products for the Add Variant dropdown, every page of PRODUCT_PAGE_SIZE.
+   * Admin: `products/get?PRODUCT_ID=-1&LIMIT=100&OFFSET=…` (unchanged).
+   * Seller: the All Products listing request with the seller's SELLER_ID and STATUS=ACTIVE
+   * (`products/get?PRODUCT_ID=-1&CATEGORY_ID=-1&BRAND_ID=-1&SELLER_ID=<own>&STATUS=ACTIVE&LIMIT=100&OFFSET=…`),
+   * so only the seller's own active products can be picked. The API returns a row per product variant, so each
+   * product is listed once.
+   */
+  // CHANGED (new): role-based product source for the Add Variant dropdown.
+  // CHANGED: the Seller's dropdown sends STATUS=ACTIVE and never lists an inactive product.
+  private loadDropdownProducts(): Observable<Product[]> {
+    if (!this.isSeller()) return this.allProductPages((page) => this.productCatalog.loadPage(page, PRODUCT_PAGE_SIZE));
+
+    return this.currentSellerId().pipe(
+      switchMap((sellerId) =>
+        this.allProductPages((page) =>
+          this.productCatalog.loadListingPage({ sellerId, status: 'ACTIVE' }, page, PRODUCT_PAGE_SIZE),
+        ).pipe(
+          map((products) =>
+            products.filter(
+              (product, index) =>
+                (product.sellerId === undefined || product.sellerId === sellerId) &&
+                product.isActive !== false &&
+                products.findIndex((other) => other.id === product.id) === index,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /** Requests page 1, then each next page while the API reports one, and returns all their products. */
+  private allProductPages(loadPage: (page: number) => Observable<PaginatedResponse<Product>>): Observable<Product[]> {
+    return loadPage(1).pipe(
+      expand((result, index) => (result.hasNext ? loadPage(index + 2) : EMPTY)),
+      map((result) => result.items),
+      toArray(),
+      map((pages) => pages.flat()),
+    );
   }
 
   protected retryLoad(): void {
@@ -174,15 +271,8 @@ export class ProductVariants {
     if (this.productsStatus() === 'loading') return;
     this.productsStatus.set('loading');
     this.productsError.set(null);
-    this.productCatalog.loadPage(1, PRODUCT_PAGE_SIZE).pipe(
-      expand((result, index) =>
-        result.hasNext
-          ? this.productCatalog.loadPage(index + 2, PRODUCT_PAGE_SIZE)
-          : EMPTY,
-      ),
-      map((result) => result.items),
-      toArray(),
-      map((pages) => pages.flat()),
+    // CHANGED: the product source depends on the role (see loadDropdownProducts); the states below are shared.
+    this.loadDropdownProducts().pipe(
       tap((products) => {
         this.products.set(products);
         this.productsStatus.set('success');
@@ -375,6 +465,10 @@ export class ProductVariants {
   protected setField(key: keyof ReturnType<typeof this.form>, event: Event): void {
     const target = event.target;
     if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) this.form.update((v) => ({ ...v, [key]: target.value }));
+  }
+  // CHANGED (new): the searchable product dropdown emits the product ID itself (not a change event).
+  protected setProductId(productId: string): void {
+    this.form.update((v) => ({ ...v, productId }));
   }
   protected onImageChange(event: Event): void {
     const target = event.target;

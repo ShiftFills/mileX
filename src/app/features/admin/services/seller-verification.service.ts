@@ -21,6 +21,34 @@ export interface SellerVerificationDocument {
   rejectionReason?: string;
 }
 
+/**
+ * Seller Details dialog fields from seller_verification/get, read with the seller onboarding and bank details
+ * column names. '' when the API sends nothing. businessType, state, country and accountType hold the name when
+ * the API sends one (…_NAME or text), otherwise the lookup ID, which the page turns into a name.
+ */
+// CHANGED (new)
+export interface SellerVerificationDetails {
+  businessType: string;
+  businessAddress: string;
+  city: string;
+  state: string;
+  country: string;
+  pincode: string;
+  registrationNumber: string;
+  contactPersonName: string;
+  contactPersonMobile: string;
+  contactPersonEmail: string;
+  accountHolderName: string;
+  bankName: string;
+  branchName: string;
+  accountNumber: string;
+  ifscCode: string;
+  accountType: string;
+  /** DOCUMENT_STATUS when the API also sends DOCUMENT_VERIFICATION_STATUS (otherwise it is that status). */
+  documentStatus: string;
+  rejectionReason: string;
+}
+
 export interface SellerVerificationRecord {
   id: number;
   sellerId: number;
@@ -38,6 +66,8 @@ export interface SellerVerificationRecord {
   documentVerificationStatus: SellerVerificationStatus;
   remarks: string;
   documents: SellerVerificationDocument[];
+  // CHANGED (new): business, contact person, bank and status details for the Seller Details dialog.
+  details?: SellerVerificationDetails;
 }
 
 export interface SellerVerificationPage {
@@ -239,6 +269,45 @@ function mapSellerDocuments(
   });
 }
 
+/** The first of `keys` with a non-empty value, as trimmed text ('' when none has one). */
+// CHANGED (new): used for the Seller Details dialog fields, which are hidden when empty.
+function firstText(record: Record<string, unknown>, ...keys: string[]): string {
+  for (const key of keys) {
+    const value = record[key];
+    if ((typeof value === 'string' || typeof value === 'number') && String(value).trim()) {
+      return String(value).trim();
+    }
+  }
+  return '';
+}
+
+// CHANGED (new): the seller_verification/get columns shown in the Seller Details dialog.
+function mapSellerDetails(value: Record<string, unknown>): SellerVerificationDetails {
+  return {
+    businessType: firstText(value, 'BUSINESS_TYPE_NAME', 'BUSINESS_TYPE'),
+    businessAddress: firstText(value, 'BUSINESS_ADDRESS'),
+    city: firstText(value, 'CITY'),
+    state: firstText(value, 'STATE_NAME', 'STATE', 'STATE_ID'),
+    country: firstText(value, 'COUNTRY_NAME', 'COUNTRY', 'COUNTRY_ID'),
+    pincode: firstText(value, 'PINCODE'),
+    registrationNumber: firstText(value, 'BUSINESS_REGISTRATION_NUMBER'),
+    contactPersonName: firstText(value, 'CONTACT_PERSON_NAME'),
+    contactPersonMobile: firstText(value, 'CONTACT_PERSON_MOBILE'),
+    contactPersonEmail: firstText(value, 'CONTACT_PERSON_EMAIL'),
+    accountHolderName: firstText(value, 'ACCOUNT_HOLDER_NAME'),
+    bankName: firstText(value, 'BANK_NAME'),
+    branchName: firstText(value, 'BRANCH_NAME'),
+    accountNumber: firstText(value, 'ACCOUNT_NUMBER'),
+    ifscCode: firstText(value, 'IFSC_CODE'),
+    accountType: firstText(value, 'ACCOUNT_TYPE_NAME', 'ACCOUNT_TYPE', 'ACCOUNT_TYPE_ID'),
+    documentStatus:
+      value['DOCUMENT_VERIFICATION_STATUS'] !== undefined && value['DOCUMENT_VERIFICATION_STATUS'] !== null
+        ? firstText(value, 'DOCUMENT_STATUS')
+        : '',
+    rejectionReason: firstText(value, 'REJECTION_REASON'),
+  };
+}
+
 function mapSeller(value: unknown): SellerVerificationRecord {
   if (!isRecord(value)) throw new Error('The seller verification API returned an invalid seller.');
   const sellerId = Number(value['SELLER_ID']);
@@ -284,6 +353,7 @@ function mapSeller(value: unknown): SellerVerificationRecord {
       value,
       Number.isSafeInteger(documentId) && documentId > 0 ? documentId : undefined,
     ),
+    details: mapSellerDetails(value),
   };
 }
 

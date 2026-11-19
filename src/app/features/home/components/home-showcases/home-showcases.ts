@@ -1,14 +1,35 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, input, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
-import { catchError, forkJoin, map, of, switchMap } from 'rxjs';
+import { EMPTY, catchError, forkJoin, map, of, switchMap, tap } from 'rxjs';
 import { ProductCard } from '@shared/components/product-card/product-card';
 import { APP_ROUTES } from '@core/constants/app-routes';
-import { ProductCatalogService, ProductLookupOption } from '@core/services/product-catalog.service';
+import {
+  ProductCatalogService,
+  ProductListingFilters,
+  ProductLookupOption,
+} from '@core/services/product-catalog.service';
 import { Alert } from '@shared/components/alert/alert';
 import { LoadingSpinner } from '@shared/components/loading-spinner/loading-spinner';
 import { Product } from '@shared/models';
 import { WishlistService } from '@core/services/wishlist.service';
+
+/**
+ * Home page products: active products of every category, brand and seller, i.e.
+ * `products/get?PRODUCT_ID=-1&CATEGORY_ID=-1&BRAND_ID=-1&SELLER_ID=-1&STATUS=ACTIVE&LIMIT=10&OFFSET=0`.
+ * Omitted category and brand are sent as -1 by loadListingPage. Category shelves send the same
+ * request with their own CATEGORY_ID.
+ */
+// CHANGED (new): replaces the unfiltered products/get request (productService.load()) on the Home page.
+const HOME_PRODUCT_FILTERS: ProductListingFilters = { sellerId: -1, status: 'ACTIVE' };
+/** How many products the Home page request loads (LIMIT). Page 1 is OFFSET=0. */
+const HOME_PRODUCTS = 10;
+
+/** Up to `limit` products. STATUS=ACTIVE is filtered by the API; an inactive row is still never shown. */
+// CHANGED (new): shared by the Home products and the category shelves.
+function activeProducts(items: readonly Product[], limit: number): Product[] {
+  return items.filter((product) => product.isActive !== false).slice(0, limit);
+}
 
 /** How many category shelves the home page shows. */
 // CHANGED (new): shelf constants. Shelves are now built per category from the API instead of grouping one unfiltered product list.
@@ -38,12 +59,16 @@ export class HomeShowcases {
   readonly categories = input<readonly ProductLookupOption[]>([]);
   protected readonly wishlist = inject(WishlistService);
   private readonly productService = inject(ProductCatalogService);
-  protected readonly catalogStatus = this.productService.status;
-  protected readonly catalogError = this.productService.error;
+  private readonly destroyRef = inject(DestroyRef);
+  // CHANGED: Home keeps its own request state. The shared catalog (load/status/error/products) is still
+  // used by cart, checkout and wishlist, so it is no longer touched here.
+  protected readonly catalogStatus = signal<'loading' | 'success' | 'error'>('loading');
+  protected readonly catalogError = signal<string | null>(null);
 
-  protected readonly bestDeals = computed(() => this.productService.products().slice(0, 15));
+  /** The Home page products, in API order. */
+  protected readonly bestDeals = signal<readonly Product[]>([]);
   protected readonly recommended = computed(() =>
-    [...this.productService.products()].sort((a, b) => a.price - b.price).slice(0, 10),
+    [...this.bestDeals()].sort((a, b) => a.price - b.price),
   );
 
   /**
@@ -54,9 +79,10 @@ export class HomeShowcases {
   protected readonly shelves = signal<readonly CategoryShelf[]>([]);
 
   constructor() {
-    this.productService.load();
+    this.loadProducts();
 
-    // CHANGED: each shelf loads its own category's products with loadPage(1, 8, categoryId); empty categories are skipped.
+    // CHANGED: each shelf sends the Home products request (HOME_PRODUCT_FILTERS) with its own CATEGORY_ID
+    // instead of loadPage(1, 8, categoryId); empty categories are skipped.
     toObservable(this.categories)
       .pipe(
         switchMap((categories) => {
@@ -64,20 +90,22 @@ export class HomeShowcases {
           if (!candidates.length) return of<CategoryShelf[]>([]);
           return forkJoin(
             candidates.map((category) =>
-              // loadPage is cached per category, so revisiting the home page costs no extra calls.
-              this.productService.loadPage(1, SHELF_PRODUCTS, category.id).pipe(
-                map(
-                  (page): CategoryShelf => ({
-                    title: category.label,
-                    image: '/images/Section - HeroPromoBanner.svg',
-                    category: `category-${category.id}`,
-                    categoryId: category.id,
-                    products: page.items.slice(0, SHELF_PRODUCTS),
-                  }),
+              // Page requests are cached per category, so revisiting the home page costs no extra calls.
+              this.productService
+                .loadListingPage({ ...HOME_PRODUCT_FILTERS, categoryId: Number(category.id) }, 1, SHELF_PRODUCTS)
+                .pipe(
+                  map(
+                    (page): CategoryShelf => ({
+                      title: category.label,
+                      image: '/images/Section - HeroPromoBanner.svg',
+                      category: `category-${category.id}`,
+                      categoryId: category.id,
+                      products: activeProducts(page.items, SHELF_PRODUCTS),
+                    }),
+                  ),
+                  // One failing category must not hide the others.
+                  catchError(() => of(null)),
                 ),
-                // One failing category must not hide the others.
-                catchError(() => of(null)),
-              ),
             ),
           ).pipe(
             map((shelves) =>
@@ -97,6 +125,25 @@ export class HomeShowcases {
   }
 
   protected retryLoad(): void {
-    this.productService.load();
+    this.loadProducts();
+  }
+
+  /** Loads Best Deals / Recommended Items. The page request is cached, so revisiting Home costs no extra call. */
+  // CHANGED (new): one loadListingPage request with HOME_PRODUCT_FILTERS, replacing productService.load().
+  private loadProducts(): void {
+    this.catalogStatus.set('loading');
+    this.catalogError.set(null);
+    this.productService.loadListingPage(HOME_PRODUCT_FILTERS, 1, HOME_PRODUCTS).pipe(
+      tap((page) => {
+        this.bestDeals.set(activeProducts(page.items, HOME_PRODUCTS));
+        this.catalogStatus.set('success');
+      }),
+      catchError((error: unknown) => {
+        this.catalogError.set(this.productService.getErrorMessage(error));
+        this.catalogStatus.set('error');
+        return EMPTY;
+      }),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe();
   }
 }

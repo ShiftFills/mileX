@@ -132,6 +132,9 @@ export class Cart {
   protected readonly pincodeState = signal<PincodeState>('idle');
 
   constructor() {
+    // CHANGED: the cart loads the catalog itself (CartService no longer loads it on every page) so the
+    // saved cart rows are restored with the latest product values. load() is a no-op once loaded.
+    this.catalog.load();
     if (this.isCustomer()) this.loadCustomerCart();
   }
 

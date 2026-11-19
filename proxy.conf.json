@@ -1,12 +1,13 @@
 {
   "/api/**": {
-    "target": "http://192.168.225.29:80",
+    "target": "http://10.148.24.41:81",
     "secure": false,
     "changeOrigin": true
   },
   "/uploads/**": {
-    "target": "http://192.168.225.29:80",
+    "target": "http://10.148.24.41:81",
     "secure": false,
     "changeOrigin": true
   }
 }
+

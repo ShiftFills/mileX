@@ -16,14 +16,31 @@ export class CartService {
   private readonly catalog = inject(ProductCatalogService);
   private readonly _items = signal<CartItem[]>([]);
   private readonly _savedItems = signal<CartItem[]>([]);
+  /** Saved cart rows (ID and quantity) from storage, restored once a page loads the catalog. */
+  // CHANGED: a field (was a constructor local) so `count` can include rows that are not restored yet.
+  private readonly storedItems = this.readStoredItems();
   private fetchedItems: CartItem[] | null = null;
-  private localItemsLoaded = false;
+  // CHANGED: a signal (was a boolean) so `badgeCount` updates when the saved rows are restored.
+  private readonly localItemsLoaded = signal(false);
 
   /** Active cart rows only. Rows saved for later live in `savedItems` and never reach totals. */
   readonly items = this._items.asReadonly();
   /** Cart rows the backend reports as SAVE_FOR_LATER = 1, plus rows saved during this session. */
   readonly savedItems = this._savedItems.asReadonly();
   readonly count = computed(() => this._items().reduce((sum, item) => sum + item.quantity, 0));
+  /**
+   * The header cart badge: `count`, plus (until a page loads the catalog and restores the saved rows)
+   * the saved rows not already in the cart, counted from storage the same way the restore merges them.
+   */
+  // CHANGED (new): the catalog is no longer loaded on every page just to restore the cart for this badge.
+  readonly badgeCount = computed(() => {
+    if (this.localItemsLoaded()) return this.count();
+    const cartProductIds = new Set(this._items().map((item) => item.product.id));
+    return this.storedItems.reduce(
+      (sum, { id, quantity }) => (cartProductIds.has(id) ? sum : sum + quantity),
+      this.count(),
+    );
+  });
   readonly hasUnavailableItems = computed(() =>
     this._items().some((item) => !item.product.inStock),
   );
@@ -33,20 +50,25 @@ export class CartService {
   readonly shippingCost = computed(() => this.shippingFor(this.subtotal(), this.count()));
   readonly total = computed(() => this.subtotal() + this.shippingCost());
 
+  /**
+   * Restores the saved rows with the latest product values as soon as the catalog is loaded.
+   * The catalog is loaded by the pages that show cart or catalog products (cart, checkout, payment,
+   * delivery address, wishlist, product detail), not here.
+   */
+  // CHANGED: removed `this.catalog.load()`. CartService is created by the storefront header, so it sent the
+  // unfiltered products/get on every page, including the Home page, which has its own products request.
   constructor() {
-    const storedItems = this.readStoredItems();
     this.catalog.productsLoaded$.pipe(take(1)).subscribe((catalogProducts) => {
       const products = new Map(catalogProducts.map((product) => [product.id, product]));
-      const localItems = storedItems.flatMap(({ id, quantity }) => {
+      const localItems = this.storedItems.flatMap(({ id, quantity }) => {
         const product = products.get(id);
         return product ? [{ product, quantity: Math.min(quantity, this.maxQuantity(product)) }] : [];
       });
-      this.localItemsLoaded = true;
+      this.localItemsLoaded.set(true);
       this.save(
         this.fetchedItems ? this.mergeFetchedAndLocalItems(this.fetchedItems, localItems) : localItems,
       );
     });
-    this.catalog.load();
   }
 
   /**
@@ -108,7 +130,7 @@ export class CartService {
     this._savedItems.set(this.uniqueByCartId(items.filter((item) => item.apiDetails?.saveForLater)));
     this.fetchedItems = activeItems;
     const localItems = this._items().filter((item) => !item.apiDetails);
-    if (!this.localItemsLoaded) {
+    if (!this.localItemsLoaded()) {
       this._items.set(activeItems);
       return;
     }

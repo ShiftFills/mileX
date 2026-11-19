@@ -79,6 +79,41 @@ describe('SellerOnboardingService', () => {
     expect(states).toEqual([{ id: '33', name: 'Tamil Nadu' }]);
   });
 
+  // CHANGED (new): Account Type dropdown options for the Bank Details step.
+  it('loads bank account types with limit and offset and maps ACCOUNT_TYPE_ID / ACCOUNT_TYPE', () => {
+    let options: unknown;
+    service.getBankAccountTypes().subscribe((result) => (options = result));
+
+    const request = http.expectOne((candidate) => candidate.url === '/api/bank_account_type/get/-1');
+    expect(request.request.method).toBe('GET');
+    expect(request.request.urlWithParams).toBe('/api/bank_account_type/get/-1?limit=3&offset=0');
+    request.flush({
+      STATUS: 'SUCCESS',
+      MESSAGE: 'Bank account types retrieved successfully',
+      DATA: [
+        { ACCOUNT_TYPE_ID: 1, ACCOUNT_TYPE: 'Savings Account' },
+        { ACCOUNT_TYPE_ID: 2, ACCOUNT_TYPE: 'Current Account' },
+      ],
+    });
+
+    expect(options).toEqual([
+      { id: '1', name: 'Savings Account' },
+      { id: '2', name: 'Current Account' },
+    ]);
+  });
+
+  it('surfaces a failed bank account type lookup with its API message', () => {
+    let failure: unknown;
+    service.getBankAccountTypes().subscribe({ error: (error: unknown) => (failure = error) });
+
+    http.expectOne((candidate) => candidate.url === '/api/bank_account_type/get/-1').flush({
+      STATUS: 'FAILURE',
+      MESSAGE: 'Bank account types are unavailable',
+    });
+
+    expect(failure).toEqual(new Error('Bank account types are unavailable'));
+  });
+
   it('submits onboarding and returns the seller IDs from its response', () => {
     const payload: SellerOnboardingPayload = {
       BUSINESS_NAME: 'ABC Electronics',
@@ -607,6 +642,49 @@ describe('SellerOnboardingService', () => {
 
     expect(documentResult).toBe('Seller documents updated successfully.');
     expect(bankResult).toBe('Bank details updated successfully.');
+  });
+
+  // CHANGED (new): a guest applicant on /sell has no session; their own USER_ID is UPDATED_BY.
+  describe('UPDATED_BY for a guest applicant', () => {
+    const bankPayload = {
+      BANK_DETAIL_ID: 9,
+      ACCOUNT_HOLDER_NAME: 'Naveen Prakash',
+      BANK_NAME: 'Bank of Baroda',
+      BRANCH_NAME: 'Ambattur Industrial Estate Branch',
+      ACCOUNT_NUMBER: '123456787023',
+      CONFIRM_ACCOUNT_NUMBER: '123456787023',
+      IFSC_CODE: 'BARB0AMBATT',
+      ACCOUNT_TYPE: 1,
+      SELLER_ID: 42,
+    };
+
+    it('sends the applicant USER_ID as UPDATED_BY when nobody is signed in', () => {
+      TestBed.inject(AuthService).clearSession();
+      let result: unknown;
+      service.updateBankDetails(bankPayload, 2).subscribe((response) => (result = response));
+
+      const request = http.expectOne((candidate) => candidate.url.endsWith('/seller_bank_details/update'));
+      expect(request.request.body).toEqual({ ...bankPayload, UPDATED_BY: 2 });
+      request.flush({ STATUS: 'SUCCESS', MESSAGE: 'Bank details updated' });
+      expect(result).toBe('Bank details updated');
+    });
+
+    it('prefers the signed-in user and still rejects when there is neither', () => {
+      service.updateBankDetails(bankPayload, 2).subscribe();
+      expect(
+        http.expectOne((candidate) => candidate.url.endsWith('/seller_bank_details/update')).request.body,
+      ).toMatchObject({ UPDATED_BY: 60 });
+
+      TestBed.inject(AuthService).clearSession();
+      const errors: unknown[] = [];
+      service.updateBankDetails(bankPayload).subscribe({ error: (error: unknown) => errors.push(error) });
+      service.updateBankDetails(bankPayload, 0).subscribe({ error: (error: unknown) => errors.push(error) });
+      expect(errors).toEqual([
+        new Error('A valid authenticated user ID is required to update seller bank details.'),
+        new Error('A valid authenticated user ID is required to update seller bank details.'),
+      ]);
+      http.expectNone((candidate) => candidate.url.endsWith('/seller_bank_details/update'));
+    });
   });
 
   it('surfaces unsuccessful lookup responses as errors', () => {

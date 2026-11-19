@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, OnDestroy, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, OnDestroy, signal, WritableSignal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { NgTemplateOutlet } from '@angular/common';
 import { EMPTY, Observable, Subscription, catchError, concatMap, finalize, forkJoin, map, of, switchMap, tap } from 'rxjs';
@@ -50,7 +50,8 @@ interface SellerFieldDefinition {
   options?: readonly SellerFieldOption[];
 }
 
-type LookupName = 'businessType' | 'country' | 'state';
+// CHANGED: accountType is an API lookup too (bank_account_type/get).
+type LookupName = 'businessType' | 'country' | 'state' | 'accountType';
 type LookupStatus = 'loading' | 'success' | 'error';
 
 const DOCUMENT_FIELD_MAP = {
@@ -100,11 +101,21 @@ export class SellerOnboarding implements OnDestroy {
   protected readonly businessTypes = signal<SellerFieldOption[]>([]);
   protected readonly countries = signal<SellerFieldOption[]>([]);
   protected readonly states = signal<SellerFieldOption[]>([]);
+  // CHANGED (new): Account Type options from the API (value = ACCOUNT_TYPE_ID, label = ACCOUNT_TYPE).
+  protected readonly accountTypes = signal<SellerFieldOption[]>([]);
   protected readonly lookupStatus = signal<Record<LookupName, LookupStatus>>({
     businessType: 'loading',
     country: 'loading',
     state: 'success',
+    accountType: 'loading',
   });
+  // CHANGED (new): one place that maps each lookup to its options signal.
+  private readonly lookupSignals: Readonly<Record<LookupName, WritableSignal<SellerFieldOption[]>>> = {
+    businessType: this.businessTypes,
+    country: this.countries,
+    state: this.states,
+    accountType: this.accountTypes,
+  };
   protected readonly lookupErrors = signal<Partial<Record<LookupName, string>>>({});
   private readonly lookupSubscriptions = new Map<LookupName, Subscription>();
   private submissionSubscription: Subscription | null = null;
@@ -275,12 +286,8 @@ export class SellerOnboarding implements OnDestroy {
     },
   ];
 
-  protected readonly accountTypes: SellerFieldOption[] = [
-    { label: 'Savings Account', value: 'savings' },
-    { label: 'Current Account', value: 'current' },
-  ];
-
-  protected readonly bankFields: SellerFieldDefinition[] = [
+  // CHANGED: a computed (like leftFields) so the Account Type options follow the API lookup.
+  protected readonly bankFields = computed<SellerFieldDefinition[]>(() => [
     {
       name: 'accountHolder',
       label: 'Account Holder Name',
@@ -318,9 +325,9 @@ export class SellerOnboarding implements OnDestroy {
       placeholder: 'Select account type',
       icon: 'card',
       type: 'select',
-      options: this.accountTypes,
+      options: this.accountTypes(),
     },
-  ];
+  ]);
 
   protected readonly requiredFieldsByStep: Record<number, string[]> = {
     1: [
@@ -422,6 +429,8 @@ export class SellerOnboarding implements OnDestroy {
     } else {
       this.loadLookup('businessType');
       this.loadLookup('country');
+      // CHANGED (new): loaded once with the other lookups; the options stay for every step.
+      this.loadLookup('accountType');
     }
   }
 
@@ -490,14 +499,15 @@ export class SellerOnboarding implements OnDestroy {
         return this.isValidPan(value)
           ? null
           : 'Please enter a valid PAN number (e.g., ABCDE1234F).';
-      case 'businessType': {
+      // CHANGED: accountType is now an ACCOUNT_TYPE_ID from the API, validated like businessType.
+      case 'businessType':
+      case 'accountType': {
         const id = Number(value);
         return this.isValidOption(name, value) && Number.isSafeInteger(id) && id > 0
           ? null
           : 'Please select a valid option.';
       }
       case 'country':
-      case 'accountType':
         return this.isValidOption(name, value) ? null : 'Please select a valid option.';
       case 'state': {
         const id = Number(value);
@@ -538,16 +548,8 @@ export class SellerOnboarding implements OnDestroy {
   }
 
   private isValidOption(name: string, value: string): boolean {
-    const options =
-      name === 'businessType'
-        ? this.businessTypes()
-        : name === 'country'
-          ? this.countries()
-          : name === 'state'
-            ? this.states()
-            : name === 'accountType'
-              ? this.accountTypes
-              : [];
+    // CHANGED: every dropdown here is an API lookup, so its options come from lookupOptions().
+    const options = this.isLookupName(name) ? this.lookupOptions(name) : [];
     return options.some((option) => option.value === value);
   }
 
@@ -573,16 +575,13 @@ export class SellerOnboarding implements OnDestroy {
         ? this.sellerOnboarding.getBusinessTypes()
         : name === 'country'
           ? this.sellerOnboarding.getCountries()
-          : this.sellerOnboarding.getStates(countryId);
+          : name === 'accountType'
+            ? this.sellerOnboarding.getBankAccountTypes()
+            : this.sellerOnboarding.getStates(countryId);
     const subscription = request.subscribe({
       next: (options) => {
-        const mapped = this.toFieldOptions(
-          options,
-          name === 'businessType' || name === 'country' || name === 'state',
-        );
-        if (name === 'businessType') this.businessTypes.set(mapped);
-        else if (name === 'country') this.countries.set(mapped);
-        else this.states.set(mapped);
+        // CHANGED: every lookup uses its API IDs as values; lookupSignals picks the options signal.
+        this.lookupSignals[name].set(this.toFieldOptions(options, true));
         this.lookupStatus.update((status) => ({ ...status, [name]: 'success' }));
       },
       error: (error: unknown) => {
@@ -620,6 +619,8 @@ export class SellerOnboarding implements OnDestroy {
             ),
             businessTypes: this.sellerOnboarding.getBusinessTypes(),
             countries: this.sellerOnboarding.getCountries(),
+            // CHANGED (new): account types load with the other lookups so the saved type can be preselected.
+            accountTypes: this.sellerOnboarding.getBankAccountTypes(),
           }),
         ),
         switchMap((records) => {
@@ -632,10 +633,11 @@ export class SellerOnboarding implements OnDestroy {
               businessTypes,
               countries,
               states: this.toFieldOptions(states, true),
+              accountTypes: this.toFieldOptions(records.accountTypes, true),
             })),
           );
         }),
-        tap(({ seller, documents, bank, businessTypes, countries, states }) => {
+        tap(({ seller, documents, bank, businessTypes, countries, states, accountTypes }) => {
           const sellerIdFromRecord = this.toPositiveId(seller['SELLER_ID'], 'SELLER_ID');
           const userId = this.toPositiveId(seller['USER_ID'], 'USER_ID');
           const documentId = this.toPositiveId(documents['DOCUMENT_ID'], 'DOCUMENT_ID');
@@ -643,7 +645,13 @@ export class SellerOnboarding implements OnDestroy {
           this.businessTypes.set(businessTypes);
           this.countries.set(countries);
           this.states.set(states);
-          this.lookupStatus.set({ businessType: 'success', country: 'success', state: 'success' });
+          this.accountTypes.set(accountTypes);
+          this.lookupStatus.set({
+            businessType: 'success',
+            country: 'success',
+            state: 'success',
+            accountType: 'success',
+          });
 
           const values: Record<string, string> = {
             businessName: this.recordText(seller, 'BUSINESS_NAME'),
@@ -670,7 +678,12 @@ export class SellerOnboarding implements OnDestroy {
             accountNumber: this.recordText(bank, 'ACCOUNT_NUMBER'),
             confirmAccountNumber: this.recordText(bank, 'ACCOUNT_NUMBER'),
             ifscCode: this.recordText(bank, 'IFSC_CODE'),
-            accountType: this.mapAccountType(bank['ACCOUNT_TYPE']),
+            // CHANGED: preselects the saved ACCOUNT_TYPE_ID (or ACCOUNT_TYPE) among the API options.
+            accountType: this.matchOptionValue(
+              bank['ACCOUNT_TYPE_ID'] ?? bank['ACCOUNT_TYPE'],
+              accountTypes,
+              'account type',
+            ),
           };
           const existingDocuments = Object.fromEntries(
             Object.entries(DOCUMENT_FIELD_MAP).map(([field, key]) => {
@@ -728,13 +741,6 @@ export class SellerOnboarding implements OnDestroy {
     return match.value;
   }
 
-  private mapAccountType(value: unknown): string {
-    const normalized = String(value ?? '').trim().toLowerCase();
-    if (normalized === '2' || normalized === 'current') return 'current';
-    if (normalized === '1' || normalized === 'savings') return 'savings';
-    throw new Error('The seller edit response contains an unknown account type.');
-  }
-
   protected isLookupDisabled(fieldName: string): boolean {
     return (
       this.isLookupName(fieldName) &&
@@ -765,15 +771,11 @@ export class SellerOnboarding implements OnDestroy {
   }
 
   private isLookupName(name: string): name is LookupName {
-    return name === 'businessType' || name === 'country' || name === 'state';
+    return name === 'businessType' || name === 'country' || name === 'state' || name === 'accountType';
   }
 
   private lookupOptions(name: LookupName): readonly SellerFieldOption[] {
-    return name === 'businessType'
-      ? this.businessTypes()
-      : name === 'country'
-        ? this.countries()
-        : this.states();
+    return this.lookupSignals[name]();
   }
 
   private toFieldOptions(
@@ -799,7 +801,7 @@ export class SellerOnboarding implements OnDestroy {
       this.values.update((current) => ({ ...current, [name]: value }));
       if (previousValue !== value) {
         if (this.hasPersistedField(name)) this.reviewEditRequested = true;
-        if (this.bankFields.some((field) => field.name === name)) this.bankDetailsSaved = false;
+        if (this.bankFields().some((field) => field.name === name)) this.bankDetailsSaved = false;
       }
       if (name === 'country') {
         this.values.update((current) => ({ ...current, state: '' }));
@@ -988,9 +990,12 @@ export class SellerOnboarding implements OnDestroy {
       return;
     }
 
-    const updates = this.sellerOnboarding.updateSeller(this.createSellerUpdatePayload()).pipe(
-      concatMap(() => this.sellerOnboarding.updateDocuments(this.createDocumentsUpdatePayload())),
-      concatMap(() => this.sellerOnboarding.updateBankDetails(this.createBankUpdatePayload())),
+    // CHANGED: a guest applicant (/sell, no session) editing the records they created in this session
+    // passes their own USER_ID for UPDATED_BY. Editing an existing seller (?sellerId=) still needs a session.
+    const applicantUserId = this.isEditing() ? undefined : this.editIdentity.userId;
+    const updates = this.sellerOnboarding.updateSeller(this.createSellerUpdatePayload(), applicantUserId).pipe(
+      concatMap(() => this.sellerOnboarding.updateDocuments(this.createDocumentsUpdatePayload(), applicantUserId)),
+      concatMap(() => this.sellerOnboarding.updateBankDetails(this.createBankUpdatePayload(), applicantUserId)),
       map(() => 'Seller, documents, and bank details were updated successfully.'),
     );
 
@@ -1055,7 +1060,7 @@ export class SellerOnboarding implements OnDestroy {
 
   private hasPersistedField(name: string): boolean {
     if (!this.createdSeller) return false;
-    if (this.bankFields.some((field) => field.name === name)) {
+    if (this.bankFields().some((field) => field.name === name)) {
       return this.createdSeller.bankDetailId !== undefined;
     }
     if (name in DOCUMENT_FIELD_MAP) return this.createdSeller.documentId !== undefined;
@@ -1153,8 +1158,14 @@ export class SellerOnboarding implements OnDestroy {
     };
   }
 
+  // Shared by the bank insert and update payloads.
   private createBankDetails(): SellerBankDetails {
     const value = (name: string) => this.valueFor(name).trim();
+    // CHANGED: ACCOUNT_TYPE is the ACCOUNT_TYPE_ID selected in the dropdown (was hardcoded 1/2).
+    const accountTypeId = Number(value('accountType'));
+    if (!this.isValidOption('accountType', value('accountType')) || !Number.isSafeInteger(accountTypeId) || accountTypeId <= 0) {
+      throw new Error('Select a valid account type before submitting bank details.');
+    }
     return {
       ACCOUNT_HOLDER_NAME: value('accountHolder'),
       BANK_NAME: value('bankName'),
@@ -1162,7 +1173,7 @@ export class SellerOnboarding implements OnDestroy {
       ACCOUNT_NUMBER: value('accountNumber'),
       CONFIRM_ACCOUNT_NUMBER: value('confirmAccountNumber'),
       IFSC_CODE: value('ifscCode').toUpperCase(),
-      ACCOUNT_TYPE: value('accountType') === 'current' ? 2 : 1,
+      ACCOUNT_TYPE: accountTypeId,
     };
   }
 

@@ -40,6 +40,8 @@ export const API_ENDPOINTS = {
     get: 'seller_bank_details/get',
     insert: 'seller_bank_details/insert',
     update: 'seller_bank_details/update',
+    // CHANGED (new): Account Type dropdown options (-1 = all account types).
+    accountTypes: 'bank_account_type/get/-1',
   },
   sellerVerification: {
     get: 'seller_verification/get',
@@ -47,6 +49,8 @@ export const API_ENDPOINTS = {
   },
   user: {
     login: 'user/login',
+    // CHANGED (new): POST, no body. The backend reads the HttpOnly `refreshToken` cookie it sets at login.
+    refresh: 'user/refresh',
   },
   orderManagement: {
     get: 'order_dashboard/get',

@@ -139,52 +139,95 @@
       No verification details were returned for this seller.
     </p>
     } @else {
-    <h3 class="seller-dialog__section">Seller Information</h3>
-    <dl class="seller-info row g-0 row-cols-1 row-cols-sm-2">
+    <!-- CHANGED: the details are grouped into Business, Contact Person, Bank, Document Verification and Overall
+         Verification Status sections from seller_verification/get. Fields without a value are not shown. -->
+    <h3 class="seller-dialog__section">Business Details</h3>
+    <dl class="seller-info row g-0 row-cols-1 row-cols-sm-2 row-cols-lg-3">
+      @for (field of businessDetails(); track field.label) {
       <div class="col">
-        <dt>Seller Name</dt>
-        <dd>{{ seller.sellerName }}</dd>
+        <dt>{{ field.label }}</dt>
+        <dd>{{ field.value }}</dd>
       </div>
-      <div class="col">
-        <dt>Mobile Number</dt>
-        <dd>{{ seller.mobile }}</dd>
-      </div>
-      <div class="col">
-        <dt>Business Name</dt>
-        <dd>{{ seller.businessName }}</dd>
-      </div>
-      <div class="col">
-        <dt>GST Number</dt>
-        <dd>{{ seller.gstNumber }}</dd>
-      </div>
-      <div class="col">
-        <dt>Seller Code</dt>
-        <dd>{{ seller.sellerCode }}</dd>
-      </div>
-      <div class="col">
-        <dt>PAN Number</dt>
-        <dd>{{ seller.panNumber }}</dd>
-      </div>
-      <div class="col">
-        <dt>Email</dt>
-        <dd>{{ seller.email }}</dd>
-      </div>
+      }
     </dl>
+
+    @if (contactDetails().length) {
+    <h3 class="seller-dialog__section">Contact Person Details</h3>
+    <dl class="seller-info row g-0 row-cols-1 row-cols-sm-2 row-cols-lg-3">
+      @for (field of contactDetails(); track field.label) {
+      <div class="col">
+        <dt>{{ field.label }}</dt>
+        <dd>{{ field.value }}</dd>
+      </div>
+      }
+    </dl>
+    }
+
+    @if (bankDetails().length) {
+    <h3 class="seller-dialog__section">Bank Details</h3>
+    <dl class="seller-info row g-0 row-cols-1 row-cols-sm-2 row-cols-lg-3">
+      @for (field of bankDetails(); track field.label) {
+      <div class="col">
+        <dt>{{ field.label }}</dt>
+        @if (field.label === 'Account Number') {
+        <dd class="seller-info__account">
+          <span class="seller-info__account-number">{{ displayedAccountNumber() }}</span>
+          <button type="button" class="seller-info__reveal" [attr.aria-pressed]="accountNumberVisible()"
+            [attr.aria-label]="(accountNumberVisible() ? 'Hide' : 'Show') + ' account number'"
+            (click)="toggleAccountNumber()">{{ accountNumberVisible() ? 'Hide' : 'Show' }}</button>
+        </dd>
+        } @else {
+        <dd>{{ field.value }}</dd>
+        }
+      </div>
+      }
+    </dl>
+    }
 
     <h3 class="seller-dialog__section seller-dialog__documents-heading">
       <img src="/images/myOrders.svg" alt="" aria-hidden="true" />
-      Submitted Documents
+      Document Verification
     </h3>
     <app-table class="seller-documents" ariaLabel="Submitted documents" [columns]="documentColumns()"
-      [rows]="seller.documents" />
+      [rows]="visibleDocuments()" />
 
-    <div class="row g-3 mt-1">
-      <div class="col-12">
-        <h3 class="seller-dialog__section">Verification Status</h3>
-        <app-badge class="seller-document-status" [tone]="statusTone(seller.documentVerificationStatus)"
-          size="compact">{{ seller.documentVerificationStatus }}</app-badge>
+    <h3 class="seller-dialog__section">Overall Verification Status</h3>
+    <dl class="seller-info row g-0 row-cols-1 row-cols-sm-2 row-cols-lg-3">
+      <div class="col">
+        <dt>Seller Status</dt>
+        <dd><app-badge [tone]="statusTone(seller.status)" size="compact">{{ seller.status }}</app-badge></dd>
       </div>
-      @if (sellerDecisionState() === 'approved-documents') {
+      <div class="col">
+        <dt>Document Verification Status</dt>
+        <dd><app-badge class="seller-document-status" [tone]="statusTone(seller.documentVerificationStatus)"
+            size="compact">{{ seller.documentVerificationStatus }}</app-badge></dd>
+      </div>
+      @if (overallStatus()?.documentStatus; as documentStatus) {
+      <div class="col">
+        <dt>Document Status</dt>
+        <dd><app-badge [tone]="documentStatus.tone" size="compact">{{ documentStatus.label }}</app-badge></dd>
+      </div>
+      }
+    </dl>
+    @if (overallStatus()?.remarks || overallStatus()?.rejectionReason) {
+    <dl class="seller-info seller-info--notes">
+      @if (overallStatus()?.remarks; as remarks) {
+      <div>
+        <dt>Verification Remarks</dt>
+        <dd>{{ remarks }}</dd>
+      </div>
+      }
+      @if (overallStatus()?.rejectionReason; as rejectionReason) {
+      <div>
+        <dt>Rejection Reason</dt>
+        <dd>{{ rejectionReason }}</dd>
+      </div>
+      }
+    </dl>
+    }
+
+    @if (sellerDecisionState() === 'approved-documents') {
+    <div class="row g-3 mt-1">
       <div class="col-12 col-sm-6">
         <label class="seller-dialog__section d-block" for="seller-remarks">Remarks</label>
         <app-textarea class="seller-remarks" inputId="seller-remarks" name="remarks" size="compact" [rows]="3"
@@ -196,8 +239,8 @@
         </p>
         }
       </div>
-      }
     </div>
+    }
     @if (approvedSellerVerificationWarning(); as warning) {
     <section class="seller-decision-confirm" role="alert">
       <h3>Verification needs attention</h3>
@@ -387,6 +430,10 @@
     </svg>
     {{ doc.name }}
   </span>
+  <!-- CHANGED (new): the rejection remarks of a rejected document. -->
+  @if (doc.status === 'Rejected' && doc.rejectionReason) {
+  <small class="seller-doc-remarks">{{ doc.rejectionReason }}</small>
+  }
 </ng-template>
 <ng-template #documentStatusCell let-doc>
   <span class="seller-doc-status">

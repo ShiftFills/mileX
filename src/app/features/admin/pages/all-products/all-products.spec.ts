@@ -3,9 +3,37 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { WritableSignal } from '@angular/core';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { AuthService } from '@core/services/auth.service';
 import { AllProducts } from './all-products';
+
+// CHANGED (new): Variants dialog request and rows (the first row follows the sample API response).
+function variantUrl(productId: number): string {
+  return `/api/product_variant/get?PRODUCT_ID=${productId}&VARIANT_ID=-1&LIMIT=10&OFFSET=0`;
+}
+
+const PRODUCT_4_VARIANTS = {
+  status: 'SUCCESS',
+  message: 'Product variant details fetched successfully',
+  data: [
+    {
+      VARIANT_ID: 25, VARIANT_NAME: 'Green product', SKU: 'SKU00025', BARCODE: null,
+      SIZE: null, SIZE_NAME: null, COLOR: null, COLOUR_NAME: null, MATERIAL: null, MATERIAL_NAME: null,
+      WEIGHT: null, PRICE: '6000.00', STOCK_QUANTITY: 67, VARIANT_IMAGE: 'Screenshot 2026-10-21 175522.png',
+      PRODUCT_ID: 4, SELLER_ID: 49, SELLER_NAME: 'Arun Kumar', STATUS: 'ACTIVE',
+    },
+    {
+      VARIANT_ID: 26, VARIANT_NAME: 'Black Leather', SKU: 'SKU00026', BARCODE: '8901234',
+      SIZE: 2, SIZE_NAME: 'M', COLOR: 4, COLOUR_NAME: 'Black', MATERIAL: 3, MATERIAL_NAME: 'Leather',
+      WEIGHT: '0.25', PRICE: '899.50', STOCK_QUANTITY: 0, VARIANT_IMAGE: null,
+      PRODUCT_ID: 4, SELLER_ID: 49, SELLER_NAME: 'Arun Kumar', STATUS: 'INACTIVE',
+    },
+    {
+      VARIANT_ID: 27, VARIANT_NAME: 'Another product variant', SKU: 'SKU00027', PRICE: '10.00',
+      STOCK_QUANTITY: 1, PRODUCT_ID: 9, STATUS: 'ACTIVE',
+    },
+  ],
+};
 
 interface ProductRow {
   id: number;
@@ -166,16 +194,28 @@ describe('AllProducts', () => {
 
   function loadFirstPage(total = 12): void {
     loadLookups();
+    // CHANGED: the Admin request carries CATEGORY_ID/BRAND_ID (-1 = all) and starts on STATUS=ACTIVE.
     const request = http.expectOne((req) =>
       req.url.endsWith('/products/get') &&
       req.method === 'GET' &&
       req.params.get('PRODUCT_ID') === '-1' &&
+      req.params.get('CATEGORY_ID') === '-1' &&
+      req.params.get('BRAND_ID') === '-1' &&
       req.params.get('SELLER_ID') === null &&
+      req.params.get('STATUS') === 'ACTIVE' &&
       req.params.get('LIMIT') === '5' &&
       req.params.get('OFFSET') === '0',
     );
     request.flush(response(API_PRODUCTS, total));
     fixture.detectChanges();
+  }
+
+  /** Status tab labels with whitespace collapsed, e.g. "All Products (12)". */
+  function tabLabels(): (string | undefined)[] {
+    return Array.from(
+      fixture.nativeElement.querySelectorAll('.product-tabs button') as NodeListOf<HTMLButtonElement>,
+      (tab) => tab.textContent?.replace(/\s+/g, ' ').trim(),
+    );
   }
 
   // CHANGED (new): Seller login lists only the logged-in seller's products with the same table and controls.
@@ -199,12 +239,22 @@ describe('AllProducts', () => {
       });
     }
 
-    function expectSellerPage(sellerId: number, limit: number, offset: number) {
+    // CHANGED: the Seller request is the Admin request plus SELLER_ID.
+    // CHANGED: STATUS defaults to ACTIVE (the Seller's first tab); pass `status: null` for no STATUS ("All").
+    function expectSellerPage(
+      sellerId: number,
+      limit: number,
+      offset: number,
+      filters: { category?: string; brand?: string; status?: string | null } = {},
+    ) {
       return http.expectOne((req) =>
         req.url.endsWith('/products/get') &&
         req.method === 'GET' &&
+        req.params.get('PRODUCT_ID') === '-1' &&
+        req.params.get('CATEGORY_ID') === (filters.category ?? '-1') &&
+        req.params.get('BRAND_ID') === (filters.brand ?? '-1') &&
         req.params.get('SELLER_ID') === String(sellerId) &&
-        req.params.get('PRODUCT_ID') === null &&
+        req.params.get('STATUS') === (filters.status === undefined ? 'ACTIVE' : filters.status) &&
         req.params.get('LIMIT') === String(limit) &&
         req.params.get('OFFSET') === String(offset),
       );
@@ -213,13 +263,35 @@ describe('AllProducts', () => {
     it('requests only the logged-in seller\'s products by SELLER_ID and shows them in the table', () => {
       loadLookups();
       resolveSeller(44);
-      expectSellerPage(44, 5, 0).flush(response(API_PRODUCTS, 7));
+      const request = expectSellerPage(44, 5, 0);
+      // CHANGED: STATUS=ACTIVE is sent with the Seller's first request.
+      expect(request.request.urlWithParams).toBe(
+        '/api/products/get?PRODUCT_ID=-1&CATEGORY_ID=-1&BRAND_ID=-1&SELLER_ID=44&STATUS=ACTIVE&LIMIT=5&OFFSET=0',
+      );
+      request.flush(response(API_PRODUCTS, 7));
       fixture.detectChanges();
 
-      http.expectNone((req) => req.params.get('PRODUCT_ID') === '-1');
       expect(component.loadStatus()).toBe('success');
       expect(component.visibleRows().map((row) => row.id)).toEqual([3, 4]);
       expect(fixture.nativeElement.textContent).toContain('of 7 products');
+    });
+
+    // CHANGED (new): the Seller starts on the Active tab; the other tabs still work.
+    it('starts on the Active tab with STATUS=ACTIVE and still lets the seller switch to All', () => {
+      loadLookups();
+      resolveSeller(44);
+      expectSellerPage(44, 5, 0).flush(response([API_PRODUCTS[0]], 1));
+      fixture.detectChanges();
+
+      expect(tabLabels()).toEqual(['All Products', 'Active (1)', 'Inactive']);
+      expect(fixture.nativeElement.querySelector('.product-tabs button.is-active')?.textContent).toContain('Active');
+      expect(component.visibleRows().map((row) => row.status)).toEqual(['Active']);
+
+      component.setStatus('All');
+      fixture.detectChanges();
+      expectSellerPage(44, 5, 0, { status: null }).flush(response(API_PRODUCTS, 2));
+      fixture.detectChanges();
+      expect(component.visibleRows().map((row) => row.id)).toEqual([3, 4]);
     });
 
     it('uses whichever SELLER_ID the logged-in seller resolves to', () => {
@@ -259,19 +331,29 @@ describe('AllProducts', () => {
       http.expectNone((req) => req.url.endsWith('/seller_onboarding/get'));
     });
 
-    it('applies search, category, brand and status filters to the seller\'s rows', () => {
+    // CHANGED: category, brand and status go to the API with SELLER_ID; search filters the returned page.
+    it('sends the category, brand and status filters with SELLER_ID and searches the returned page', () => {
       loadLookups();
       resolveSeller(44);
       expectSellerPage(44, 5, 0).flush(response(API_PRODUCTS, 2));
       fixture.detectChanges();
 
-      component.setQuery(inputEvent('Wireless'));
       component.setCategory(selectEvent('2'));
       component.setBrand(selectEvent('2'));
-      component.setStatus('Inactive');
+      component.setStatus('Active');
+      fixture.detectChanges();
+      expectSellerPage(44, 5, 0, { category: '2', brand: '2', status: 'ACTIVE' })
+        .flush(response([{ ...API_PRODUCTS[1], IS_ACTIVE: 'ACTIVE' }], 1));
       fixture.detectChanges();
 
       expect(component.visibleRows().map((row) => row.id)).toEqual([4]);
+      expect(tabLabels()).toEqual(['All Products', 'Active (1)', 'Inactive']);
+
+      component.setQuery(inputEvent('Galaxy'));
+      fixture.detectChanges();
+      expect(component.visibleRows()).toEqual([]);
+      // Search is client-side and the seller lookup is cached, so neither triggers another request.
+      http.expectNone((req) => req.url.endsWith('/products/get') || req.url.endsWith('/seller_onboarding/get'));
     });
 
     it('shows an error and loads no products when the user has no seller account', () => {
@@ -328,8 +410,37 @@ describe('AllProducts', () => {
     expect(fixture.nativeElement.textContent).toContain('of 12 products');
   });
 
-  it('loads category and brand filter options and combines them with search and status filters', () => {
+  // CHANGED (new): Admin's first request is exactly the expected Admin API, with STATUS=ACTIVE.
+  it('starts an Admin on the Active tab and sends STATUS=ACTIVE in the first request', () => {
+    loadLookups();
+    const request = http.expectOne((req) => req.url.endsWith('/products/get'));
+    expect(request.request.urlWithParams).toBe(
+      '/api/products/get?PRODUCT_ID=-1&CATEGORY_ID=-1&BRAND_ID=-1&STATUS=ACTIVE&LIMIT=5&OFFSET=0',
+    );
+    request.flush(response([API_PRODUCTS[0]], 12));
+    fixture.detectChanges();
+
+    const selectedTab = fixture.nativeElement.querySelector('.product-tabs button[aria-selected="true"]') as HTMLButtonElement;
+    expect(selectedTab.textContent?.replace(/\s+/g, ' ').trim()).toBe('Active (12)');
+    expect((fixture.nativeElement.querySelector('#admin-product-status') as HTMLSelectElement).value).toBe('Active');
+    expect(tabLabels()).toEqual(['All Products', 'Active (12)', 'Inactive']);
+
+    // "All" is still available and sends no STATUS (every status), as before.
+    component.setStatus('All');
+    fixture.detectChanges();
+    const allRequest = http.expectOne((req) => req.url.endsWith('/products/get'));
+    expect(allRequest.request.urlWithParams).toBe(
+      '/api/products/get?PRODUCT_ID=-1&CATEGORY_ID=-1&BRAND_ID=-1&LIMIT=5&OFFSET=0',
+    );
+    allRequest.flush(response(API_PRODUCTS, 20));
+    fixture.detectChanges();
+    expect(tabLabels()).toEqual(['All Products (20)', 'Active (1 on page)', 'Inactive (1 on page)']);
+  });
+
+  // CHANGED: category, brand and status are sent to the products API; search still filters the loaded page.
+  it('loads category and brand filter options and sends the selected filters to the products API', () => {
     loadFirstPage();
+    expect(tabLabels()).toEqual(['All Products', 'Active (12)', 'Inactive']);
 
     const categorySelect = fixture.nativeElement.querySelector('#admin-product-category') as HTMLSelectElement;
     const brandSelect = fixture.nativeElement.querySelector('#admin-product-brand') as HTMLSelectElement;
@@ -344,13 +455,69 @@ describe('AllProducts', () => {
       ['2', 'MileX'],
     ]);
 
-    component.setQuery(inputEvent('Wireless'));
     component.setCategory(selectEvent('2'));
     component.setBrand(selectEvent('2'));
     component.setStatus('Inactive');
     fixture.detectChanges();
 
+    const request = http.expectOne((req) => req.url.endsWith('/products/get'));
+    expect(request.request.urlWithParams).toBe(
+      '/api/products/get?PRODUCT_ID=-1&CATEGORY_ID=2&BRAND_ID=2&STATUS=INACTIVE&LIMIT=5&OFFSET=0',
+    );
+    request.flush(response([API_PRODUCTS[1]], 1));
+    fixture.detectChanges();
+
     expect(component.visibleRows().map((row) => row.id)).toEqual([4]);
+    expect(tabLabels()).toEqual(['All Products', 'Active', 'Inactive (1)']);
+    expect(fixture.nativeElement.textContent).toContain('Showing 1–1 of 1 products');
+
+    component.setQuery(inputEvent('Wireless'));
+    fixture.detectChanges();
+    expect(component.visibleRows().map((row) => row.id)).toEqual([4]);
+    component.setQuery(inputEvent('Galaxy'));
+    fixture.detectChanges();
+    expect(component.visibleRows()).toEqual([]);
+    http.expectNone((req) => req.url.endsWith('/products/get'));
+
+    component.setCategory(selectEvent(''));
+    component.setBrand(selectEvent(''));
+    component.setStatus('Active');
+    fixture.detectChanges();
+    // Back to the first request (all categories and brands, STATUS=ACTIVE), which is still cached.
+    http.expectNone((req) => req.url.endsWith('/products/get'));
+    expect(component.totalProducts()).toBe(12);
+  });
+
+  // CHANGED (new): a filter change is a new API result set, so paging and the remembered total restart.
+  it('restarts at page 1 for a new filter and does not reuse the previous filter\'s total', () => {
+    loadFirstPage(12);
+    (fixture.nativeElement.querySelector(
+      '.pagination__nav button[aria-label="Next page"]',
+    ) as HTMLButtonElement).click();
+    fixture.detectChanges();
+    http.expectOne((req) => req.params.get('OFFSET') === '5').flush(response([API_PRODUCTS[0]], 12, 2, 5));
+    fixture.detectChanges();
+    expect(component.page()).toBe(2);
+
+    component.setStatus('Inactive');
+    fixture.detectChanges();
+    expect(component.page()).toBe(1);
+    // A full page without pagination metadata: the total for the Inactive filter is not known yet.
+    const inactivePage = Array.from({ length: 5 }, (_, index) => ({
+      ...API_PRODUCTS[1],
+      PRODUCT_ID: 40 + index,
+      PRODUCT_NAME: `Inactive product ${index + 1}`,
+    }));
+    http.expectOne((req) =>
+      req.params.get('STATUS') === 'INACTIVE' && req.params.get('LIMIT') === '5' && req.params.get('OFFSET') === '0',
+    ).flush({ status: 'SUCCESS', data: inactivePage });
+    fixture.detectChanges();
+
+    expect(component.visibleRows()).toHaveLength(5);
+    expect(component.totalProducts()).toBeUndefined();
+    expect(tabLabels()).toEqual(['All Products', 'Active', 'Inactive (total unavailable)']);
+    expect(fixture.nativeElement.textContent).not.toContain('of 12 products');
+    expect(fixture.nativeElement.querySelector('.pagination__nav button[aria-label="Next page"]')).toBeTruthy();
   });
 
   it('shows lookup loading, error, and empty states and allows retrying a failed lookup', () => {
@@ -670,5 +837,111 @@ describe('AllProducts', () => {
     fixture.nativeElement.querySelector('h1').dispatchEvent(new MouseEvent('click', { bubbles: true }));
     fixture.detectChanges();
     expect(component.openActionMenuId()).toBeNull();
+  });
+
+  // CHANGED (new): the row's Variant button shows that product's variants in a dialog.
+  describe('Variants dialog', () => {
+    const dialog = (): HTMLElement | null => fixture.nativeElement.querySelector('.product-variants-dialog');
+    const text = (element: Element | null | undefined): string =>
+      (element?.textContent ?? '').replace(/\s+/g, ' ').trim();
+    const texts = (selector: string): string[] =>
+      Array.from(dialog()?.querySelectorAll(selector) ?? [], (element) => text(element));
+
+    /** Clicks the Variant button of the table row at `rowIndex` (row 0 = product 3, row 1 = product 4). */
+    function clickVariant(rowIndex: number): void {
+      const buttons = fixture.nativeElement.querySelectorAll('.product-row-actions app-button button') as NodeListOf<HTMLButtonElement>;
+      buttons[rowIndex]!.click();
+      fixture.detectChanges();
+    }
+
+    it('loads only the clicked row\'s variants by its PRODUCT_ID and shows the useful details', () => {
+      loadFirstPage();
+      clickVariant(1);
+
+      expect(text(dialog()?.querySelector('h2'))).toBe('Product Variants');
+      expect(text(dialog()?.querySelector('[role="status"]'))).toContain('Loading variants');
+      http.expectOne(variantUrl(4)).flush(PRODUCT_4_VARIANTS);
+      fixture.detectChanges();
+
+      expect(text(dialog()?.querySelector('.product-edit-heading p'))).toBe('Wireless Mouse · 2 variants');
+      expect(texts('.variant-item__name')).toEqual(['Green product', 'Black Leather']);
+      expect(texts('.variant-item__sku')).toEqual(['SKU: SKU00025', 'SKU: SKU00026']);
+      expect(texts('.variant-item__price')).toEqual(['₹6,000', '₹899.5']);
+      expect(texts('.variant-item__stock')).toEqual(['Stock: 67', 'Out of stock']);
+      expect(texts('.variant-item app-badge')).toEqual(['Active', 'Inactive']);
+      // Size, colour and material only when available (the numeric SIZE / COLOR / MATERIAL IDs are not shown).
+      const items = Array.from(dialog()!.querySelectorAll('.variant-item'));
+      expect(items[0]!.querySelector('.variant-item__options')).toBeNull();
+      expect(Array.from(items[1]!.querySelectorAll('.variant-item__options li'), (li) => text(li)))
+        .toEqual(['Colour: Black', 'Size: M', 'Material: Leather']);
+      // Seller and other internal fields are not displayed.
+      expect(text(dialog())).not.toContain('Arun Kumar');
+      expect(text(dialog())).not.toContain('8901234');
+
+      const images = Array.from(dialog()!.querySelectorAll('.variant-item__image') as NodeListOf<HTMLImageElement>);
+      expect(images[0]!.getAttribute('src')).toBe('/uploads/Screenshot%202026-10-21%20175522.png');
+      expect(images[1]!.getAttribute('src')).toBe('/images/latest-gadgets.svg');
+      images[0]!.dispatchEvent(new Event('error'));
+      fixture.detectChanges();
+      expect(images[0]!.getAttribute('src')).toBe('/images/latest-gadgets.svg');
+    });
+
+    it('reuses loaded variants when reopened, loads another product separately, and shows the empty state', () => {
+      loadFirstPage();
+      clickVariant(1);
+      http.expectOne(variantUrl(4)).flush(PRODUCT_4_VARIANTS);
+      fixture.detectChanges();
+
+      (dialog()!.querySelector('.product-edit-close') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(dialog()).toBeNull();
+
+      clickVariant(1);
+      http.expectNone((request) => request.url.endsWith('/product_variant/get'));
+      expect(texts('.variant-item__name')).toEqual(['Green product', 'Black Leather']);
+
+      (fixture.nativeElement.querySelector('.dialog-backdrop') as HTMLElement).click();
+      fixture.detectChanges();
+      expect(dialog()).toBeNull();
+
+      clickVariant(0);
+      http.expectOne(variantUrl(3)).flush({ status: 'SUCCESS', message: 'No variants', data: [] });
+      fixture.detectChanges();
+      expect(text(dialog()?.querySelector('.variant-empty'))).toBe('This product has no variants yet.');
+      expect(text(dialog()?.querySelector('.product-edit-heading p'))).toBe('Samsung Galaxy S25 · 0 variants');
+    });
+
+    it('shows the API error and retries the same product', () => {
+      loadFirstPage();
+      clickVariant(0);
+      http.expectOne(variantUrl(3)).flush(
+        { status: 'FAILED', message: 'Variants are unavailable.' },
+        { status: 500, statusText: 'Server Error' },
+      );
+      fixture.detectChanges();
+      expect(text(dialog()?.querySelector('[role="alert"]'))).toContain('Variants are unavailable.');
+
+      (dialog()!.querySelector('[role="alert"] app-button button') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      http.expectOne(variantUrl(3)).flush({
+        status: 'SUCCESS',
+        data: [{ VARIANT_ID: 30, VARIANT_NAME: 'Blue', SKU: 'SKU00030', PRICE: '2500.00', STOCK_QUANTITY: 4, PRODUCT_ID: 3, STATUS: 'ACTIVE' }],
+      });
+      fixture.detectChanges();
+      expect(texts('.variant-item__name')).toEqual(['Blue']);
+    });
+
+    it('keeps the link to the Variants management page', () => {
+      const navigate = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+      loadFirstPage();
+      clickVariant(0);
+      http.expectOne(variantUrl(3)).flush({ status: 'SUCCESS', data: [] });
+      fixture.detectChanges();
+
+      const manage = Array.from(dialog()!.querySelectorAll('.product-edit-actions app-button button') as NodeListOf<HTMLButtonElement>)
+        .find((button) => text(button) === 'Manage Variants');
+      manage!.click();
+      expect(navigate).toHaveBeenCalledWith('/admin/products/variants');
+    });
   });
 });

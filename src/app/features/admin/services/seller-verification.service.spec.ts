@@ -489,4 +489,35 @@ describe('SellerVerificationService', () => {
       .flush({ status: true, data: [] });
     expect(result).toBeNull();
   });
+
+  // CHANGED (new): the Seller Details dialog fields, read with the seller onboarding / bank details column names.
+  it('maps the business, contact person, bank and status details of the selected seller', () => {
+    let result: SellerVerificationRecord | null | undefined;
+    service.getSellerDetails(45).subscribe((seller) => (result = seller));
+
+    http.expectOne((request) =>
+      request.url === 'https://api.example.test/api/seller_verification/get' && request.params.get('SELLER_ID') === '45',
+    ).flush({
+      status: 'SUCCESS',
+      data: [{
+        SELLER_ID: 45, SELLER_NAME: 'Rahul', BUSINESS_NAME: 'Ocean Electronics',
+        BUSINESS_TYPE: 2, BUSINESS_TYPE_NAME: 'Partnership', BUSINESS_ADDRESS: ' 12 Market Road ', CITY: 'Chennai',
+        STATE: 31, COUNTRY: 1, PINCODE: '600017', BUSINESS_REGISTRATION_NUMBER: 'REG-778',
+        CONTACT_PERSON_NAME: 'Priya', CONTACT_PERSON_MOBILE: 9876500000, CONTACT_PERSON_EMAIL: 'priya@example.com',
+        ACCOUNT_HOLDER_NAME: 'Ocean Electronics', BANK_NAME: 'State Bank of India', BRANCH_NAME: 'T Nagar',
+        ACCOUNT_NUMBER: '123456789012', IFSC_CODE: 'SBIN0001234', ACCOUNT_TYPE_ID: 2,
+        DOCUMENT_VERIFICATION_STATUS: 'PENDING', DOCUMENT_STATUS: 'SUBMITTED', REJECTION_REASON: null,
+        VERIFICATION_REMARKS: '', CREATED_BY: 1, UPDATED_BY: 1, CREATED_AT: '2026-11-19T10:00:00Z',
+      }],
+    });
+
+    expect(result?.details).toEqual({
+      businessType: 'Partnership', businessAddress: '12 Market Road', city: 'Chennai', state: '31', country: '1',
+      pincode: '600017', registrationNumber: 'REG-778',
+      contactPersonName: 'Priya', contactPersonMobile: '9876500000', contactPersonEmail: 'priya@example.com',
+      accountHolderName: 'Ocean Electronics', bankName: 'State Bank of India', branchName: 'T Nagar',
+      accountNumber: '123456789012', ifscCode: 'SBIN0001234', accountType: '2',
+      documentStatus: 'SUBMITTED', rejectionReason: '',
+    });
+  });
 });

@@ -59,6 +59,12 @@ export class Wishlist {
     return products;
   });
 
+  // CHANGED (new): the wishlist shows catalog products, so it loads the catalog itself
+  // (CartService no longer loads it on every page).
+  constructor() {
+    this.catalog.load();
+  }
+
   protected selectCategory(category: string): void {
     this.selectedCategory.set(category);
   }

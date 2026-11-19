@@ -465,6 +465,14 @@ export class SellerOnboardingService {
       .pipe(map((response) => mapOptions(response, 'STATE_ID', 'STATE_NAME')));
   }
 
+  /** Bank Details step: account types as { id: ACCOUNT_TYPE_ID, name: ACCOUNT_TYPE }. */
+  // CHANGED (new): replaces the hardcoded Savings/Current options. limit/offset as documented for this API.
+  getBankAccountTypes(): Observable<SellerLookupOption[]> {
+    return this.api
+      .get<unknown>(API_ENDPOINTS.sellerBankDetails.accountTypes, { limit: 3, offset: 0 })
+      .pipe(map((response) => mapOptions(response, 'ACCOUNT_TYPE_ID', 'ACCOUNT_TYPE')));
+  }
+
   submit(payload: SellerOnboardingPayload): Observable<void> {
     return this.api.post<unknown>(API_ENDPOINTS.sellerOnboarding.insert, payload).pipe(
       map((response) => {
@@ -510,10 +518,23 @@ export class SellerOnboardingService {
     return this.api.post<unknown>(API_ENDPOINTS.sellerOnboarding.insert, payload).pipe(map(mapOnboardingResult));
   }
 
-  updateSeller(payload: Omit<SellerOnboardingUpdatePayload, 'UPDATED_BY'>): Observable<string> {
+  /**
+   * UPDATED_BY for the seller update APIs: the signed-in user. A guest applicant on /sell has no
+   * session, so `applicantUserId` (the USER_ID their seller_onboarding/insert returned) is used instead.
+   */
+  // CHANGED (new): without this fallback, a guest's Review edits were rejected before any request was sent.
+  private updatedBy(applicantUserId?: number): number | undefined {
+    return this.auth.userId() ?? numericId(applicantUserId);
+  }
+
+  // CHANGED: optional applicantUserId (see updatedBy) for a guest applicant's own new records.
+  updateSeller(
+    payload: Omit<SellerOnboardingUpdatePayload, 'UPDATED_BY'>,
+    applicantUserId?: number,
+  ): Observable<string> {
     requireId(payload.SELLER_ID, 'SELLER_ID');
     requireId(payload.USER_ID, 'USER_ID');
-    const updatedBy = this.auth.userId();
+    const updatedBy = this.updatedBy(applicantUserId);
     if (updatedBy === undefined) {
       return throwError(() => new Error('A valid authenticated user ID is required to update seller details.'));
     }
@@ -553,10 +574,14 @@ export class SellerOnboardingService {
       }));
   }
 
-  updateDocuments(payload: Omit<SellerDocumentsUpdatePayload, 'UPDATED_BY'>): Observable<string> {
+  // CHANGED: optional applicantUserId (see updatedBy).
+  updateDocuments(
+    payload: Omit<SellerDocumentsUpdatePayload, 'UPDATED_BY'>,
+    applicantUserId?: number,
+  ): Observable<string> {
     requireId(payload.DOCUMENT_ID, 'DOCUMENT_ID');
     requireId(payload.SELLER_ID, 'SELLER_ID');
-    const updatedBy = this.auth.userId();
+    const updatedBy = this.updatedBy(applicantUserId);
     if (updatedBy === undefined) {
       return throwError(() => new Error('A valid authenticated user ID is required to update seller documents.'));
     }
@@ -584,10 +609,14 @@ export class SellerOnboardingService {
     );
   }
 
-  updateBankDetails(payload: Omit<SellerBankDetailsUpdatePayload, 'UPDATED_BY'>): Observable<string> {
+  // CHANGED: optional applicantUserId (see updatedBy).
+  updateBankDetails(
+    payload: Omit<SellerBankDetailsUpdatePayload, 'UPDATED_BY'>,
+    applicantUserId?: number,
+  ): Observable<string> {
     requireId(payload.BANK_DETAIL_ID, 'BANK_DETAIL_ID');
     requireId(payload.SELLER_ID, 'SELLER_ID');
-    const updatedBy = this.auth.userId();
+    const updatedBy = this.updatedBy(applicantUserId);
     if (updatedBy === undefined) {
       return throwError(() => new Error('A valid authenticated user ID is required to update seller bank details.'));
     }

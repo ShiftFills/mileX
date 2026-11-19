@@ -164,6 +164,8 @@ export class DeliveryAddressPage {
   });
 
   constructor() {
+    // CHANGED: loads the catalog for the cart rows (CartService no longer loads it on every page).
+    this.catalog.load();
     // Fetch the logged-in customer's saved addresses; the service selects the default (or the first).
     this.addressBook.load();
   }

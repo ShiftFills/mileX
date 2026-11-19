@@ -16,6 +16,23 @@ export interface ProductLookupOption {
   label: string;
 }
 
+// CHANGED (new): API STATUS values for the All Products status filter.
+export type ProductListingStatus = 'ACTIVE' | 'INACTIVE';
+
+/**
+ * Product listing filters (Admin, Seller and the Home storefront). An omitted category or brand is
+ * sent as -1 (all); an omitted status is not sent (all statuses). `sellerId` is a positive ID for a
+ * Seller login, -1 for every seller (Home page), or omitted to send no SELLER_ID (Admin).
+ */
+// CHANGED (new): server-side filters for loadListingPage.
+// CHANGED: sellerId also accepts -1 (all sellers) for the Home page request.
+export interface ProductListingFilters {
+  categoryId?: number;
+  brandId?: number;
+  status?: ProductListingStatus;
+  sellerId?: number;
+}
+
 export interface ProductInsertPayload {
   PRODUCT_NAME: string;
   CATEGORY_ID: number;
@@ -148,6 +165,10 @@ function mapProduct(value: unknown): Product | null {
     ? [value['IMAGE_URL'].trim()]
     : undefined;
   const hasDiscount = originalPrice !== undefined && originalPrice > price;
+  // CHANGED (new): optional display names; absent from the response today, so nothing changes until the API sends them.
+  const categoryName = productFieldText(value['CATEGORY_NAME']).trim();
+  const subCategoryName = productFieldText(value['SUB_CATEGORY_NAME']).trim();
+  const brandName = productFieldText(value['BRAND_NAME']).trim();
   return {
     id: String(rawId),
     name,
@@ -179,6 +200,9 @@ function mapProduct(value: unknown): Product | null {
     ...(taxRate !== undefined ? { taxRate } : {}),
     ...(discount !== undefined ? { discount } : {}),
     ...(hasDiscount ? { originalPrice, discountLabel: `${Math.round((1 - price / originalPrice) * 100)}% OFF` } : {}),
+    ...(categoryName ? { categoryName } : {}),
+    ...(subCategoryName ? { subCategoryName } : {}),
+    ...(brandName ? { brandName } : {}),
   };
 }
 
@@ -525,7 +549,7 @@ function offsetForPage(page: number, pageSize: number): number {
   return (page - 1) * pageSize;
 }
 
-// CHANGED (new): page/page-size checks shared by loadPage and loadSellerPage (messages unchanged).
+// CHANGED (new): page/page-size checks shared by loadPage and loadListingPage (messages unchanged).
 function invalidPaging(page: number, pageSize: number): RangeError | null {
   if (!Number.isSafeInteger(page) || page < 1) {
     return new RangeError('Page must be a positive safe integer.');
@@ -534,6 +558,13 @@ function invalidPaging(page: number, pageSize: number): RangeError | null {
     return new RangeError('Page size must be a positive safe integer.');
   }
   return null;
+}
+
+// CHANGED (new): optional category/brand/seller ID check shared by loadPage and loadListingPage.
+function invalidOptionalId(id: number | undefined, subject: string): RangeError | null {
+  return id === undefined || (Number.isSafeInteger(id) && id > 0)
+    ? null
+    : new RangeError(`${subject} ID must be a positive safe integer.`);
 }
 
 function lookupEntries(response: unknown, resource: string): readonly unknown[] {
@@ -720,6 +751,24 @@ export class ProductCatalogService {
     );
   }
 
+  /**
+   * One storefront product for the Product View: `products/get?PRODUCT_ID=<id>`, mapped like the catalog.
+   * The API returns a row per product variant, all carrying the product's own fields, so the first row is the
+   * product. Null when the API has no active product with that ID (inactive rows are dropped, as in the catalog).
+   * (loadProductById is the Edit Product form's version: raw text fields, and inactive products included.)
+   */
+  // CHANGED (new): the Product View used to find its product in the full catalog (load()), but products/get
+  // without parameters returns only the backend's first page (or fails), so most products were "not found".
+  loadProduct(productId: string | number): Observable<Product | null> {
+    const id = Number(productId);
+    if (!String(productId).trim() || !Number.isSafeInteger(id) || id <= 0) {
+      return throwError(() => new RangeError('Product ID must be a positive safe integer.'));
+    }
+    return this.api.get<unknown>(API_ENDPOINTS.products.get, { PRODUCT_ID: id }).pipe(
+      map((response) => mapProductsResponse(response).find((product) => product.id === String(id)) ?? null),
+    );
+  }
+
   loadCategories(): Observable<ProductLookupOption[]> {
     return this.loadLookup('categories');
   }
@@ -775,13 +824,10 @@ export class ProductCatalogService {
     // CHANGED: loadPage() takes an optional categoryId; it is validated here and sent to the API as CATEGORY_ID.
     const hasCategory = categoryId !== undefined && categoryId !== null && String(categoryId).trim() !== '';
     const category = hasCategory ? Number(categoryId) : undefined;
-    if (category !== undefined && (!Number.isSafeInteger(category) || category <= 0)) {
-      return throwError(() => new RangeError('Category ID must be a positive safe integer.'));
-    }
+    const categoryError = invalidOptionalId(category, 'Category');
+    if (categoryError) return throwError(() => categoryError);
 
-    // The category is part of the key so pages of different categories never share a cache entry.
-    // CHANGED: the category is part of the cache key (was `${pageSize}:${offset}`), so categories never share cached pages.
-    return this.requestProductPage(`${category ?? 'all'}`, {
+    return this.requestProductPage({
       PRODUCT_ID: -1,
       // CHANGED: server-side category filtering. CATEGORY_ID is sent only when a category is selected.
       ...(category !== undefined ? { CATEGORY_ID: category } : {}),
@@ -789,24 +835,39 @@ export class ProductCatalogService {
   }
 
   /**
-   * Seller login: one page of the given seller's own products (`products/get?SELLER_ID=…&LIMIT=…&OFFSET=…`).
-   * Uses the same response mapping and page cache as loadPage, under a per-seller cache key.
+   * Product listing (Admin, Seller and the Home page): one page of
+   * `products/get?PRODUCT_ID=-1&CATEGORY_ID=…&BRAND_ID=…[&SELLER_ID=…][&STATUS=…]&LIMIT=…&OFFSET=…`.
+   * Category, brand and status are filtered by the API, so the pagination metadata describes the
+   * filtered list. SELLER_ID is sent only when `filters.sellerId` is set (Seller login, or -1 for
+   * every seller on the Home page).
    */
-  // CHANGED (new): Seller variant of loadPage for the All Products listing.
-  loadSellerPage(sellerId: number, page: number, pageSize: number): Observable<PaginatedResponse<Product>> {
-    const pagingError = invalidPaging(page, pageSize);
-    if (pagingError) return throwError(() => pagingError);
-    if (!Number.isSafeInteger(sellerId) || sellerId <= 0) {
-      return throwError(() => new RangeError('Seller ID must be a positive safe integer.'));
-    }
-    // Seller pages never share cache entries with the Admin/storefront pages or with another seller.
-    return this.requestProductPage(`seller:${sellerId}`, { SELLER_ID: sellerId }, page, pageSize);
+  // CHANGED (new): replaces loadSellerPage. Admin and Seller share this request and differ only by SELLER_ID.
+  loadListingPage(
+    filters: ProductListingFilters,
+    page: number,
+    pageSize: number,
+  ): Observable<PaginatedResponse<Product>> {
+    const error =
+      invalidPaging(page, pageSize) ??
+      invalidOptionalId(filters.categoryId, 'Category') ??
+      invalidOptionalId(filters.brandId, 'Brand') ??
+      // CHANGED: -1 (all sellers) is allowed for the Home page; any other seller ID must be positive.
+      (filters.sellerId === -1 ? null : invalidOptionalId(filters.sellerId, 'Seller'));
+    if (error) return throwError(() => error);
+
+    return this.requestProductPage({
+      PRODUCT_ID: -1,
+      CATEGORY_ID: filters.categoryId ?? -1,
+      BRAND_ID: filters.brandId ?? -1,
+      ...(filters.sellerId !== undefined ? { SELLER_ID: filters.sellerId } : {}),
+      ...(filters.status !== undefined ? { STATUS: filters.status } : {}),
+    }, page, pageSize);
   }
 
-  // CHANGED (new): shared page request + cache for loadPage and loadSellerPage (moved from loadPage unchanged).
+  // CHANGED: shared page request + cache for loadPage and loadListingPage. The cache key is built from
+  // the request params, so different filters, sellers and storefront pages never share a cached page.
   private requestProductPage(
-    scope: string,
-    scopeParams: Record<string, number>,
+    scopeParams: Record<string, string | number>,
     page: number,
     pageSize: number,
   ): Observable<PaginatedResponse<Product>> {
@@ -814,6 +875,7 @@ export class ProductCatalogService {
     if (!Number.isSafeInteger(offset)) {
       return throwError(() => new RangeError('The requested page offset is outside the supported range.'));
     }
+    const scope = Object.entries(scopeParams).map(([key, value]) => `${key}=${value}`).join('&');
     const cacheKey = `${scope}:${pageSize}:${offset}`;
     const cachedRequest = this.pageRequests.get(cacheKey);
     if (cachedRequest) {

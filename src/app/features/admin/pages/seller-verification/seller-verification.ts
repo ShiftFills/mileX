@@ -10,7 +10,9 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
-import { EMPTY, catchError, defer, distinctUntilChanged, filter, switchMap, tap } from 'rxjs';
+import {
+  EMPTY, Observable, catchError, defer, distinctUntilChanged, filter, forkJoin, map, of, shareReplay, switchMap, tap,
+} from 'rxjs';
 import { LoadingSpinner } from '@shared/components/loading-spinner/loading-spinner';
 import { Badge, BadgeTone } from '@shared/components/badge/badge';
 import { Button } from '@shared/components/button/button';
@@ -49,6 +51,7 @@ import {
   REQUIRED_SELLER_DOCUMENT_TYPES,
   SellerSummary,
   DateFilterOption,
+  SellerVerificationDetails,
   SellerVerificationRecord,
   SellerVerificationService,
   SellerVerificationStatus,
@@ -57,6 +60,54 @@ import {
 
 type SellerRow = SellerVerificationRecord;
 type SellerDocument = SellerRow['documents'][number];
+
+// CHANGED (new): Seller Details dialog helpers.
+/** One label/value pair in a Seller Details section. */
+interface DetailField {
+  label: string;
+  value: string;
+}
+
+/** Names for the lookup IDs a seller record may carry instead of names. */
+interface LookupNames {
+  state: string;
+  country: string;
+  accountType: string;
+}
+
+const NO_LOOKUP_NAMES: LookupNames = { state: '', country: '', accountType: '' };
+const LOOKUP_ID = /^\d+$/;
+
+/** The fields that have a value (empty values and the '—' placeholder are not shown). */
+function visibleFields(fields: readonly (readonly [string, string | undefined])[]): DetailField[] {
+  return fields
+    .map(([label, value]) => ({ label, value: value?.trim() ?? '' }))
+    .filter((field) => field.value !== '' && field.value !== '—');
+}
+
+/** The value itself when it is a name, else the name of the option with that ID ('' when unknown). */
+function lookupName(value: string, options: readonly SellerLookupOption[]): string {
+  if (!LOOKUP_ID.test(value)) return value;
+  return options.find((option) => option.id === value)?.name ?? '';
+}
+
+/** A status sent as text (e.g. DOCUMENT_STATUS), shown with the tone of the matching verification status. */
+function statusDisplay(raw: string): { label: string; tone: BadgeTone } {
+  const value = raw.trim().toUpperCase();
+  const tone: BadgeTone =
+    ['APPROVED', 'ACCEPTED', 'VERIFIED', 'ACTIVE'].includes(value) ? 'success'
+      : value === 'REJECTED' ? 'danger'
+        : value === 'PENDING' ? 'warning'
+          : 'neutral';
+  const label = value.charAt(0) + value.slice(1).toLowerCase().replace(/_/g, ' ');
+  return { label, tone };
+}
+
+/** The account number with all but its last four digits hidden. */
+function maskAccountNumber(accountNumber: string): string {
+  const visible = accountNumber.slice(-4);
+  return `${'•'.repeat(Math.max(4, Math.min(accountNumber.length - 4, 8)))}${accountNumber.length > 4 ? visible : ''}`;
+}
 
 interface SellerStat {
   key: keyof SellerSummary;
@@ -401,6 +452,21 @@ export class SellerVerification {
       )
       .subscribe();
 
+    // CHANGED (new): names for the loaded seller's state, country and account type (see resolveLookupNames).
+    toObservable(this.detailRecord)
+      .pipe(
+        map((record) => record?.details),
+        distinctUntilChanged(
+          (previous, current) =>
+            previous?.state === current?.state &&
+            previous?.country === current?.country &&
+            previous?.accountType === current?.accountType,
+        ),
+        switchMap((details) => (details ? this.resolveLookupNames(details) : of(NO_LOOKUP_NAMES))),
+        takeUntilDestroyed(),
+      )
+      .subscribe((names) => this.lookupNames.set(names));
+
     toObservable(this.pageRequest)
       .pipe(
         filter((request) => request.ready),
@@ -551,6 +617,138 @@ export class SellerVerification {
     const details = this.detailRecord();
     return details?.id === this.activeSellerId() ? details : selected;
   });
+
+  // CHANGED (new): Seller Details dialog sections. Only fields with a value are shown.
+  /** Names for state, country and account type when the record has only their IDs. */
+  private readonly lookupNames = signal<LookupNames>(NO_LOOKUP_NAMES);
+  /** Bank Details: the account number is masked until the Admin reveals it. */
+  protected readonly accountNumberVisible = signal(false);
+  private readonly countries$ = defer(() => this.sellerOnboardingService.getCountries()).pipe(
+    shareReplay({ bufferSize: 1, refCount: false }),
+  );
+  private readonly accountTypes$ = defer(() => this.sellerOnboardingService.getBankAccountTypes()).pipe(
+    shareReplay({ bufferSize: 1, refCount: false }),
+  );
+  private readonly statesByCountry = new Map<string, Observable<SellerLookupOption[]>>();
+
+  protected readonly businessDetails = computed<DetailField[]>(() => {
+    const seller = this.activeSeller();
+    if (!seller) return [];
+    const details = seller.details;
+    // The business type list is already loaded for the page's Business Type filter.
+    const businessType = details?.businessType ?? seller.businessType;
+    return visibleFields([
+      ['Business Name', seller.businessName],
+      ['Seller Name', seller.sellerName],
+      ['Business Type', lookupName(businessType, this.businessTypes())],
+      ['Email', seller.email],
+      ['Mobile Number', seller.mobile],
+      ['Business Address', details?.businessAddress],
+      ['City', details?.city],
+      ['State', this.lookupNames().state],
+      ['Country', this.lookupNames().country],
+      ['Pincode', details?.pincode],
+      ['GST Number', seller.gstNumber],
+      ['PAN Number', seller.panNumber],
+      ['Business Registration Number', details?.registrationNumber],
+    ]);
+  });
+
+  protected readonly contactDetails = computed<DetailField[]>(() => {
+    const details = this.activeSeller()?.details;
+    return visibleFields([
+      ['Contact Person Name', details?.contactPersonName],
+      ['Contact Person Mobile', details?.contactPersonMobile],
+      ['Contact Person Email', details?.contactPersonEmail],
+    ]);
+  });
+
+  protected readonly bankDetails = computed<DetailField[]>(() => {
+    const details = this.activeSeller()?.details;
+    return visibleFields([
+      ['Account Holder Name', details?.accountHolderName],
+      ['Bank Name', details?.bankName],
+      ['Branch Name', details?.branchName],
+      ['Account Number', details?.accountNumber],
+      ['IFSC Code', details?.ifscCode],
+      ['Account Type', this.lookupNames().accountType],
+    ]);
+  });
+
+  /** The Account Number as shown: masked unless revealed. */
+  protected readonly displayedAccountNumber = computed(() => {
+    const accountNumber = this.activeSeller()?.details?.accountNumber ?? '';
+    return this.accountNumberVisible() ? accountNumber : maskAccountNumber(accountNumber);
+  });
+
+  /** Documents listed in the dialog: every required document, and optional ones only when submitted. */
+  protected readonly visibleDocuments = computed(
+    () => this.activeSeller()?.documents.filter((document) => document.required !== false || !!document.url) ?? [],
+  );
+
+  /** Overall Verification Status: Document Status, remarks and rejection reason only when the API sends them. */
+  protected readonly overallStatus = computed(() => {
+    const seller = this.activeSeller();
+    if (!seller) return null;
+    const remarks = seller.remarks.trim();
+    const rejectionReason = seller.details?.rejectionReason ?? '';
+    const documentStatus = seller.details?.documentStatus ?? '';
+    return {
+      documentStatus: documentStatus ? statusDisplay(documentStatus) : null,
+      remarks,
+      // Not repeated when it is the same text as the verification remarks.
+      rejectionReason: rejectionReason && rejectionReason !== remarks ? rejectionReason : '',
+    };
+  });
+
+  protected toggleAccountNumber(): void {
+    this.accountNumberVisible.update((visible) => !visible);
+  }
+
+  /**
+   * Names for a record's state, country and account type. The record's own text is used when it has names;
+   * only an ID is looked up (countries and account types once per page, states once per country). A lookup
+   * that fails leaves that field hidden and is tried again for the next seller.
+   */
+  private resolveLookupNames(details: SellerVerificationDetails): Observable<LookupNames> {
+    const needsCountries = LOOKUP_ID.test(details.country) || LOOKUP_ID.test(details.state);
+    const countries$ = needsCountries ? this.countries$.pipe(catchError(() => of([]))) : of([]);
+    const accountTypes$ = LOOKUP_ID.test(details.accountType)
+      ? this.accountTypes$.pipe(catchError(() => of([])))
+      : of([]);
+    return forkJoin([countries$, accountTypes$]).pipe(
+      switchMap(([countries, accountTypes]) => {
+        const countryId = LOOKUP_ID.test(details.country)
+          ? details.country
+          : (countries.find((option) => option.name.toLowerCase() === details.country.toLowerCase())?.id ?? '');
+        const states$ = LOOKUP_ID.test(details.state) && countryId
+          ? this.statesFor(countryId).pipe(catchError(() => of([])))
+          : of([]);
+        return states$.pipe(
+          map((states) => ({
+            state: lookupName(details.state, states),
+            country: lookupName(details.country, countries),
+            accountType: lookupName(details.accountType, accountTypes),
+          })),
+        );
+      }),
+    );
+  }
+
+  private statesFor(countryId: string): Observable<SellerLookupOption[]> {
+    let states = this.statesByCountry.get(countryId);
+    if (!states) {
+      states = this.sellerOnboardingService.getStates(countryId).pipe(
+        catchError((error: unknown) => {
+          this.statesByCountry.delete(countryId);
+          throw error;
+        }),
+        shareReplay({ bufferSize: 1, refCount: false }),
+      );
+      this.statesByCountry.set(countryId, states);
+    }
+    return states;
+  }
   protected readonly rejectedMandatoryDocuments = computed(
     () =>
       this.activeSeller()?.documents.filter(
@@ -653,6 +851,8 @@ export class SellerVerification {
 
   protected openDetails(seller: SellerRow): void {
     this.activeSellerId.set(seller.id);
+    // CHANGED (new): the account number starts masked for every seller.
+    this.accountNumberVisible.set(false);
     this.documentRejectionOpen.set(false);
     this.pendingDecision.set(null);
     this.decisionScope.set(null);
@@ -663,6 +863,7 @@ export class SellerVerification {
 
   protected closeDetails(): void {
     this.activeSellerId.set(null);
+    this.accountNumberVisible.set(false);
     this.detailRecord.set(null);
     this.refreshListingAfterDetailFor.set(null);
     this.detailStatus.set('idle');

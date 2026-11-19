@@ -1,7 +1,12 @@
-import type { WritableSignal } from '@angular/core';
-import { ActivatedRoute, Router } from '@angular/router';
+import { NO_ERRORS_SCHEMA, type WritableSignal } from '@angular/core';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { TestBed } from '@angular/core/testing';
+import { ActivatedRoute, Router, provideRouter } from '@angular/router';
 import { Observable, of, throwError } from 'rxjs';
+import { AuthService } from '@core/services/auth.service';
 import { ToastService } from '@core/services/toast.service';
+import { Home } from '@features/home/pages/home/home';
 import { SellerOnboarding } from './seller-onboarding';
 import {
   SellerOnboardingPayload,
@@ -10,6 +15,12 @@ import {
   SellerBankDetailsResult,
   SellerOnboardingService,
 } from '../../services/seller-onboarding.service';
+
+// CHANGED (new): the bank_account_type/get options as SellerOnboardingService maps them.
+const ACCOUNT_TYPES = [
+  { id: '1', name: 'Savings Account' },
+  { id: '2', name: 'Current Account' },
+];
 
 type ValidationHarness = {
   activeStep: WritableSignal<number>;
@@ -21,10 +32,14 @@ type ValidationHarness = {
   submitted: WritableSignal<boolean>;
   businessTypes: WritableSignal<{ label: string; value: string }[]>;
   states: WritableSignal<{ label: string; value: string }[]>;
+  // CHANGED: account types are an API lookup; bankFields is a computed.
+  accountTypes: WritableSignal<{ label: string; value: string }[]>;
   lookupStatus: WritableSignal<
-    Record<'businessType' | 'country' | 'state', 'loading' | 'success' | 'error'>
+    Record<'businessType' | 'country' | 'state' | 'accountType', 'loading' | 'success' | 'error'>
   >;
-  bankFields: { name: string }[];
+  bankFields: () => { name: string; options?: readonly { label: string; value: string }[] }[];
+  loadLookup: (name: 'businessType' | 'country' | 'state' | 'accountType') => void;
+  lookupPlaceholder: (fieldName: string, fallback: string) => string;
   errorFor: (name: string) => string | null;
   markTouched: (name: string) => void;
   documentFileNameFor: (name: string) => string;
@@ -57,8 +72,18 @@ describe('SellerOnboarding validation', () => {
   let stateCountryIds: string[];
   let deferStateLookup: boolean;
   let stateLookupUnsubscribed: boolean;
+  // CHANGED (new): Account Type lookup calls and the bank insert payloads sent.
+  let accountTypeRequests: number;
+  let accountTypesResult: Observable<{ id: string; name: string }[]>;
+  let bankInsertPayloads: unknown[];
+  // CHANGED (new): the applicantUserId each update API received.
+  let updateApplicantIds: (number | undefined)[];
 
   beforeEach(() => {
+    accountTypeRequests = 0;
+    accountTypesResult = of(ACCOUNT_TYPES);
+    bankInsertPayloads = [];
+    updateApplicantIds = [];
     submittedPayloads = [];
     submissionResult = of({ sellerId: 42, userId: 2 });
     documentResult = of({ documentId: 17, message: 'Seller documents uploaded successfully.' });
@@ -93,6 +118,10 @@ describe('SellerOnboarding validation', () => {
           { id: '2', name: 'Tamil Nadu' },
         ]);
       },
+      getBankAccountTypes: () => {
+        accountTypeRequests += 1;
+        return accountTypesResult;
+      },
       getErrorMessage: (error: unknown) =>
         error instanceof Error ? error.message : 'Request failed',
       submitWithResult: (payload: SellerOnboardingPayload) => {
@@ -105,22 +134,26 @@ describe('SellerOnboarding validation', () => {
         apiCallOrder.push('documents');
         return documentResult;
       },
-      saveBankDetails: (_details: unknown, _sellerId: number) => {
+      saveBankDetails: (details: unknown, _sellerId: number) => {
+        bankInsertPayloads.push(details);
         apiCallOrder.push('bank');
         return bankResult;
       },
-      updateSeller: (payload: unknown) => {
+      updateSeller: (payload: unknown, applicantUserId?: number) => {
         updatePayloads.seller = payload;
+        updateApplicantIds.push(applicantUserId);
         apiCallOrder.push('update-seller');
         return of('Seller updated');
       },
-      updateDocuments: (payload: unknown) => {
+      updateDocuments: (payload: unknown, applicantUserId?: number) => {
         updatePayloads.documents = payload;
+        updateApplicantIds.push(applicantUserId);
         apiCallOrder.push('update-documents');
         return of('Documents updated');
       },
-      updateBankDetails: (payload: unknown) => {
+      updateBankDetails: (payload: unknown, applicantUserId?: number) => {
         updatePayloads.bank = payload;
+        updateApplicantIds.push(applicantUserId);
         apiCallOrder.push('update-bank');
         return of('Bank details updated');
       },
@@ -306,12 +339,15 @@ describe('SellerOnboarding validation', () => {
           BRANCH_NAME: 'Central',
           ACCOUNT_NUMBER: '123456789',
           IFSC_CODE: 'ABCD0123456',
-          ACCOUNT_TYPE: 1,
+          // CHANGED: a saved Current Account, so the preselected ID differs from the first option.
+          ACCOUNT_TYPE_ID: 2,
+          ACCOUNT_TYPE: 'Current Account',
         });
       },
       getBusinessTypes: () => of([{ id: '5', name: 'Retail Business' }]),
       getCountries: () => of([{ id: '1', name: 'India' }]),
       getStates: () => of([{ id: '33', name: 'Tamil Nadu' }]),
+      getBankAccountTypes: () => of(ACCOUNT_TYPES),
       updateSeller: (payload: unknown) => {
         updatedSeller.push(payload);
         apiOrder.push('seller');
@@ -358,8 +394,11 @@ describe('SellerOnboarding validation', () => {
       state: '33',
       gstCertificate: 'gst.pdf',
       bankName: 'Example Bank',
+      accountType: '2',
     });
     expect(edit.displayValueFor('businessType', edit.businessTypes())).toBe('Retail Business');
+    expect(edit.displayValueFor('accountType', edit.accountTypes())).toBe('Current Account');
+    expect(edit.lookupStatus().accountType).toBe('success');
     expect(relatedGetIds).toEqual([
       ['documents', 42, 7],
       ['bank', 42, 9],
@@ -384,8 +423,8 @@ describe('SellerOnboarding validation', () => {
     expect(updatedDocuments).toHaveLength(0);
 
     setInput('bankName', 'Updated Bank');
-    expect(edit.bankFields.map((field) => [field.name, edit.errorFor(field.name)])).toEqual(
-      edit.bankFields.map((field) => [field.name, null]),
+    expect(edit.bankFields().map((field) => [field.name, edit.errorFor(field.name)])).toEqual(
+      edit.bankFields().map((field) => [field.name, null]),
     );
     edit.continue();
     expect(edit.activeStep()).toBe(4);
@@ -416,6 +455,8 @@ describe('SellerOnboarding validation', () => {
       BANK_DETAIL_ID: 9,
       SELLER_ID: 42,
       BANK_NAME: 'Updated Bank',
+      // CHANGED: the preselected ACCOUNT_TYPE_ID is sent back unchanged.
+      ACCOUNT_TYPE: 2,
     });
     expect(apiOrder).toEqual(['seller', 'documents', 'bank']);
     expect(toast.showSuccess).toHaveBeenCalledTimes(1);
@@ -425,6 +466,8 @@ describe('SellerOnboarding validation', () => {
   it('updates all existing records even when their details are unchanged', () => {
     const apiOrder: string[] = [];
     let updatePayload: unknown;
+    let bankUpdatePayload: unknown;
+    let bankApplicantUserId: number | undefined = -1;
     const service = {
       getSeller: () =>
         of({
@@ -475,6 +518,7 @@ describe('SellerOnboarding validation', () => {
       getBusinessTypes: () => of([{ id: '5', name: 'Retail Business' }]),
       getCountries: () => of([{ id: '1', name: 'India' }]),
       getStates: () => of([{ id: '33', name: 'Tamil Nadu' }]),
+      getBankAccountTypes: () => of(ACCOUNT_TYPES),
       updateSeller: (payload: unknown) => {
         apiOrder.push('seller');
         updatePayload = payload;
@@ -484,8 +528,10 @@ describe('SellerOnboarding validation', () => {
         apiOrder.push('documents');
         return of('Documents updated');
       },
-      updateBankDetails: () => {
+      updateBankDetails: (payload: unknown, applicantUserId?: number) => {
         apiOrder.push('bank');
+        bankUpdatePayload = payload;
+        bankApplicantUserId = applicantUserId;
         return of('Bank updated');
       },
       getErrorMessage: () => 'Update failed',
@@ -510,6 +556,10 @@ describe('SellerOnboarding validation', () => {
 
     expect(apiOrder).toEqual(['seller', 'documents', 'bank']);
     expect(updatePayload).toMatchObject({ USER_PASSWORD: 'Existing@123' });
+    // CHANGED: a record that stores the ID as ACCOUNT_TYPE (no ACCOUNT_TYPE_ID) is preselected too.
+    expect(bankUpdatePayload).toMatchObject({ BANK_DETAIL_ID: 9, ACCOUNT_TYPE: 1 });
+    // CHANGED: editing an existing seller (?sellerId=) never falls back to the seller's USER_ID.
+    expect(bankApplicantUserId).toBeUndefined();
     expect(edit.submitted()).toBe(true);
     expect(toast.showSuccess).toHaveBeenCalledTimes(1);
     expect(toast.showError).not.toHaveBeenCalled();
@@ -567,6 +617,7 @@ describe('SellerOnboarding validation', () => {
       getBusinessTypes: () => of([{ id: '5', name: 'Retail Business' }]),
       getCountries: () => of([{ id: '1', name: 'India' }]),
       getStates: () => of([{ id: '33', name: 'Tamil Nadu' }]),
+      getBankAccountTypes: () => of(ACCOUNT_TYPES),
       updateSeller: () => {
         apiOrder.push('seller');
         return of('Seller updated');
@@ -622,6 +673,7 @@ describe('SellerOnboarding validation', () => {
       getBusinessTypes: () => of([{ id: '5', name: 'Retail Business' }]),
       getCountries: () => of([{ id: '1', name: 'India' }]),
       getStates: () => of([{ id: '33', name: 'Tamil Nadu' }]),
+      getBankAccountTypes: () => of(ACCOUNT_TYPES),
       updateSeller,
       updateDocuments,
       updateBankDetails,
@@ -794,9 +846,55 @@ describe('SellerOnboarding validation', () => {
     expect(component.errorFor('country')).toBeNull();
     expect(component.errorFor('state')).toBeNull();
 
+    // CHANGED: account type values are API ACCOUNT_TYPE_IDs.
     component.activeStep.set(3);
-    component.values.set({ accountType: 'current' });
+    component.values.set({ accountType: '2' });
     expect(component.errorFor('accountType')).toBeNull();
+    component.values.set({ accountType: '9' });
+    expect(component.errorFor('accountType')).toBe('Please select a valid option.');
+    component.values.set({ accountType: 'current' });
+    expect(component.errorFor('accountType')).toBe('Please select a valid option.');
+  });
+
+  // CHANGED (new): the Account Type dropdown is populated from bank_account_type/get.
+  it('loads the account types once and offers ACCOUNT_TYPE as label and ACCOUNT_TYPE_ID as value', () => {
+    expect(accountTypeRequests).toBe(1);
+    expect(component.lookupStatus().accountType).toBe('success');
+    expect(component.bankFields().find(({ name }) => name === 'accountType')?.options).toEqual([
+      { label: 'Savings Account', value: '1' },
+      { label: 'Current Account', value: '2' },
+    ]);
+    expect(component.isLookupDisabled('accountType')).toBe(false);
+    expect(component.lookupPlaceholder('accountType', 'Select account type')).toBe('Select account type');
+  });
+
+  it('shows the account type loading and error states and loads them again on retry', () => {
+    let finish: (() => void) | undefined;
+    accountTypesResult = new Observable((subscriber) => {
+      finish = () => {
+        subscriber.next(ACCOUNT_TYPES);
+        subscriber.complete();
+      };
+    });
+    component.loadLookup('accountType');
+    expect(component.isLookupDisabled('accountType')).toBe(true);
+    expect(component.lookupPlaceholder('accountType', 'Select account type')).toBe('Loading options…');
+    finish?.();
+    expect(component.isLookupDisabled('accountType')).toBe(false);
+
+    accountTypesResult = throwError(() => new Error('Bank account types are unavailable'));
+    component.loadLookup('accountType');
+    expect(component.lookupStatus().accountType).toBe('error');
+    expect(component.isLookupDisabled('accountType')).toBe(true);
+    expect(component.lookupPlaceholder('accountType', 'Select account type')).toBe('Options unavailable');
+    expect(component.lookupErrorFor('accountType')).toBe('Bank account types are unavailable');
+
+    // "Retry options" calls loadLookup again.
+    accountTypesResult = of(ACCOUNT_TYPES);
+    component.loadLookup('accountType');
+    expect(component.lookupStatus().accountType).toBe('success');
+    expect(component.lookupErrorFor('accountType')).toBeNull();
+    expect(component.accountTypes()).toHaveLength(2);
   });
 
   it('loads states using the selected country ID and clears state on country changes', () => {
@@ -917,10 +1015,10 @@ describe('SellerOnboarding validation', () => {
 
   it('requires one confirmation field and reports then clears a mismatch', () => {
     component.activeStep.set(3);
-    expect(component.bankFields.filter(({ name }) => name === 'confirmAccountNumber')).toHaveLength(
+    expect(component.bankFields().filter(({ name }) => name === 'confirmAccountNumber')).toHaveLength(
       1,
     );
-    expect(component.bankFields.some(({ name }) => name === 'confirmAccountNumberAgain')).toBe(
+    expect(component.bankFields().some(({ name }) => name === 'confirmAccountNumberAgain')).toBe(
       false,
     );
 
@@ -964,7 +1062,7 @@ describe('SellerOnboarding validation', () => {
       branchName: 'Central',
       accountNumber: '123456789',
       confirmAccountNumber: '123456780',
-      accountType: 'current',
+      accountType: '2',
     });
     component.continue();
 
@@ -1006,7 +1104,7 @@ describe('SellerOnboarding validation', () => {
       ifscCode: 'ABCD0123456',
       accountNumber: '123456789',
       confirmAccountNumber: '123456789',
-      accountType: 'current',
+      accountType: '2',
     });
     const gstCertificate = new File(['certificate'], 'gst.pdf', { type: 'application/pdf' });
     component.uploadedDocuments.set({ gstCertificate });
@@ -1063,7 +1161,7 @@ describe('SellerOnboarding validation', () => {
       ifscCode: 'ABCD0123456',
       accountNumber: '123456789',
       confirmAccountNumber: '123456789',
-      accountType: 'current',
+      accountType: '2',
     });
 
     const gstCertificate = new File(['certificate'], 'gst.pdf', { type: 'application/pdf' });
@@ -1099,6 +1197,18 @@ describe('SellerOnboarding validation', () => {
         // CHANGED: CREATED_BY removed from the seller_onboarding/insert payload.
       },
     ]);
+    // CHANGED: the bank insert sends the selected ACCOUNT_TYPE_ID (Current Account = 2).
+    expect(bankInsertPayloads).toEqual([
+      {
+        ACCOUNT_HOLDER_NAME: 'Arun Kumar',
+        BANK_NAME: 'Example Bank',
+        BRANCH_NAME: 'Chennai',
+        ACCOUNT_NUMBER: '123456789',
+        CONFIRM_ACCOUNT_NUMBER: '123456789',
+        IFSC_CODE: 'ABCD0123456',
+        ACCOUNT_TYPE: 2,
+      },
+    ]);
     expect(apiCallOrder).toEqual(['onboarding', 'documents', 'bank']);
     expect(documentUploadCalls).toEqual([
       { files: { gstCertificate }, sellerId: 42 },
@@ -1115,7 +1225,7 @@ describe('SellerOnboarding validation', () => {
       accountNumber: '123456789',
       confirmAccountNumber: '123456789',
       ifscCode: 'ABCD0123456',
-      accountType: 'current',
+      accountType: '2',
     }));
 
     component.continue();
@@ -1131,6 +1241,10 @@ describe('SellerOnboarding validation', () => {
     component.continue();
     expect(apiCallOrder).toEqual(['onboarding', 'documents', 'bank']);
     expect(component.activeStep()).toBe(4);
+    // CHANGED (new): the selection survives moving between steps, and the options are not fetched again.
+    expect(component.values()['accountType']).toBe('2');
+    expect(component.displayValueFor('accountType', component.accountTypes())).toBe('Current Account');
+    expect(accountTypeRequests).toBe(1);
 
     component.continue();
     expect(apiCallOrder).toEqual([
@@ -1143,7 +1257,10 @@ describe('SellerOnboarding validation', () => {
     ]);
     expect(updatePayloads.seller).toMatchObject({ SELLER_ID: 42, USER_ID: 2 });
     expect(updatePayloads.documents).toMatchObject({ DOCUMENT_ID: 17, SELLER_ID: 42 });
-    expect(updatePayloads.bank).toMatchObject({ BANK_DETAIL_ID: 24, SELLER_ID: 42 });
+    expect(updatePayloads.bank).toMatchObject({ BANK_DETAIL_ID: 24, SELLER_ID: 42, ACCOUNT_TYPE: 2 });
+    expect(bankInsertPayloads).toMatchObject([{ ACCOUNT_TYPE: 2 }]);
+    // CHANGED: the guest applicant's own USER_ID (from the onboarding insert) goes to every update.
+    expect(updateApplicantIds).toEqual([2, 2, 2]);
     expect(component.submitted()).toBe(true);
   });
 
@@ -1181,7 +1298,7 @@ describe('SellerOnboarding validation', () => {
       ifscCode: 'ABCD0123456',
       accountNumber: '123456789',
       confirmAccountNumber: '123456789',
-      accountType: 'current',
+      accountType: '2',
     });
     bankResult = throwError(() => new Error('Bank service unavailable'));
 
@@ -1290,5 +1407,171 @@ describe('SellerOnboarding validation', () => {
       expect(component.previewDocument()).toBeNull();
       expect(component.activeStep()).toBe(1);
     });
+  });
+});
+
+// CHANGED (new): the reported issue. A guest on /sell edits Account Type from Review and submits updates.
+describe('SellerOnboarding Account Type for a guest applicant (real service, no session)', () => {
+  let http: HttpTestingController;
+  let page: ValidationHarness;
+  let toasts: { type: 'success' | 'error'; message: string }[];
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+    http = TestBed.inject(HttpTestingController);
+    TestBed.inject(AuthService).clearSession();
+    toasts = [];
+    const toast = {
+      showSuccess: (message: string) => toasts.push({ type: 'success', message }),
+      showError: (message: string) => toasts.push({ type: 'error', message }),
+    } as unknown as ToastService;
+    page = new SellerOnboarding(
+      { navigateByUrl: vi.fn() } as unknown as Router,
+      TestBed.inject(SellerOnboardingService),
+      toast,
+    ) as unknown as ValidationHarness;
+
+    http.expectOne((req) => req.url.endsWith('/business_type/get')).flush({
+      STATUS: 'SUCCESS', DATA: [{ BUSINESS_TYPE_ID: 1, BUSINESS_TYPE_NAME: 'Individual Business' }],
+    });
+    http.expectOne((req) => req.url.endsWith('/country/get')).flush({
+      STATUS: 'SUCCESS', DATA: [{ COUNTRY_ID: 1, COUNTRY_NAME: 'India' }],
+    });
+    http.expectOne('/api/bank_account_type/get/-1?limit=3&offset=0').flush({
+      STATUS: 'SUCCESS',
+      MESSAGE: 'Bank account types retrieved successfully',
+      DATA: [
+        { ACCOUNT_TYPE_ID: 1, ACCOUNT_TYPE: 'Savings Account' },
+        { ACCOUNT_TYPE_ID: 2, ACCOUNT_TYPE: 'Current Account' },
+      ],
+    });
+  });
+
+  afterEach(() => http.verify());
+
+  function select(value: string): Event {
+    const element = document.createElement('select');
+    const option = document.createElement('option');
+    option.value = value;
+    element.append(option);
+    element.value = value;
+    return { target: element } as unknown as Event;
+  }
+
+  it('inserts the selected ID, then sends the type changed from Review in the bank update', () => {
+    page.updateValue('country', select('1'));
+    http.expectOne((req) => req.url.endsWith('/state/get')).flush({
+      STATUS: 'SUCCESS', DATA: [{ STATE_ID: 23, STATE_NAME: 'Tamil Nadu' }],
+    });
+    page.values.update((current) => ({
+      ...current,
+      businessName: 'Crestline Industrial Tools', businessType: '1', mobileNumber: '9876543211',
+      city: 'Chennai', gstNumber: '33AAHFG9837H2Z4', registrationNumber: 'REG1001',
+      contactEmail: 'naveen.contact@example.com', sellerName: 'Naveen Prakash', email: 'naveen@example.com',
+      businessAddress: 'Ambattur Industrial Estate', state: '23', pincode: '600058', panNumber: 'AAHFG9837H',
+      contactPersonName: 'Naveen Prakash', contactPersonMobile: '9876543211', userName: 'naveen_seller',
+      userPassword: 'Seller@123', gstCertificate: 'gst.png', panCard: 'pan.png',
+      registrationCertificate: 'registration.png', addressProof: 'address.png', ownerIdProof: 'id.png',
+      bankProof: 'bank.png', accountHolder: 'Naveen Prakash', bankName: 'Bank of Baroda',
+      branchName: 'Ambattur Industrial Estate Branch', ifscCode: 'BARB0AMBATT',
+      accountNumber: '123456787023', confirmAccountNumber: '123456787023',
+    }));
+    page.updateValue('accountType', select('2'));
+
+    // Steps 1-3: the three INSERT APIs (no session needed).
+    page.continue();
+    http.expectOne('/api/seller_onboarding/insert').flush({ STATUS: 'SUCCESS', SELLER_ID: 42, USER_ID: 2 });
+    page.continue();
+    http.expectOne('/api/seller_docs/insert').flush({ STATUS: 'SUCCESS', DOCUMENT_ID: 17 });
+    page.continue();
+    const bankInsert = http.expectOne('/api/seller_bank_details/insert');
+    expect(bankInsert.request.body).toMatchObject({ ACCOUNT_TYPE: 2, SELLER_ID: 42 });
+    bankInsert.flush({ STATUS: 'SUCCESS', BANK_DETAIL_ID: 24 });
+    expect(page.activeStep()).toBe(4);
+
+    // Review → Edit Bank Details → Savings Account → Continue: no second insert.
+    page.goToStep(3);
+    page.updateValue('accountType', select('1'));
+    page.continue();
+    expect(page.activeStep()).toBe(4);
+    expect(page.displayValueFor('accountType', page.accountTypes())).toBe('Savings Account');
+    http.expectNone((req) => req.url.endsWith('/insert'));
+
+    // Submit Updates: previously rejected with "A valid authenticated user ID is required to update seller details."
+    page.continue();
+    const sellerUpdate = http.expectOne('/api/seller_onboarding/update');
+    expect(sellerUpdate.request.body).toMatchObject({ SELLER_ID: 42, USER_ID: 2, UPDATED_BY: 2 });
+    sellerUpdate.flush({ STATUS: 'SUCCESS' });
+    const documentsUpdate = http.expectOne('/api/seller_docs/update');
+    expect(documentsUpdate.request.body).toMatchObject({ DOCUMENT_ID: 17, SELLER_ID: 42, UPDATED_BY: 2 });
+    documentsUpdate.flush({ STATUS: 'SUCCESS' });
+    const bankUpdate = http.expectOne('/api/seller_bank_details/update');
+    expect(bankUpdate.request.body).toMatchObject({
+      BANK_DETAIL_ID: 24, SELLER_ID: 42, ACCOUNT_TYPE: 1, UPDATED_BY: 2,
+    });
+    bankUpdate.flush({ STATUS: 'SUCCESS' });
+
+    expect(page.submitted()).toBe(true);
+    expect(toasts.filter(({ type }) => type === 'error')).toEqual([]);
+    expect(toasts.at(-1)).toEqual({
+      type: 'success',
+      message: 'Seller, documents, and bank details were updated successfully.',
+    });
+  });
+});
+
+// CHANGED (new): the rendered dropdown: options, preselection, change event and keeping the value between steps.
+describe('SellerOnboarding Account Type dropdown (rendered)', () => {
+  it('shows the selected type, stores the chosen ACCOUNT_TYPE_ID and keeps it between steps', () => {
+    TestBed.configureTestingModule({
+      imports: [SellerOnboarding],
+      providers: [
+        provideRouter([]),
+        {
+          provide: SellerOnboardingService,
+          useValue: {
+            getBusinessTypes: () => of([]),
+            getCountries: () => of([]),
+            getBankAccountTypes: () => of(ACCOUNT_TYPES),
+            getErrorMessage: () => 'Request failed',
+          },
+        },
+        { provide: ToastService, useValue: { showSuccess: vi.fn(), showError: vi.fn() } },
+      ],
+    });
+    // The storefront background is irrelevant here.
+    TestBed.overrideComponent(SellerOnboarding, {
+      remove: { imports: [Home] },
+      add: { schemas: [NO_ERRORS_SCHEMA] },
+    });
+    const fixture = TestBed.createComponent(SellerOnboarding);
+    const view = fixture.componentInstance as unknown as ValidationHarness;
+    const accountTypeSelect = () =>
+      fixture.nativeElement.querySelector('#seller-accountType') as HTMLSelectElement;
+
+    view.values.set({ accountType: '2' });
+    view.activeStep.set(3);
+    fixture.detectChanges();
+    expect(Array.from(accountTypeSelect().options, (option) => [option.value, option.textContent?.trim()])).toEqual([
+      ['', 'Select account type'],
+      ['1', 'Savings Account'],
+      ['2', 'Current Account'],
+    ]);
+    expect(accountTypeSelect().disabled).toBe(false);
+    expect(accountTypeSelect().value).toBe('2');
+
+    accountTypeSelect().value = '1';
+    accountTypeSelect().dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    expect(view.values()['accountType']).toBe('1');
+
+    view.activeStep.set(4);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[aria-labelledby="seller-bank-review-title"]').textContent)
+      .toContain('Savings Account');
+
+    view.activeStep.set(3);
+    fixture.detectChanges();
+    expect(accountTypeSelect().value).toBe('1');
   });
 });

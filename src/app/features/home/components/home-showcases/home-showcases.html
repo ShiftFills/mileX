@@ -1,4 +1,4 @@
-@if (catalogStatus() === 'loading' || catalogStatus() === 'idle') {
+@if (catalogStatus() === 'loading') {
   <div class="product-state" role="status"><app-loading-spinner /> Loading products…</div>
 } @else if (catalogStatus() === 'error') {
   <app-alert tone="danger" role="alert">

@@ -9,7 +9,8 @@ import { ProductCatalogService } from '@core/services/product-catalog.service';
 import { Product } from '@shared/models';
 import { StorefrontHeader } from './storefront-header';
 
-const cartServiceStub = { provide: CartService, useValue: { count: () => 0 } };
+// CHANGED: the header badge reads badgeCount.
+const cartServiceStub = { provide: CartService, useValue: { count: () => 0, badgeCount: () => 0 } };
 const products = signal<Product[]>([]);
 const catalogStatus = signal<'idle' | 'loading' | 'success' | 'error'>('idle');
 const catalogError = signal<string | null>(null);
@@ -20,6 +21,9 @@ const categoryServiceStub = {
     status: catalogStatus.asReadonly(),
     error: catalogError.asReadonly(),
     load: () => undefined,
+    // CHANGED (new): the Home page (rendered by the auth navigation tests) loads its products and
+    // category shelves with loadListingPage.
+    loadListingPage: () => of({ items: [], page: 1, pageSize: 10, hasNext: false }),
     loadCategories: () => of([
       { id: '31', label: 'Housewares' },
       { id: '44', label: 'Outdoor' },

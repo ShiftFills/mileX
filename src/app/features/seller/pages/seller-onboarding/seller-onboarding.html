@@ -186,7 +186,7 @@
           <p>Bank and Account Details</p>
         </div>
         <div class="row g-3 seller-bank-grid">
-          @for (field of bankFields; track field.name) {
+          @for (field of bankFields(); track field.name) {
             <div class="col-12 col-md-6">
               <ng-container
                 [ngTemplateOutlet]="sellerFieldTemplate"
@@ -236,7 +236,7 @@
                 <div><dt>Branch Name</dt><dd>{{ valueFor('branchName') }}</dd></div>
                 <div><dt>IFSC Code</dt><dd>{{ valueFor('ifscCode').toUpperCase() }}</dd></div>
                 <div><dt>Account Number</dt><dd>{{ maskedAccountNumber() }}</dd></div>
-                <div><dt>Account Type</dt><dd>{{ displayValueFor('accountType', accountTypes) }}</dd></div>
+                <div><dt>Account Type</dt><dd>{{ displayValueFor('accountType', accountTypes()) }}</dd></div>
               </dl>
             </section>
           </div>

@@ -81,14 +81,22 @@ describe('roleMatchGuard', () => {
     expect(runGuard('ADMIN', 'returns')).toBe(true);
   });
 
-  // CHANGED: `/admin/returns` moved to the allowed list above; deeper return paths stay blocked.
+  // CHANGED (new): Sellers can open the Order Management screen.
+  it('allows a seller to open the order management screen', () => {
+    userType = 'SELLER';
+
+    expect(runGuard('ADMIN', '/admin/orders')).toBe(true);
+    expect(runGuard('ADMIN', 'orders')).toBe(true);
+  });
+
+  // CHANGED: `/admin/orders` and `/admin/returns` moved to the allowed lists above; deeper paths stay blocked.
   it('continues to block sellers from the other Admin routes', () => {
     userType = 'SELLER';
 
     for (const path of [
       '/admin',
       '/admin/dashboard',
-      '/admin/orders',
+      '/admin/orders/42',
       '/admin/returns/42',
       '/admin/sellers',
       '/admin/my-orders',

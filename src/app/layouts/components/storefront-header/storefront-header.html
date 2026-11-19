@@ -112,12 +112,13 @@
         <a
           class="store-header__cart-link"
           [routerLink]="routes.cart"
-          [attr.aria-label]="'Cart, ' + cart.count() + (cart.count() === 1 ? ' item' : ' items')"
+          [attr.aria-label]="'Cart, ' + cart.badgeCount() + (cart.badgeCount() === 1 ? ' item' : ' items')"
         >
+          <!-- CHANGED: badgeCount also counts saved rows before a page loads the catalog to restore them. -->
           <span class="store-header__cart-icon">
             <img src="/images/cart.svg" alt="" />
-            @if (cart.count()) {
-              <small>{{ cart.count() }}</small>
+            @if (cart.badgeCount()) {
+              <small>{{ cart.badgeCount() }}</small>
             }
           </span>
           <span class="store-header__cart-label">Cart</span>

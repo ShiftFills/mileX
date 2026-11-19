@@ -557,6 +557,8 @@ describe('OrderService', () => {
         customer: 'Ravi Kumar',
         mobile: '9876543210',
         productId: 3,
+        // CHANGED: PRODUCT_NAME is mapped when present; the Admin response has none.
+        productName: null,
         quantity: 2,
         amount: 1500,
         paymentStatusId: 1,
@@ -570,6 +572,7 @@ describe('OrderService', () => {
         customer: '—',
         mobile: '—',
         productId: null,
+        productName: null,
         quantity: null,
         amount: null,
         paymentStatusId: null,
@@ -630,6 +633,155 @@ describe('OrderService', () => {
       'ORDER_STATUS must be -1 or a positive safe integer.',
     );
     http.expectNone((request) => request.url.endsWith('/order_dashboard/get'));
+  });
+
+  // CHANGED (new): Seller login uses the same endpoint with SELLER_ID, SEARCH and paging.
+  describe('for a Seller', () => {
+    const sellerQuery = {
+      SELLER_ID: 24,
+      DAYS: 30,
+      SEARCH: '',
+      ORDER_STATUS: -1,
+      PAYMENT_STATUS: -1,
+      SHIPPING_STATUS: -1,
+      LIMIT: 10,
+      OFFSET: 0,
+    };
+    const sampleResponse = {
+      status: 'SUCCESS',
+      message: 'Order management dashboard fetched successfully',
+      dashboard: {
+        TOTAL_ORDERS: '2',
+        TOTAL_REVENUE: '0.00',
+        PENDING_ORDERS: '2',
+        SHIPPED_ORDERS: '0',
+        DELIVERED_ORDERS: '0',
+      },
+      total_records: 2,
+      data: [
+        {
+          ORDER_ID: 17,
+          ORDER_NUMBER: 'ORD0006',
+          ORDER_DATE: '2026-11-16T06:50:51.000Z',
+          SELLER_ID: 24,
+          CUSTOMER_ID: 1,
+          CUSTOMER_NAME: 'pooja sree',
+          PRODUCT_ID: 1,
+          PRODUCT_NAME: 'Head Settttt',
+          QUANTITY: 1,
+          ORDER_AMOUNT: '2000.00',
+          PAYMENT_STATUS: 1,
+          ORDER_STATUS: 1,
+          SHIPPING_STATUS: 1,
+        },
+      ],
+    };
+
+    it('sends SELLER_ID, DAYS, SEARCH, the status filters and paging, and maps dashboard + data', () => {
+      let result: unknown;
+      service
+        .getSellerManagementOrders({ ...sellerQuery, SEARCH: ' ORD0006 ', ORDER_STATUS: 2, OFFSET: 10 })
+        .subscribe((page) => (result = page));
+
+      const request = http.expectOne(
+        (candidate) => candidate.url === 'https://api.example.test/api/order_dashboard/get',
+      );
+      expect(request.request.method).toBe('GET');
+      expect(request.request.params.keys()).toEqual([
+        'SELLER_ID', 'DAYS', 'SEARCH', 'ORDER_STATUS', 'PAYMENT_STATUS', 'SHIPPING_STATUS', 'LIMIT', 'OFFSET',
+      ]);
+      expect(request.request.urlWithParams).toContain(
+        'SELLER_ID=24&DAYS=30&SEARCH=ORD0006&ORDER_STATUS=2&PAYMENT_STATUS=-1&SHIPPING_STATUS=-1&LIMIT=10&OFFSET=10',
+      );
+      request.flush(sampleResponse);
+
+      expect(result).toEqual({
+        totalRecords: 2,
+        counts: { totalOrders: 2, totalRevenue: 0, pendingOrders: 2, shippedOrders: 0, deliveredOrders: 0 },
+        orders: [
+          {
+            id: 17,
+            orderNo: 'ORD0006',
+            orderDate: '2026-11-16T06:50:51.000Z',
+            customer: 'pooja sree',
+            mobile: '—',
+            productId: 1,
+            productName: 'Head Settttt',
+            quantity: 1,
+            amount: 2000,
+            paymentStatusId: 1,
+            orderStatusId: 1,
+            shippingStatusId: 1,
+          },
+        ],
+      });
+    });
+
+    it('sends an empty SEARCH as in the documented request', () => {
+      service.getSellerManagementOrders(sellerQuery).subscribe();
+
+      const request = http.expectOne((candidate) => candidate.url.endsWith('/order_dashboard/get'));
+      expect(request.request.urlWithParams).toContain(
+        'SELLER_ID=24&DAYS=30&SEARCH=&ORDER_STATUS=-1&PAYMENT_STATUS=-1&SHIPPING_STATUS=-1&LIMIT=10&OFFSET=0',
+      );
+      request.flush(sampleResponse);
+    });
+
+    it('reads null dashboard totals as 0 when the seller has no orders in the range', () => {
+      let result: { totalRecords: number; counts: unknown; orders: unknown[] } | undefined;
+      service.getSellerManagementOrders(sellerQuery).subscribe((page) => (result = page));
+
+      http.expectOne((candidate) => candidate.url.endsWith('/order_dashboard/get')).flush({
+        status: 'SUCCESS',
+        dashboard: { TOTAL_ORDERS: 0, TOTAL_REVENUE: null, PENDING_ORDERS: null, SHIPPED_ORDERS: null, DELIVERED_ORDERS: null },
+        total_records: 0,
+        data: [],
+      });
+
+      expect(result).toEqual({
+        totalRecords: 0,
+        counts: { totalOrders: 0, totalRevenue: 0, pendingOrders: 0, shippedOrders: 0, deliveredOrders: 0 },
+        orders: [],
+      });
+    });
+
+    it('reports unsuccessful responses, a missing dashboard and an invalid total_records', () => {
+      const errors: unknown[] = [];
+      const capture = { error: (error: unknown) => errors.push(error) };
+      for (const body of [
+        { status: 'FAILED', message: 'Seller orders are unavailable.' },
+        { status: 'SUCCESS', total_records: 0, data: [] },
+        { ...sampleResponse, total_records: 'many' },
+      ]) {
+        service.getSellerManagementOrders(sellerQuery).subscribe(capture);
+        http.expectOne((candidate) => candidate.url.endsWith('/order_dashboard/get')).flush(body);
+      }
+
+      expect(errors).toEqual([
+        new Error('Seller orders are unavailable.'),
+        new Error('The order management API returned no usable dashboard data.'),
+        new Error('The order management API returned an invalid total_records value.'),
+      ]);
+    });
+
+    it('rejects an invalid SELLER_ID, filter or paging value before making a request', () => {
+      expect(() => service.getSellerManagementOrders({ ...sellerQuery, SELLER_ID: 0 })).toThrow(
+        'SELLER_ID must be a positive safe integer.',
+      );
+      expect(() => service.getSellerManagementOrders({ ...sellerQuery, DAYS: 0 })).toThrow(
+        'The order date filter must be a positive number of days.',
+      );
+      expect(() => service.getSellerManagementOrders({ ...sellerQuery, PAYMENT_STATUS: 0 })).toThrow(
+        'PAYMENT_STATUS must be -1 or a positive safe integer.',
+      );
+      expect(() => service.getSellerManagementOrders({ ...sellerQuery, LIMIT: 0 })).toThrow(
+        'Order page size must be a positive safe integer.',
+      );
+      expect(() => service.getSellerManagementOrders({ ...sellerQuery, OFFSET: -1 })).toThrow(
+        'Order page offset must be a non-negative safe integer.',
+      );
+      http.expectNone((request) => request.url.endsWith('/order_dashboard/get'));
+    });
   });
 
   it('loads order counts for the selected date range and maps the response', () => {

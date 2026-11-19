@@ -4,12 +4,13 @@ import { APP_ROUTES } from '../constants/app-routes';
 import { AuthService } from '../services/auth.service';
 
 /**
- * Admin-area pages a Seller may open: product management (list, add, edit, variants) and the
- * Return Request listing. Checked against the path without its leading `admin/`.
+ * Admin-area pages a Seller may open: product management (list, add, edit, variants), the
+ * Order Management screen and the Return Request listing. Checked against the path without its
+ * leading `admin/`.
  */
-// CHANGED: Sellers may open the product pages (list, add, edit, variants) and Return Request under /admin.
-// Everything else stays Admin-only.
-const SELLER_ADMIN_PATH = /^(products(\/(all|new|variants|[^/]+\/edit))?|returns)$/;
+// CHANGED: Sellers may open the product pages (list, add, edit, variants), Order Management and
+// Return Request under /admin. Everything else stays Admin-only.
+const SELLER_ADMIN_PATH = /^(products(\/(all|new|variants|[^/]+\/edit))?|orders|returns)$/;
 
 function defaultRouteFor(userType: string | undefined): string {
   switch (userType?.trim().toUpperCase()) {

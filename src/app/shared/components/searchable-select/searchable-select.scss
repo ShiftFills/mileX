@@ -32,6 +32,54 @@
   padding: 0.4rem 0.5rem;
 }
 
+// CHANGED (new): the Add Variant dialog's compact controls (same look as `:host(.product-control) select` in
+// select.scss). Long names are cut with an ellipsis and the list stays within about 40% of a short screen.
+:host(.product-control) {
+  font-size: 0.62rem;
+}
+
+:host(.product-control) .searchable-select__trigger {
+  min-height: 1.9rem;
+  height: 1.9rem;
+  padding: 0.25rem 0.65rem 0.25rem 0.6rem;
+  border-color: #e4eaf2;
+  border-radius: 0.38rem;
+
+  > span {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  svg {
+    width: 0.65rem;
+    height: 0.65rem;
+    color: var(--color-placeholder, #9ba8b9);
+  }
+}
+
+:host(.product-control) .searchable-select__placeholder {
+  color: var(--color-placeholder, #9ba8b9);
+}
+
+:host(.product-control) .searchable-select__search {
+  width: calc(100% - 0.7rem);
+  min-height: 1.75rem;
+  margin: 0.35rem;
+  padding: 0.3rem 0.45rem;
+}
+
+:host(.product-control) .searchable-select__option {
+  padding: 0.4rem 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+:host(.product-control) ul {
+  max-height: min(13rem, 40vh);
+}
+
 .searchable-select {
   position: relative;
   width: 100%;

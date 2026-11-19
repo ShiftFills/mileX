@@ -300,6 +300,113 @@ describe('SellerVerification', () => {
     expect(dialog.querySelectorAll('.seller-documents tbody tr').length).toBe(4);
   });
 
+  // CHANGED (new): the Seller Details sections.
+  describe('Seller Details sections', () => {
+    const details = (overrides: Record<string, string> = {}) => ({
+      businessType: '22', businessAddress: '12 Market Road', city: 'Chennai', state: 'Tamil Nadu', country: 'India',
+      pincode: '', registrationNumber: 'REG-778',
+      contactPersonName: 'Priya', contactPersonMobile: '9876500000', contactPersonEmail: 'priya@example.com',
+      accountHolderName: 'GreenMart Supplies', bankName: 'State Bank of India', branchName: 'T Nagar',
+      accountNumber: '123456789012', ifscCode: 'SBIN0001234', accountType: 'Savings',
+      documentStatus: '', rejectionReason: '',
+      ...overrides,
+    });
+    const textOf = (element: Element | null | undefined) => (element?.textContent ?? '').replace(/\s+/g, ' ').trim();
+    const headings = () => Array.from(root.querySelectorAll('.seller-dialog h3.seller-dialog__section'), textOf);
+    /** label -> value of every field shown in the dialog. */
+    const fields = () => Object.fromEntries(
+      Array.from(root.querySelectorAll('.seller-dialog .seller-info dt'), (dt) => [textOf(dt), textOf(dt.nextElementSibling)]),
+    );
+
+    function showSeller(sellerDetails: ReturnType<typeof details>, extra: Record<string, unknown> = {}): void {
+      vi.spyOn(TestBed.inject(SellerVerificationService), 'getSellerDetails')
+        .mockReturnValue(of({ ...sellers[0], remarks: 'Documents checked', details: sellerDetails, ...extra }));
+    }
+
+    it('groups the details into sections and shows only fields that have a value', async () => {
+      showSeller(details());
+      await openFirstSeller();
+
+      expect(headings()).toEqual([
+        'Business Details', 'Contact Person Details', 'Bank Details', 'Document Verification', 'Overall Verification Status',
+      ]);
+      expect(fields()).toMatchObject({
+        'Business Name': 'GreenMart Supplies', 'Seller Name': 'Seller 1',
+        // BUSINESS_TYPE 22 is named from the business type list the page already loads.
+        'Business Type': 'Partnership',
+        'Business Address': '12 Market Road', City: 'Chennai', State: 'Tamil Nadu', Country: 'India',
+        'Business Registration Number': 'REG-778',
+        'Contact Person Name': 'Priya', 'Contact Person Mobile': '9876500000', 'Contact Person Email': 'priya@example.com',
+        'Account Holder Name': 'GreenMart Supplies', 'Bank Name': 'State Bank of India', 'IFSC Code': 'SBIN0001234',
+        'Account Type': 'Savings', 'Seller Status': 'Pending', 'Document Verification Status': 'Pending',
+        'Verification Remarks': 'Documents checked',
+      });
+      // Empty fields, the seller code and statuses the API did not send are not shown.
+      expect(Object.keys(fields())).not.toEqual(expect.arrayContaining(['Pincode']));
+      expect(Object.keys(fields())).not.toContain('Seller Code');
+      expect(Object.keys(fields())).not.toContain('Document Status');
+      expect(Object.keys(fields())).not.toContain('Rejection Reason');
+    });
+
+    it('masks the account number until the Admin reveals it', async () => {
+      showSeller(details());
+      await openFirstSeller();
+      const accountNumber = () => textOf(root.querySelector('.seller-info__account-number'));
+      const reveal = () => root.querySelector('.seller-info__reveal') as HTMLButtonElement;
+
+      expect(accountNumber()).toBe('••••••••9012');
+      expect(root.querySelector('.seller-dialog')?.textContent).not.toContain('123456789012');
+      reveal().click();
+      await fixture.whenStable();
+      expect(accountNumber()).toBe('123456789012');
+      expect(reveal().getAttribute('aria-pressed')).toBe('true');
+      reveal().click();
+      await fixture.whenStable();
+      expect(accountNumber()).toBe('••••••••9012');
+    });
+
+    it('hides the Contact Person and Bank sections when the seller has no such details', async () => {
+      showSeller(details({
+        contactPersonName: '', contactPersonMobile: '', contactPersonEmail: '',
+        accountHolderName: '', bankName: '', branchName: '', accountNumber: '', ifscCode: '', accountType: '',
+      }));
+      await openFirstSeller();
+
+      expect(headings()).toEqual(['Business Details', 'Document Verification', 'Overall Verification Status']);
+    });
+
+    it('names a state, country and account type sent only as IDs with the existing lookups', async () => {
+      const onboarding = TestBed.inject(SellerOnboardingService) as unknown as Record<string, unknown>;
+      const getStates = vi.fn(() => of([{ id: '31', name: 'Tamil Nadu' }]));
+      Object.assign(onboarding, {
+        getCountries: vi.fn(() => of([{ id: '1', name: 'India' }])),
+        getStates,
+        getBankAccountTypes: vi.fn(() => of([{ id: '2', name: 'Current' }])),
+      });
+      showSeller(details({ state: '31', country: '1', accountType: '2' }));
+      await openFirstSeller();
+
+      expect(fields()).toMatchObject({ State: 'Tamil Nadu', Country: 'India', 'Account Type': 'Current' });
+      expect(getStates).toHaveBeenCalledWith('1');
+    });
+
+    it('shows document rejection remarks, the Document Status and the rejection reason when sent', async () => {
+      showSeller(details({ documentStatus: 'SUBMITTED', rejectionReason: 'GST number does not match the certificate.' }), {
+        documents: [
+          { ...sellers[0].documents[0], status: 'Rejected' as const, rejectionReason: 'The scan is blurred.' },
+          ...sellers[0].documents.slice(1),
+        ],
+      });
+      await openFirstSeller();
+
+      expect(textOf(root.querySelector('.seller-documents tbody tr .seller-doc-remarks'))).toBe('The scan is blurred.');
+      expect(fields()).toMatchObject({
+        'Document Status': 'Submitted',
+        'Rejection Reason': 'GST number does not match the certificate.',
+      });
+    });
+  });
+
   it('displays the document verification status returned for each selected seller', async () => {
     const service = TestBed.inject(SellerVerificationService);
     vi.spyOn(service, 'getSellerDetails').mockImplementation((sellerId) =>
@@ -320,7 +427,8 @@ describe('SellerVerification', () => {
     expect(root.querySelector('.seller-document-status')?.textContent).toContain('Rejected');
   });
 
-  it('shows all seven API document fields and opens available filenames', async () => {
+  // CHANGED: the optional Other Supporting Document is listed only when it was submitted.
+  it('shows the API document fields (the optional one only when submitted) and opens available filenames', async () => {
     const service = TestBed.inject(SellerVerificationService);
     vi.spyOn(service, 'getSellerDetails').mockReturnValue(
       of({
@@ -381,14 +489,15 @@ describe('SellerVerification', () => {
     await openFirstSeller();
 
     const rows = root.querySelectorAll('.seller-documents tbody tr');
-    expect(rows).toHaveLength(7);
+    expect(rows).toHaveLength(6);
     expect(rows[0].textContent).toContain('GST Certificate');
     expect(rows[0].textContent).toContain('gst.pdf');
     expect(rows[0].textContent).toContain('Approved');
     expect(rows[1].textContent).toContain('Pending');
     expect(rows[2].textContent).toContain('Rejected');
+    // A required document that was not submitted is still listed.
     expect(rows[3].textContent).toContain('Not Available');
-    expect(rows[6].textContent).toContain('Not Available');
+    expect(root.querySelector('.seller-documents')?.textContent).not.toContain('Other Supporting Document');
     const unavailableView = rows[3].querySelector('app-button button') as HTMLButtonElement;
     expect(unavailableView.disabled).toBe(true);
 

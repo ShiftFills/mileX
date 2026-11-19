@@ -34,6 +34,11 @@ export interface Product {
   discount?: number;
   highlights?: string[];
   specifications?: ProductSpecification[];
+  // CHANGED (new): display names from products/get (CATEGORY_NAME, SUB_CATEGORY_NAME, BRAND_NAME),
+  // set only when the API sends them. `category` / `brand` above keep their existing ID-based values.
+  categoryName?: string;
+  subCategoryName?: string;
+  brandName?: string;
 }
 
 export interface ProductColor {

@@ -9,9 +9,10 @@
 
   <section appCard class="products-panel" aria-label="Product inventory">
     <div class="product-tabs" role="tablist" aria-label="Filter products by status">
-      <button type="button" role="tab" [attr.aria-selected]="statusTab() === 'All'" [class.is-active]="statusTab() === 'All'" (click)="setStatus('All')">All Products <span>({{ totalProducts() ?? 'total unavailable' }})</span></button>
-      <button type="button" role="tab" [attr.aria-selected]="statusTab() === 'Active'" [class.is-active]="statusTab() === 'Active'" (click)="setStatus('Active')">Active <span>({{ activeOnPage() }} on page)</span></button>
-      <button type="button" role="tab" [attr.aria-selected]="statusTab() === 'Inactive'" [class.is-active]="statusTab() === 'Inactive'" (click)="setStatus('Inactive')">Inactive <span>({{ inactiveOnPage() }} on page)</span></button>
+      <!-- CHANGED: counts come from tabCount() because the status filter is applied by the API. -->
+      <button type="button" role="tab" [attr.aria-selected]="statusTab() === 'All'" [class.is-active]="statusTab() === 'All'" (click)="setStatus('All')">All Products @if (tabCount('All'); as count) {<span>({{ count }})</span>}</button>
+      <button type="button" role="tab" [attr.aria-selected]="statusTab() === 'Active'" [class.is-active]="statusTab() === 'Active'" (click)="setStatus('Active')">Active @if (tabCount('Active'); as count) {<span>({{ count }})</span>}</button>
+      <button type="button" role="tab" [attr.aria-selected]="statusTab() === 'Inactive'" [class.is-active]="statusTab() === 'Inactive'" (click)="setStatus('Inactive')">Inactive @if (tabCount('Inactive'); as count) {<span>({{ count }})</span>}</button>
     </div>
 
     <div class="products-tools">
@@ -72,7 +73,8 @@
       <p class="products-filter-note" role="status">No brands available.</p>
     }
 
-    <p class="products-filter-note">Search and filters apply to the currently loaded page; the API supports pagination but no filter parameters.</p>
+    <!-- CHANGED: category, brand and status are API filters now; only search is limited to the loaded page. -->
+    <p class="products-filter-note">Category, brand and status filters apply to all products; search applies to the currently loaded page.</p>
 
     @if (loadStatus() === 'loading') {
       <div class="products-state" role="status"><app-loading-spinner /> Loading products from API…</div>
@@ -106,7 +108,8 @@
       </ng-template>
       <ng-template #actionCell let-product>
         <div class="product-row-actions" appClickOutside (clickedOutside)="closeActionMenu(product.id)">
-          <app-button variant="outline" size="compact" (clicked)="variants()">Variant</app-button>
+          <!-- CHANGED: opens the Variants dialog for this row's PRODUCT_ID (was a link to the Variants page). -->
+          <app-button variant="outline" size="compact" [ariaLabel]="'View variants of ' + product.name" (clicked)="openVariants(product)">Variant</app-button>
           <button class="more-actions" type="button" aria-haspopup="menu" [attr.aria-expanded]="openActionMenuId() === product.id" [attr.aria-label]="'More actions for ' + product.name" (click)="toggleActionMenu(product.id)"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="3" r="1" /><circle cx="8" cy="8" r="1" /><circle cx="8" cy="13" r="1" /></svg></button>
           @if (openActionMenuId() === product.id) {
             <div class="product-action-menu" role="menu">
@@ -172,6 +175,74 @@
           </footer>
         </form>
       }
+    </section>
+  </app-dialog>
+}
+
+<!-- CHANGED (new): variants of the product whose Variant button was clicked. -->
+@if (variantDialog(); as dialog) {
+  <app-dialog (closed)="closeVariants()">
+    <section class="product-variants-dialog" role="dialog" aria-modal="true" aria-labelledby="product-variants-title" (click)="$event.stopPropagation()">
+      <header class="product-edit-heading">
+        <div>
+          <h2 id="product-variants-title">Product Variants</h2>
+          <p>
+            {{ dialog.product.name }}
+            @if (dialog.status === 'success') { &middot; {{ variantRows().length }} {{ variantRows().length === 1 ? 'variant' : 'variants' }} }
+          </p>
+        </div>
+        <button type="button" class="product-edit-close" aria-label="Close" (click)="closeVariants()">×</button>
+      </header>
+
+      @if (dialog.status === 'loading') {
+        <div class="products-state" role="status"><app-loading-spinner /> Loading variants…</div>
+      } @else if (dialog.status === 'error') {
+        <div class="products-state products-state--error" role="alert">
+          <p>{{ dialog.error }}</p>
+          <app-button variant="outline" size="compact" (clicked)="retryVariants()">Try again</app-button>
+        </div>
+      } @else if (!variantRows().length) {
+        <div class="products-state variant-empty">
+          <p>This product has no variants yet.</p>
+        </div>
+      } @else {
+        <ul class="variant-list" [attr.aria-label]="'Variants of ' + dialog.product.name">
+          @for (variant of variantRows(); track variant.id) {
+            <li class="variant-item">
+              <img
+                class="variant-item__image"
+                [src]="variant.image && !failedVariantImages().has(variant.id) ? variant.image : dialog.product.image"
+                [alt]="variant.name"
+                loading="lazy"
+                (error)="variantImageFailed(variant.id)"
+              />
+              <div class="variant-item__main">
+                <strong class="variant-item__name">{{ variant.name }}</strong>
+                <span class="variant-item__sku">SKU: {{ variant.sku }}</span>
+                @if (variant.options.length) {
+                  <ul class="variant-item__options" aria-label="Variant options">
+                    @for (option of variant.options; track option.label) {
+                      <li><span>{{ option.label }}:</span> {{ option.value }}</li>
+                    }
+                  </ul>
+                }
+              </div>
+              <div class="variant-item__meta">
+                <strong class="variant-item__price">{{ variant.price }}</strong>
+                <span class="variant-item__stock" [class.is-out]="variant.stock <= 0">
+                  {{ variant.stock > 0 ? 'Stock: ' + variant.stock : 'Out of stock' }}
+                </span>
+                <app-badge [tone]="statusTone(variant.status)" size="compact">{{ variant.status }}</app-badge>
+              </div>
+            </li>
+          }
+        </ul>
+      }
+
+      <footer class="product-edit-actions">
+        <app-button variant="outline" size="small" (clicked)="closeVariants()">Close</app-button>
+        <app-button variant="accent" size="small" (clicked)="variants()">Manage Variants</app-button>
+      </footer>
     </section>
   </app-dialog>
 }

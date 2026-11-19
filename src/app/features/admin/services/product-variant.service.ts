@@ -1,6 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable, map, shareReplay, throwError } from 'rxjs';
+import { EMPTY, Observable, defer, expand, map, reduce, shareReplay, throwError } from 'rxjs';
 import { API_ENDPOINTS } from '@core/constants/api-endpoints';
 import { ApiService } from '@core/services/api.service';
 import { AuthService } from '@core/services/auth.service';
@@ -23,6 +23,11 @@ export interface ProductVariant {
   sellerName: string | null;
   createdBy: number | null;
   status: string;
+  // CHANGED (new): display names from SIZE_NAME / COLOUR_NAME / MATERIAL_NAME ('' when the API sends null).
+  // size/color/material above are unchanged (they read SIZE / COLOR / MATERIAL).
+  sizeName: string;
+  colorName: string;
+  materialName: string;
 }
 
 export interface ProductVariantPage {
@@ -86,6 +91,10 @@ interface ProductVariantLookupDefinition {
   idFields: readonly string[];
   nameFields: readonly string[];
 }
+
+// CHANGED (new): page size and safety limit for loadProductVariants (storefront Product View).
+const PRODUCT_VARIANT_PAGE_SIZE = 10;
+const MAX_PRODUCT_VARIANT_PAGES = 20;
 
 const PRODUCT_VARIANT_LOOKUPS: Record<ProductVariantLookup, ProductVariantLookupDefinition> = {
   colours: {
@@ -234,6 +243,10 @@ function mapVariant(value: unknown): ProductVariant {
     sellerName: textValue(value, ['SELLER_NAME'], ''),
     createdBy: numericValue(value, ['CREATED_BY']) ?? null,
     status: textValue(value, ['STATUS'], ''),
+    // CHANGED (new): the display names the API sends next to SIZE / COLOR / MATERIAL.
+    sizeName: optionalTextValue(value, ['SIZE_NAME']),
+    colorName: optionalTextValue(value, ['COLOUR_NAME', 'COLOR_NAME']),
+    materialName: optionalTextValue(value, ['MATERIAL_NAME']),
   };
 }
 
@@ -400,7 +413,14 @@ export class ProductVariantService {
     return request;
   }
 
-  loadPage(page: number, limit: number): Observable<ProductVariantPage> {
+  /**
+   * One page of the Variant listing.
+   * Admin (no `sellerId`): `product_variant/get?LIMIT=…&OFFSET=…`.
+   * Seller: `product_variant/get?PRODUCT_ID=-1&VARIANT_ID=-1&SELLER_ID=<sellerId>&LIMIT=…&OFFSET=…`
+   * (every product and variant of that seller only).
+   */
+  // CHANGED: optional sellerId for the Seller listing; the Admin request is unchanged.
+  loadPage(page: number, limit: number, sellerId?: number): Observable<ProductVariantPage> {
     if (!Number.isSafeInteger(page) || page < 1) {
       throw new RangeError('Page must be a positive safe integer.');
     }
@@ -413,13 +433,63 @@ export class ProductVariantService {
     if (!Number.isSafeInteger(offset)) {
       throw new RangeError('The requested page offset is outside the supported range.');
     }
+    if (sellerId !== undefined && (!Number.isSafeInteger(sellerId) || sellerId <= 0)) {
+      return throwError(() => new RangeError('Seller ID must be a positive safe integer.'));
+    }
 
     return this.api
       .get<unknown>(API_ENDPOINTS.productVariants.get, {
+        ...(sellerId !== undefined ? { PRODUCT_ID: -1, VARIANT_ID: -1, SELLER_ID: sellerId } : {}),
         LIMIT: limit,
         OFFSET: offset,
       })
       .pipe(map((response) => mapVariantPage(response, limit, offset)));
+  }
+
+  /**
+   * Storefront Product View: every variant of one product
+   * (`product_variant/get?PRODUCT_ID=<id>&VARIANT_ID=-1&LIMIT=10&OFFSET=…`).
+   * Pages of 10 are requested until the API reports no next page, a page brings no new variant,
+   * or MAX_PRODUCT_VARIANT_PAGES is reached. Variants are returned as mapped (all statuses);
+   * the caller decides which ones to show.
+   */
+  // CHANGED (new): product-specific variant list for the Product View page.
+  loadProductVariants(productId: number): Observable<ProductVariant[]> {
+    if (!Number.isSafeInteger(productId) || productId <= 0) {
+      return throwError(() => new RangeError('Product ID must be a positive safe integer.'));
+    }
+
+    return defer(() => {
+      // Per subscription: guards against an API that ignores OFFSET and repeats the same rows.
+      const seenIds = new Set<string>();
+      const loadVariantPage = (pageIndex: number) => {
+        const offset = pageIndex * PRODUCT_VARIANT_PAGE_SIZE;
+        return this.api
+          .get<unknown>(API_ENDPOINTS.productVariants.get, {
+            PRODUCT_ID: productId,
+            VARIANT_ID: -1,
+            LIMIT: PRODUCT_VARIANT_PAGE_SIZE,
+            OFFSET: offset,
+          })
+          .pipe(
+            map((response) => {
+              const page = mapVariantPage(response, PRODUCT_VARIANT_PAGE_SIZE, offset);
+              const added = page.items.filter((variant) => !seenIds.has(variant.id));
+              for (const variant of added) seenIds.add(variant.id);
+              return { pageIndex, hasNext: page.hasNext, added };
+            }),
+          );
+      };
+
+      return loadVariantPage(0).pipe(
+        expand(({ pageIndex, hasNext, added }) =>
+          hasNext && added.length > 0 && pageIndex + 1 < MAX_PRODUCT_VARIANT_PAGES
+            ? loadVariantPage(pageIndex + 1)
+            : EMPTY,
+        ),
+        reduce((variants, { added }) => [...variants, ...added], [] as ProductVariant[]),
+      );
+    });
   }
 
   insertVariant(payload: Omit<ProductVariantInsertPayload, 'CREATED_BY'>): Observable<string> {

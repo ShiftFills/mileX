@@ -39,7 +39,7 @@
     </div>
     <app-pagination
       [page]="page()"
-      [pageSize]="pageSize"
+      [pageSize]="pageSize()"
       [total]="totalCount() ?? undefined"
       [totalPages]="totalPages()"
       [hasNext]="canGoNext()"
@@ -59,12 +59,9 @@
           @if (dialog() === 'edit') { <div class="edit-photo"><img [src]="selected()?.imageUrl ?? '/images/latest-gadgets.svg'" [alt]="selected()?.name ?? 'Variant image'"/></div> }
           <div class="fields-grid" [class.fields-grid--edit]="dialog() === 'edit'">
             @if (dialog() === 'add') {
-              <label>Product <b>*</b><app-select class="product-control" size="compact" inputId="variant-product" name="productId" [value]="form().productId" [required]="true" [disabled]="productsStatus() === 'loading' || productsStatus() === 'error' || products().length === 0" (valueChange)="setField('productId', $event)">
-                @if (productsStatus() === 'loading') { <option value="">Loading products…</option> }
-                @else if (productsStatus() === 'success' && !products().length) { <option value="">No products available</option> }
-                @else { <option value="">Select product</option> }
-                @for (product of products(); track product.id) { <option [value]="product.id">{{ product.name }}</option> }
-              </app-select></label>
+              <!-- CHANGED: searchable dropdown whose list scrolls inside the dialog (the native list ran off the screen).
+                   A <div> rather than a <label>: a label would also forward clicks on the open list to the trigger. -->
+              <div class="product-field"><span id="variant-product-label">Product <b>*</b></span><app-searchable-select class="product-control" inputId="variant-product" name="productId" [options]="productOptions()" [value]="form().productId" [placeholder]="productPlaceholder()" searchPlaceholder="Search products..." ariaLabel="Product" [ariaInvalid]="error() && !form().productId ? true : null" [required]="true" [disabled]="productsStatus() === 'loading' || productsStatus() === 'error' || products().length === 0" (valueChange)="setProductId($event)" /></div>
             }
             <label>Variant Name <b>*</b><app-input class="product-control" size="compact" inputId="variant-name" name="name" placeholder="e.g. Black - Regular" [value]="form().name" [required]="true" (valueInput)="setField('name', $event)" /></label>
             @if (dialog() === 'edit') {

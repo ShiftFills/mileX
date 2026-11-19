@@ -401,6 +401,28 @@ describe('ProductCatalogService', () => {
     ]);
   });
 
+  // CHANGED (new): optional display names for the Product View.
+  it('keeps CATEGORY_NAME, SUB_CATEGORY_NAME and BRAND_NAME when products/get sends them', () => {
+    catalog.load();
+    http.expectOne((request) => request.url.endsWith('/products/get')).flush({
+      status: 'SUCCESS',
+      data: [
+        {
+          PRODUCT_ID: 5, PRODUCT_NAME: 'Wireless Mouse', SELLING_PRICE: '799.00', CATEGORY_ID: 3, BRAND_ID: 7,
+          CATEGORY_NAME: ' Fashion ', SUB_CATEGORY_NAME: 'Bags', BRAND_NAME: 'MileX',
+        },
+        { PRODUCT_ID: 6, PRODUCT_NAME: 'Laptop', SELLING_PRICE: '799.00', CATEGORY_NAME: null },
+      ],
+    });
+
+    expect(catalog.products()[0]).toMatchObject({
+      category: 'category-3', brand: 'brand-7',
+      categoryName: 'Fashion', subCategoryName: 'Bags', brandName: 'MileX',
+    });
+    expect(catalog.products()[1]).not.toHaveProperty('categoryName');
+    expect(catalog.products()[1]).not.toHaveProperty('brandName');
+  });
+
   it('loads a paginated product page with LIMIT and OFFSET and maps API metadata', () => {
     let response: unknown;
     catalog.loadPage(3, 5).subscribe((page) => (response = page));
@@ -531,56 +553,95 @@ describe('ProductCatalogService', () => {
     http.expectNone((request) => request.url.endsWith('/products/get'));
   });
 
-  // CHANGED (new): Seller login lists only that seller's products via SELLER_ID.
-  it('loads a seller\'s products page with SELLER_ID, LIMIT and OFFSET only', () => {
-    let response: PaginatedResponse<Product> | undefined;
-    catalog.loadSellerPage(44, 2, 10).subscribe((page) => (response = page));
+  // CHANGED: the All Products listing (Admin and Seller) uses loadListingPage, which replaced loadSellerPage.
+  describe('All Products listing page', () => {
+    const empty = { status: 'SUCCESS', data: [], total: 0, page: 1, pageSize: 10 };
 
-    const request = http.expectOne((candidate) => candidate.url === '/api/products/get');
-    expect(request.request.method).toBe('GET');
-    expect(request.request.params.keys().sort()).toEqual(['LIMIT', 'OFFSET', 'SELLER_ID']);
-    expect(request.request.params.get('SELLER_ID')).toBe('44');
-    expect(request.request.params.get('LIMIT')).toBe('10');
-    expect(request.request.params.get('OFFSET')).toBe('10');
-    request.flush({
-      status: 'SUCCESS',
-      data: [{ PRODUCT_ID: 9, PRODUCT_NAME: 'Seller product', SELLING_PRICE: '100.00', SELLER_ID: 44 }],
-      pagination: { totalRecords: 11, currentPage: 2, limit: 10, totalPages: 2 },
+    it('sends the Admin request with every filter at -1 and no SELLER_ID or STATUS for "all"', () => {
+      catalog.loadListingPage({}, 1, 10).subscribe();
+
+      const request = http.expectOne((candidate) => candidate.url === '/api/products/get');
+      expect(request.request.method).toBe('GET');
+      expect(request.request.urlWithParams).toBe(
+        '/api/products/get?PRODUCT_ID=-1&CATEGORY_ID=-1&BRAND_ID=-1&LIMIT=10&OFFSET=0',
+      );
+      request.flush(empty);
     });
 
-    expect(response?.items.map((product) => product.name)).toEqual(['Seller product']);
-    expect(response?.total).toBe(11);
-    expect(response?.page).toBe(2);
-  });
+    it('sends the Admin request with the selected category, brand and status', () => {
+      catalog.loadListingPage({ categoryId: 3, brandId: 7, status: 'ACTIVE' }, 2, 10).subscribe();
 
-  it('never shares cached pages between Admin, storefront and different sellers', () => {
-    const empty = { status: 'SUCCESS', data: [], total: 0, page: 1, pageSize: 5 };
-    catalog.loadPage(1, 5).subscribe();
-    http.expectOne((request) => request.params.get('PRODUCT_ID') === '-1').flush(empty);
+      http.expectOne(
+        '/api/products/get?PRODUCT_ID=-1&CATEGORY_ID=3&BRAND_ID=7&STATUS=ACTIVE&LIMIT=10&OFFSET=10',
+      ).flush(empty);
+    });
 
-    catalog.loadSellerPage(44, 1, 5).subscribe();
-    http.expectOne((request) => request.params.get('SELLER_ID') === '44').flush(empty);
-    catalog.loadSellerPage(45, 1, 5).subscribe();
-    http.expectOne((request) => request.params.get('SELLER_ID') === '45').flush(empty);
+    it('adds SELLER_ID only for a seller and maps the seller\'s page', () => {
+      let response: PaginatedResponse<Product> | undefined;
+      catalog.loadListingPage({ sellerId: 5, status: 'ACTIVE' }, 2, 10).subscribe((page) => (response = page));
 
-    // Same seller and page again: served from the cache.
-    catalog.loadSellerPage(44, 1, 5).subscribe();
-    catalog.loadPage(1, 5).subscribe();
-    http.expectNone((request) => request.url.endsWith('/products/get'));
-  });
+      http.expectOne(
+        '/api/products/get?PRODUCT_ID=-1&CATEGORY_ID=-1&BRAND_ID=-1&SELLER_ID=5&STATUS=ACTIVE&LIMIT=10&OFFSET=10',
+      ).flush({
+        status: 'SUCCESS',
+        data: [{ PRODUCT_ID: 9, PRODUCT_NAME: 'Seller product', SELLING_PRICE: '100.00', SELLER_ID: 5 }],
+        pagination: { totalRecords: 11, currentPage: 2, limit: 10, totalPages: 2 },
+      });
 
-  it('rejects an invalid seller ID or paging without making an API request', () => {
-    const errors: unknown[] = [];
-    catalog.loadSellerPage(0, 1, 5).subscribe({ error: (error: unknown) => errors.push(error) });
-    catalog.loadSellerPage(44, 0, 5).subscribe({ error: (error: unknown) => errors.push(error) });
-    catalog.loadSellerPage(44, 1, 0).subscribe({ error: (error: unknown) => errors.push(error) });
+      expect(response?.items.map((product) => product.name)).toEqual(['Seller product']);
+      expect(response?.total).toBe(11);
+      expect(response?.page).toBe(2);
+    });
 
-    expect(errors).toEqual([
-      new RangeError('Seller ID must be a positive safe integer.'),
-      new RangeError('Page must be a positive safe integer.'),
-      new RangeError('Page size must be a positive safe integer.'),
-    ]);
-    http.expectNone((request) => request.url.endsWith('/products/get'));
+    // CHANGED (new): the Home page request sends SELLER_ID=-1 (every seller) and STATUS=ACTIVE.
+    it('sends the Home page request with SELLER_ID=-1 and STATUS=ACTIVE', () => {
+      catalog.loadListingPage({ sellerId: -1, status: 'ACTIVE' }, 1, 10).subscribe();
+
+      http.expectOne(
+        '/api/products/get?PRODUCT_ID=-1&CATEGORY_ID=-1&BRAND_ID=-1&SELLER_ID=-1&STATUS=ACTIVE&LIMIT=10&OFFSET=0',
+      ).flush(empty);
+    });
+
+    it('never shares cached pages between storefront pages, filters and different sellers', () => {
+      catalog.loadPage(1, 10).subscribe();
+      http.expectOne('/api/products/get?PRODUCT_ID=-1&LIMIT=10&OFFSET=0').flush(empty);
+
+      catalog.loadListingPage({}, 1, 10).subscribe();
+      http.expectOne((request) => request.params.get('BRAND_ID') === '-1' && !request.params.has('SELLER_ID')).flush(empty);
+      catalog.loadListingPage({ status: 'INACTIVE' }, 1, 10).subscribe();
+      http.expectOne((request) => request.params.get('STATUS') === 'INACTIVE').flush(empty);
+      catalog.loadListingPage({ sellerId: 44 }, 1, 10).subscribe();
+      http.expectOne((request) => request.params.get('SELLER_ID') === '44').flush(empty);
+      catalog.loadListingPage({ sellerId: 45 }, 1, 10).subscribe();
+      http.expectOne((request) => request.params.get('SELLER_ID') === '45').flush(empty);
+
+      // The same requests again are served from the cache.
+      catalog.loadPage(1, 10).subscribe();
+      catalog.loadListingPage({}, 1, 10).subscribe();
+      catalog.loadListingPage({ status: 'INACTIVE' }, 1, 10).subscribe();
+      catalog.loadListingPage({ sellerId: 44 }, 1, 10).subscribe();
+      http.expectNone((request) => request.url.endsWith('/products/get'));
+    });
+
+    it('rejects invalid paging or IDs without making an API request', () => {
+      const errors: unknown[] = [];
+      const record = { error: (error: unknown) => errors.push(error) };
+      catalog.loadListingPage({ sellerId: 44 }, 0, 10).subscribe(record);
+      catalog.loadListingPage({ sellerId: 44 }, 1, 0).subscribe(record);
+      catalog.loadListingPage({ categoryId: 0 }, 1, 10).subscribe(record);
+      catalog.loadListingPage({ brandId: 1.5 }, 1, 10).subscribe(record);
+      // CHANGED: -1 now means every seller (Home page), so 0 is the invalid seller case.
+      catalog.loadListingPage({ sellerId: 0 }, 1, 10).subscribe(record);
+
+      expect(errors).toEqual([
+        new RangeError('Page must be a positive safe integer.'),
+        new RangeError('Page size must be a positive safe integer.'),
+        new RangeError('Category ID must be a positive safe integer.'),
+        new RangeError('Brand ID must be a positive safe integer.'),
+        new RangeError('Seller ID must be a positive safe integer.'),
+      ]);
+      http.expectNone((request) => request.url.endsWith('/products/get'));
+    });
   });
 
   it('evicts least-recently-used pages and reloads an evicted page', () => {

@@ -87,6 +87,11 @@ export class Checkout {
     { key: 'total', label: 'Total Amount', width: '20%', bold: true, cellTemplate: this.totalCell() },
   ]);
 
+  // CHANGED (new): loads the catalog for the cart rows (CartService no longer loads it on every page).
+  constructor() {
+    this.catalog.load();
+  }
+
   protected retryLoad(): void {
     this.catalog.load();
   }

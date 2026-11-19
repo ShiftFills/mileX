@@ -192,6 +192,8 @@ export class PaymentPage {
       void this.router.navigate([this.routes.deliveryAddress], { queryParamsHandling: 'preserve' });
       return;
     }
+    // CHANGED: loads the catalog for the cart rows (CartService no longer loads it on every page).
+    this.catalog.load();
     this.paymentMethods.load();
     if (this.cartIdParam !== null && this.cartIdValid && !this.cart.checkoutItems(this.cartIdParam).length) {
       this.loadCartRow();

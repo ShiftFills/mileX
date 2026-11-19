@@ -2,6 +2,7 @@ import { HttpErrorResponse, provideHttpClient, withInterceptors } from '@angular
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
+import { APP_ROUTES } from '../constants/app-routes';
 import { STORAGE_KEYS } from '../constants/storage-keys';
 import { API_BASE_URL } from '../config/api.config';
 import { authInterceptor } from '../interceptors/auth.interceptor';
@@ -52,7 +53,8 @@ describe('AuthService', () => {
   }
 
   /** Sends one login and returns what the caller would have received. */
-  function loginWith(body: unknown): { message?: string; error?: unknown } {
+  // CHANGED: typed as a record (was unknown, which HttpTestingController.flush rejects at compile time).
+  function loginWith(body: Record<string, unknown>): { message?: string; error?: unknown } {
     const outcome: { message?: string; error?: unknown } = {};
     service.login('user', 'password').subscribe({
       next: (message) => (outcome.message = message),
@@ -518,6 +520,7 @@ describe('AuthService', () => {
       expect(personalDataKeys()).not.toContain(null);
     });
 
+    // CHANGED: a 401 first tries a token refresh; the session is cleared once the refresh is rejected too.
     it('clears persisted authentication data after a protected API request returns 401', () => {
       service.setSession(
         { id: '8', email: '', firstName: 'dhiya_seller', lastName: '' },
@@ -532,6 +535,9 @@ describe('AuthService', () => {
       const request = http.expectOne('https://api.example.test/api/protected');
       expect(request.request.headers.has('Authorization')).toBe(true);
       request.flush({}, { status: 401, statusText: 'Unauthorized' });
+      http
+        .expectOne('https://api.example.test/api/user/refresh')
+        .flush({ success: false, message: 'Invalid or expired refresh token' }, { status: 401, statusText: 'Unauthorized' });
 
       expect(failure).toBeInstanceOf(HttpErrorResponse);
       expect(service.isAuthenticated()).toBe(false);
@@ -539,6 +545,189 @@ describe('AuthService', () => {
       expect(localStorage.getItem(STORAGE_KEYS.user)).toBeNull();
       expect(localStorage.getItem(STORAGE_KEYS.accessToken)).toBeNull();
       expect(localStorage.getItem(STORAGE_KEYS.cart)).toBeNull();
+    });
+  });
+
+  // CHANGED (new): automatic access-token refresh (error interceptor + AuthService.refreshAccessToken).
+  describe('access token refresh', () => {
+    const API = 'https://api.example.test/api';
+    const REFRESH_URL = `${API}/user/refresh`;
+    const UNAUTHORIZED = { status: 401, statusText: 'Unauthorized' };
+    const SELLER = {
+      id: '60', email: '', firstName: 'rahul_ocean', lastName: '',
+      userName: 'rahul_ocean', userType: 'SELLER', userTypeId: 1,
+    };
+    const OLD_TOKEN = tokenWithClaims({ USER_ID: 60, SELLER_ID: 24, iat: 1 });
+    const NEW_TOKEN = tokenWithClaims({ USER_ID: 60, SELLER_ID: 24, iat: 2 });
+
+    /** The sample refresh response, with the given access token. */
+    function refreshResponse(token = NEW_TOKEN, userId = 60): Record<string, unknown> {
+      return {
+        success: true, message: 'Token refreshed successfully',
+        USER_ID: userId, USER_NAME: 'rahul_ocean', USER_TYPE: 'SELLER', USER_TYPE_ID: 1,
+        CUSTOMER_ID: null, SELLER_ID: 24, ADMIN_ID: null, ACCESSTOKEN: token,
+      };
+    }
+
+    /** Sends one API GET and returns what the caller receives. */
+    function get(path: string): { body?: unknown; error?: unknown } {
+      const outcome: { body?: unknown; error?: unknown } = {};
+      TestBed.inject(ApiService).get(path).subscribe({
+        next: (body) => (outcome.body = body),
+        error: (error: unknown) => (outcome.error = error),
+      });
+      return outcome;
+    }
+
+    const navigate = (): ReturnType<typeof vi.fn> => TestBed.inject(Router).navigate as unknown as ReturnType<typeof vi.fn>;
+
+    beforeEach(() => service.setSession(SELLER, OLD_TOKEN));
+
+    it('refreshes an expired token with POST user/refresh, stores it, and retries the request with it', () => {
+      const outcome = get('/products/get');
+      const expired = http.expectOne(`${API}/products/get`);
+      expect(expired.request.headers.get('Authorization')).toBe(`Bearer ${OLD_TOKEN}`);
+      expired.flush({ success: false, message: 'Access token expired' }, UNAUTHORIZED);
+
+      const refresh = http.expectOne(REFRESH_URL);
+      expect(refresh.request.method).toBe('POST');
+      expect(refresh.request.body).toBeNull();
+      expect(refresh.request.withCredentials).toBe(true);
+      expect(refresh.request.headers.has('Authorization')).toBe(false);
+      refresh.flush(refreshResponse());
+
+      const retry = http.expectOne(`${API}/products/get`);
+      expect(retry.request.headers.get('Authorization')).toBe(`Bearer ${NEW_TOKEN}`);
+      retry.flush({ status: 'SUCCESS', data: [] });
+
+      expect(outcome).toEqual({ body: { status: 'SUCCESS', data: [] } });
+      expect(service.token()).toBe(NEW_TOKEN);
+      expect(localStorage.getItem(STORAGE_KEYS.accessToken)).toBe(JSON.stringify(NEW_TOKEN));
+      // The signed-in user, role and IDs are kept.
+      expect(service.user()).toEqual(SELLER);
+      expect(service.userId()).toBe(60);
+      expect(service.sellerId()).toBe(24);
+      expect(navigate()).not.toHaveBeenCalled();
+
+      // Later requests use the new token.
+      get('/orders');
+      const next = http.expectOne(`${API}/orders`);
+      expect(next.request.headers.get('Authorization')).toBe(`Bearer ${NEW_TOKEN}`);
+      next.flush({});
+    });
+
+    it('sends one refresh for simultaneous 401s and retries every waiting request with the new token', () => {
+      const paths = ['/products/get', '/order_dashboard/get', '/brand_management/get'];
+      const outcomes = paths.map(get);
+      for (const path of paths) http.expectOne(`${API}${path}`).flush({}, UNAUTHORIZED);
+
+      http.expectOne(REFRESH_URL).flush(refreshResponse());
+
+      for (const path of paths) {
+        const retry = http.expectOne(`${API}${path}`);
+        expect(retry.request.headers.get('Authorization')).toBe(`Bearer ${NEW_TOKEN}`);
+        retry.flush({ path });
+      }
+      expect(outcomes.map((outcome) => outcome.body)).toEqual(paths.map((path) => ({ path })));
+    });
+
+    it('retries a request sent with the old token without refreshing again once a refresh has finished', () => {
+      const early = get('/early');
+      const late = get('/late');
+      http.expectOne(`${API}/early`).flush({}, UNAUTHORIZED);
+      http.expectOne(REFRESH_URL).flush(refreshResponse());
+      http.expectOne(`${API}/early`).flush({ ok: 'early' });
+
+      http.expectOne(`${API}/late`).flush({}, UNAUTHORIZED);
+      http.expectNone(REFRESH_URL);
+      const retry = http.expectOne(`${API}/late`);
+      expect(retry.request.headers.get('Authorization')).toBe(`Bearer ${NEW_TOKEN}`);
+      retry.flush({ ok: 'late' });
+
+      expect([early.body, late.body]).toEqual([{ ok: 'early' }, { ok: 'late' }]);
+    });
+
+    it('clears the session and sends a protected page to Login when the refresh session is invalid', () => {
+      const outcome = get('/products/get');
+      http.expectOne(`${API}/products/get`).flush({}, UNAUTHORIZED);
+      http.expectOne(REFRESH_URL).flush({ success: false, message: 'Invalid or expired refresh token' }, UNAUTHORIZED);
+
+      http.expectNone(`${API}/products/get`);
+      expect(outcome.error).toBeInstanceOf(HttpErrorResponse);
+      expect((outcome.error as HttpErrorResponse).status).toBe(401);
+      expect(service.isAuthenticated()).toBe(false);
+      expect(localStorage.getItem(STORAGE_KEYS.accessToken)).toBeNull();
+      expect(navigate()).toHaveBeenCalledWith([APP_ROUTES.login], { queryParams: { returnUrl: '/admin/products/all' } });
+    });
+
+    it('ends the session without another refresh when the retried request is still rejected', () => {
+      const outcome = get('/products/get');
+      http.expectOne(`${API}/products/get`).flush({}, UNAUTHORIZED);
+      http.expectOne(REFRESH_URL).flush(refreshResponse());
+      http.expectOne(`${API}/products/get`).flush({}, UNAUTHORIZED);
+
+      http.expectNone(REFRESH_URL);
+      expect((outcome.error as HttpErrorResponse).status).toBe(401);
+      expect(service.isAuthenticated()).toBe(false);
+      expect(navigate()).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects a refreshed token that belongs to another user', () => {
+      const outcome = get('/products/get');
+      http.expectOne(`${API}/products/get`).flush({}, UNAUTHORIZED);
+      http.expectOne(REFRESH_URL).flush(refreshResponse(tokenWithClaims({ USER_ID: 61, SELLER_ID: 24 }), 61));
+
+      http.expectNone(`${API}/products/get`);
+      expect((outcome.error as HttpErrorResponse).status).toBe(401);
+      expect(service.isAuthenticated()).toBe(false);
+      expect(localStorage.getItem(STORAGE_KEYS.accessToken)).toBeNull();
+    });
+
+    it('keeps the session when the refresh request cannot reach the server, and refreshes on a later 401', () => {
+      const outcome = get('/products/get');
+      http.expectOne(`${API}/products/get`).flush({}, UNAUTHORIZED);
+      http.expectOne(REFRESH_URL).error(new ProgressEvent('error'));
+
+      expect((outcome.error as HttpErrorResponse).status).toBe(401);
+      expect(service.isAuthenticated()).toBe(true);
+      expect(service.token()).toBe(OLD_TOKEN);
+      expect(navigate()).not.toHaveBeenCalled();
+
+      const later = get('/products/get');
+      http.expectOne(`${API}/products/get`).flush({}, UNAUTHORIZED);
+      http.expectOne(REFRESH_URL).flush(refreshResponse());
+      http.expectOne(`${API}/products/get`).flush({ ok: true });
+      expect(later.body).toEqual({ ok: true });
+    });
+
+    it('does not bring back a session that was logged out while the refresh was running', () => {
+      const outcome = get('/products/get');
+      http.expectOne(`${API}/products/get`).flush({}, UNAUTHORIZED);
+      const refresh = http.expectOne(REFRESH_URL);
+
+      service.clearSession();
+      refresh.flush(refreshResponse());
+
+      http.expectNone(`${API}/products/get`);
+      expect((outcome.error as HttpErrorResponse).status).toBe(401);
+      expect(service.token()).toBeNull();
+      expect(localStorage.getItem(STORAGE_KEYS.accessToken)).toBeNull();
+    });
+
+    it('never refreshes after logout, for a guest request, or for a failed login', () => {
+      service.clearSession();
+      get('/products/get');
+      const guest = http.expectOne(`${API}/products/get`);
+      expect(guest.request.headers.has('Authorization')).toBe(false);
+      guest.flush({}, UNAUTHORIZED);
+
+      service.login('rahul_ocean', 'wrong-password').subscribe({ error: () => undefined });
+      const login = http.expectOne(LOGIN_URL);
+      // The login request accepts the refresh-token cookie the backend sets.
+      expect(login.request.withCredentials).toBe(true);
+      login.flush({ success: false, message: 'Invalid credentials' }, UNAUTHORIZED);
+
+      http.expectNone(REFRESH_URL);
     });
   });
 

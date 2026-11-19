@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, TemplateRef, computed, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
-import { EMPTY, catchError, defer, distinctUntilChanged, switchMap, tap } from 'rxjs';
+import { EMPTY, Observable, catchError, debounceTime, defer, distinctUntilChanged, filter, map, switchMap, tap } from 'rxjs';
 import { Badge, BadgeTone } from '@shared/components/badge/badge';
 import { Card } from '@shared/components/card/card';
 import { Checkbox } from '@shared/components/checkbox/checkbox';
@@ -13,9 +13,11 @@ import { Pagination } from '@shared/components/pagination/pagination';
 import { Select } from '@shared/components/select/select';
 import { StatCard, StatCardIcon, StatCardTone } from '@shared/components/stat-card/stat-card';
 import { Table, TableCellContext, TableColumn, TableHeaderContext } from '@shared/components/table/table';
+import { AuthService } from '@core/services/auth.service';
 import { ToastService } from '@core/services/toast.service';
 import { StatusOption } from '@shared/models/api.model';
 import { DateFilterOption, SellerVerificationService } from '@features/admin/services/seller-verification.service';
+import { SellerOnboardingService } from '@features/seller/services/seller-onboarding.service';
 import { eventValue } from '@shared/utils/form-events';
 import { OrderManagementCounts, OrderManagementOrder, OrderService } from '@features/orders/services/order.service';
 
@@ -48,8 +50,31 @@ interface OrderStatDefinition extends Omit<OrderStat, 'value'> {
   key: keyof OrderManagementCounts;
 }
 
+/** One listing response: Admin gets the whole filtered list; Seller gets one API page with its counts. */
+// CHANGED (new): common shape for the Admin and Seller listing requests.
+interface OrderListing {
+  orders: readonly OrderManagementOrder[];
+  totalRecords: number | null;
+  counts: OrderManagementCounts | null;
+}
+
+interface OrderListingRequest {
+  days: number;
+  orderStatusId: number;
+  paymentStatusId: number;
+  shippingStatusId: number;
+  search: string;
+  page: number;
+}
+
 const PAGE_SIZE = 6;
 const FILTER_ALL = -1;
+const ADMIN_DEFAULT_DAYS = 7;
+// CHANGED (new): Seller defaults follow the Seller API request (DAYS=30, ORDER_STATUS=-1, LIMIT=10).
+const SELLER_DEFAULT_DAYS = 30;
+const SELLER_PAGE_SIZE = 10;
+/** Seller search is done by the API, so typing is debounced before a request is sent. */
+const SEARCH_DEBOUNCE_MS = 400;
 const PAYMENT_TONES: Record<string, BadgeTone> = {
   PAID: 'success',
   PENDING: 'warning',
@@ -100,7 +125,8 @@ function toOrderRow(
     orderDate: order.orderDate,
     customer: order.customer,
     mobile: order.mobile,
-    products: order.productId === null ? '—' : String(order.productId),
+    // CHANGED: shows PRODUCT_NAME when the API sends it (Seller response); otherwise the product ID as before.
+    products: order.productName ?? (order.productId === null ? '—' : String(order.productId)),
     quantity: order.quantity ?? '—',
     amount:
       order.amount === null
@@ -122,8 +148,16 @@ function toOrderRow(
 export class OrderManagement {
   private readonly orderService = inject(OrderService);
   private readonly sellerVerificationService = inject(SellerVerificationService);
+  private readonly sellerOnboarding = inject(SellerOnboardingService);
   private readonly toast = inject(ToastService);
-  protected readonly pageSize = PAGE_SIZE;
+  // CHANGED (new): Sellers see only their own orders, searched and paged by the API (SELLER_ID, SEARCH,
+  // LIMIT, OFFSET) with the summary cards from the same response. Admins keep the existing requests.
+  protected readonly isSeller = inject(AuthService).user()?.userType?.trim().toUpperCase() === 'SELLER';
+  protected readonly pageSize = this.isSeller ? SELLER_PAGE_SIZE : PAGE_SIZE;
+  /** Seller only: total_records of the current API query (Admin pages its full list in the browser). */
+  private readonly totalRecords = signal(0);
+  /** Seller only: the debounced search text sent as SEARCH. */
+  private readonly sellerSearch = signal('');
   protected readonly orderCounts = signal<OrderManagementCounts | null>(null);
   protected readonly countLoadStatus = signal<LookupStatus>('loading');
   protected readonly countError = signal('');
@@ -195,7 +229,8 @@ export class OrderManagement {
   }
 
   protected readonly query = signal('');
-  protected readonly orderStatus = signal('1');
+  // CHANGED: Sellers start on All Status (ORDER_STATUS=-1); Admins keep ORDER_STATUS=1.
+  protected readonly orderStatus = signal(this.isSeller ? String(FILTER_ALL) : '1');
   protected readonly paymentStatus = signal(String(FILTER_ALL));
   protected readonly shippingStatus = signal(String(FILTER_ALL));
   /** Selected DATE_FILTER_ID; listing requests use its mapped DAYS value. */
@@ -209,6 +244,10 @@ export class OrderManagement {
     orderStatusId: Number(this.orderStatus()),
     paymentStatusId: Number(this.paymentStatus()),
     shippingStatusId: Number(this.shippingStatus()),
+    // CHANGED: Seller requests also depend on the search text and page; Admin's never change here,
+    // because Admin searches and pages the loaded list in the browser.
+    search: this.sellerSearch(),
+    page: this.isSeller ? this.page() : 1,
     retry: this.listingRetry(),
   }));
   private readonly countRequest = computed(() => ({
@@ -236,7 +275,9 @@ export class OrderManagement {
           return this.sellerVerificationService.getDateFilters().pipe(
             tap((options) => {
               this.dateFilterOptions.set(options);
-              const selected = options.find((option) => option.days === 7) ?? options[0];
+              // CHANGED: Sellers start on the 30-day range; Admins keep the 7-day range.
+              const defaultDays = this.isSeller ? SELLER_DEFAULT_DAYS : ADMIN_DEFAULT_DAYS;
+              const selected = options.find((option) => option.days === defaultDays) ?? options[0];
               if (!selected) {
                 const message = 'The date filter API returned no usable options.';
                 this.dateFilterStatus.set('error');
@@ -279,7 +320,8 @@ export class OrderManagement {
             previous.retry === current.retry,
         ),
         switchMap(({ days, dateFilterReady }) => {
-          if (!dateFilterReady || days === undefined) return EMPTY;
+          // CHANGED: Sellers get their counts from the listing response (`dashboard`), not order_count/get.
+          if (this.isSeller || !dateFilterReady || days === undefined) return EMPTY;
           this.countLoadStatus.set('loading');
           this.countError.set('');
           this.orderCounts.set(null);
@@ -373,27 +415,37 @@ export class OrderManagement {
             previous.orderStatusId === current.orderStatusId &&
             previous.paymentStatusId === current.paymentStatusId &&
             previous.shippingStatusId === current.shippingStatusId &&
+            previous.search === current.search &&
+            previous.page === current.page &&
             previous.retry === current.retry,
         ),
-        switchMap(({ days, dateFilterReady, orderStatusId, paymentStatusId, shippingStatusId }) => {
+        switchMap(({ days, dateFilterReady, orderStatusId, paymentStatusId, shippingStatusId, search, page }) => {
           if (!dateFilterReady || days === undefined) return EMPTY;
           this.loadStatus.set('loading');
           this.loadError.set('');
+          // CHANGED: the request now depends on the role; the response handling below is shared.
           return defer(() =>
-            this.orderService.getManagementOrders({
-              DAYS: days,
-              ORDER_STATUS: orderStatusId,
-              PAYMENT_STATUS: paymentStatusId,
-              SHIPPING_STATUS: shippingStatusId,
-            }),
+            this.loadOrders({ days, orderStatusId, paymentStatusId, shippingStatusId, search, page }),
           ).pipe(
-            tap((orders) => {
+            tap(({ orders, totalRecords, counts }) => {
               this.orders.set(orders);
+              this.totalRecords.set(totalRecords ?? 0);
+              if (counts) {
+                this.orderCounts.set(counts);
+                this.countError.set('');
+                this.countLoadStatus.set('success');
+              }
               this.loadStatus.set('success');
             }),
             catchError((error: unknown) => {
               this.loadError.set(this.errorMessage(error, 'Orders could not be loaded.'));
               this.loadStatus.set('error');
+              if (this.isSeller) {
+                // The Seller summary cards come from this same request.
+                this.orderCounts.set(null);
+                this.countError.set(this.loadError());
+                this.countLoadStatus.set('error');
+              }
               this.toast.showError(this.loadError());
               return EMPTY;
             }),
@@ -402,6 +454,53 @@ export class OrderManagement {
         takeUntilDestroyed(),
       )
       .subscribe();
+
+    // CHANGED (new): Seller search is sent to the API, debounced, and restarts at page 1.
+    if (this.isSeller) {
+      toObservable(this.query)
+        .pipe(
+          map((query) => query.trim()),
+          debounceTime(SEARCH_DEBOUNCE_MS),
+          // Only a search that differs from the one last sent (initially '') starts a new request.
+          filter((search) => search !== this.sellerSearch()),
+          takeUntilDestroyed(),
+        )
+        .subscribe((search) => {
+          this.sellerSearch.set(search);
+          this.page.set(1);
+        });
+    }
+  }
+
+  /**
+   * Admin: the existing order_dashboard/get request (DAYS + statuses).
+   * Seller: the same endpoint with SELLER_ID, SEARCH, LIMIT and OFFSET; SELLER_ID is resolved from the
+   * logged-in seller's record.
+   */
+  // CHANGED (new): picks the Admin or Seller order management request.
+  private loadOrders(request: OrderListingRequest): Observable<OrderListing> {
+    const filters = {
+      DAYS: request.days,
+      ORDER_STATUS: request.orderStatusId,
+      PAYMENT_STATUS: request.paymentStatusId,
+      SHIPPING_STATUS: request.shippingStatusId,
+    };
+    if (!this.isSeller) {
+      return this.orderService
+        .getManagementOrders(filters)
+        .pipe(map((orders) => ({ orders, totalRecords: null, counts: null })));
+    }
+    return this.sellerOnboarding.getCurrentSellerId().pipe(
+      switchMap((sellerId) =>
+        this.orderService.getSellerManagementOrders({
+          SELLER_ID: sellerId,
+          ...filters,
+          SEARCH: request.search,
+          LIMIT: this.pageSize,
+          OFFSET: (request.page - 1) * this.pageSize,
+        }),
+      ),
+    );
   }
 
   protected readonly tableColumns = computed<readonly TableColumn<OrderRow>[]>(() => [
@@ -426,17 +525,28 @@ export class OrderManagement {
     const orderStatuses = statusNameMap(this.orderStatusOptions());
     const paymentStatuses = statusNameMap(this.paymentStatusOptions());
     const shippingStatuses = statusNameMap(this.shippingStatusOptions());
-    return this.orders()
-      .map((order) => toOrderRow(order, orderStatuses, paymentStatuses, shippingStatuses))
-      .filter((row) =>
-        !query || `${row.orderNo} ${row.customer} ${row.mobile}`.toLowerCase().includes(query),
-      );
+    const rows = this.orders().map((order) =>
+      toOrderRow(order, orderStatuses, paymentStatuses, shippingStatuses),
+    );
+    // CHANGED: Seller rows are already searched by the API (SEARCH), so they are not filtered again here.
+    if (this.isSeller) return rows;
+    return rows.filter((row) =>
+      !query || `${row.orderNo} ${row.customer} ${row.mobile}`.toLowerCase().includes(query),
+    );
   });
 
   protected readonly visibleRows = computed(() => {
+    // CHANGED: a Seller response is already one page (LIMIT/OFFSET); Admin still pages in the browser.
+    if (this.isSeller) return this.filteredRows();
     const start = (this.page() - 1) * PAGE_SIZE;
     return this.filteredRows().slice(start, start + PAGE_SIZE);
   });
+
+  /** Order count for the pagination: total_records for a Seller, the filtered list length for an Admin. */
+  // CHANGED (new)
+  protected readonly totalOrders = computed(() =>
+    this.isSeller ? this.totalRecords() : this.filteredRows().length,
+  );
 
   protected readonly allVisibleSelected = computed(() => {
     const rows = this.visibleRows();
@@ -457,7 +567,8 @@ export class OrderManagement {
 
   protected setQuery(event: Event): void {
     this.query.set(eventValue(event) ?? '');
-    this.page.set(1);
+    // CHANGED: a Seller's page is reset when the debounced search is sent (see the constructor).
+    if (!this.isSeller) this.page.set(1);
   }
 
   protected setFilter(filter: 'orderStatus' | 'paymentStatus' | 'shippingStatus', event: Event): void {
@@ -486,6 +597,11 @@ export class OrderManagement {
   }
 
   protected retryOrderCounts(): void {
+    // CHANGED: Seller counts come from the listing request, so retrying them retries the listing.
+    if (this.isSeller) {
+      this.retryLoad();
+      return;
+    }
     this.orderCountRetry.update((retry) => retry + 1);
   }
 
