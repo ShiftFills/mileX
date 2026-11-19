@@ -308,11 +308,12 @@ export class ShoppingCartService {
     if (!details) {
       return throwError(() => new Error('This item is not in the saved shopping cart, so it cannot be deleted through the API.'));
     }
-    const payload = {
+        const payload = {
       CART_ID: Number(details.cartId),
       PRODUCT_ID: Number(item.product.id),
       SELLER_ID: details.sellerId,
       CUSTOMER_ID: details.customerId,
+      PRODUCT_VARIANT_ID: Number(details.variant?.id),
     };
     if (Object.values(payload).some((id) => !Number.isSafeInteger(id) || id <= 0)) {
       return throwError(() => new RangeError('Cart, product, seller and customer IDs must be positive safe integers.'));

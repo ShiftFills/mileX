@@ -1,5 +1,5 @@
 import { inject } from '@angular/core';
-import { CanMatchFn, Router } from '@angular/router';
+import { CanActivateFn, CanMatchFn, Router } from '@angular/router';
 import { APP_ROUTES } from '../constants/app-routes';
 import { AuthService } from '../services/auth.service';
 
@@ -22,6 +22,20 @@ function defaultRouteFor(userType: string | undefined): string {
       return APP_ROUTES.home;
   }
 }
+
+/**
+ * The storefront Home is for customers and visitors. A signed-in Admin opening it (the URL, a reload with a
+ * saved session, or the logo in the Admin area) goes to the Admin landing page instead, the same page Login
+ * sends Admins to. Customers, Sellers and visitors see Home as before.
+ */
+// CHANGED (new)
+export const storefrontHomeGuard: CanActivateFn = () => {
+  const auth = inject(AuthService);
+  const userType = auth.user()?.userType;
+  return auth.isAuthenticated() && userType?.trim().toUpperCase() === 'ADMIN'
+    ? inject(Router).parseUrl(defaultRouteFor(userType))
+    : true;
+};
 
 export const roleMatchGuard: CanMatchFn = (route, segments) => {
   const auth = inject(AuthService);

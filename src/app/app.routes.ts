@@ -1,7 +1,7 @@
 import { Routes } from '@angular/router';
 import { authGuard } from '@core/guards/auth.guard';
 import { guestGuard } from '@core/guards/guest.guard';
-import { roleMatchGuard } from '@core/guards/role-match.guard';
+import { roleMatchGuard, storefrontHomeGuard } from '@core/guards/role-match.guard';
 import { publicSellerOnboardingGuard } from '@core/guards/seller-account.guard';
 import { AccountLayout } from '@layouts/account-layout/account-layout';
 import { AdminLayout } from '@layouts/admin-layout/admin-layout';
@@ -74,6 +74,8 @@ export const routes: Routes = [
         path: '',
         pathMatch: 'full',
         title: 'MileX',
+        // CHANGED: a signed-in Admin is sent to the Admin landing page instead of the storefront Home.
+        canActivate: [storefrontHomeGuard],
         loadChildren: () => import('@features/home/home.routes').then((m) => m.HOME_ROUTES),
       },
       {

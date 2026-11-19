@@ -1,8 +1,71 @@
 // CHANGED: Seller tests now use real paths (`/admin/products/new` etc.), allow all product routes, and check other admin routes stay blocked.
 import { TestBed } from '@angular/core/testing';
-import { CanMatchFn, Router, Route, UrlSegment, UrlTree, provideRouter } from '@angular/router';
+import {
+  ActivatedRouteSnapshot, CanMatchFn, Router, RouterStateSnapshot, Route, UrlSegment, UrlTree, provideRouter,
+} from '@angular/router';
+import { routes } from '../../app.routes';
 import { AuthService } from '../services/auth.service';
-import { roleMatchGuard } from './role-match.guard';
+import { roleMatchGuard, storefrontHomeGuard } from './role-match.guard';
+
+// CHANGED (new): a signed-in Admin never sees the storefront Home.
+describe('storefrontHomeGuard', () => {
+  let authenticated: boolean;
+  let userType: string | undefined;
+
+  beforeEach(() => {
+    authenticated = true;
+    userType = 'ADMIN';
+    TestBed.configureTestingModule({
+      providers: [
+        // The app's real route table, so the navigations below use the actual Home and Admin routes.
+        provideRouter(routes),
+        {
+          provide: AuthService,
+          useValue: {
+            isAuthenticated: () => authenticated,
+            user: () => (userType ? { userType } : null),
+          },
+        },
+      ],
+    });
+  });
+
+  const runGuard = () =>
+    TestBed.runInInjectionContext(() =>
+      storefrontHomeGuard({} as ActivatedRouteSnapshot, {} as RouterStateSnapshot),
+    );
+
+  it('sends a signed-in Admin to the Admin dashboard', () => {
+    expect(TestBed.inject(Router).serializeUrl(runGuard() as UrlTree)).toBe('/admin/dashboard');
+  });
+
+  it('lets Customers, Sellers and visitors see Home', () => {
+    for (const role of ['CUSTOMER', 'SELLER', 'customer']) {
+      userType = role;
+      expect(runGuard()).toBe(true);
+    }
+    authenticated = false;
+    userType = undefined;
+    expect(runGuard()).toBe(true);
+  });
+
+  it('opens the Admin dashboard when a signed-in Admin navigates to Home', async () => {
+    const router = TestBed.inject(Router);
+    await router.navigateByUrl('/');
+    expect(router.url).toBe('/admin/dashboard');
+  });
+
+  it('keeps Home for a Customer, a Seller and a visitor', async () => {
+    const router = TestBed.inject(Router);
+    for (const [signedIn, role] of [[true, 'CUSTOMER'], [true, 'SELLER'], [false, undefined]] as const) {
+      authenticated = signedIn;
+      userType = role;
+      await router.navigateByUrl('/help');
+      await router.navigateByUrl('/');
+      expect(router.url).toBe('/');
+    }
+  });
+});
 
 describe('roleMatchGuard', () => {
   let authenticated: boolean;

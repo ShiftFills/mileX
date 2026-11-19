@@ -13,8 +13,9 @@
     overflow-x: auto;
     border-bottom: 1px solid var(--color-border-subtle);
 
+    // CHANGED: slightly more compact tabs and panel, matching the smaller Product View.
     button {
-      padding: var(--space-3) var(--space-4);
+      padding: var(--space-2) var(--space-3);
       border: 0;
       border-bottom: 2px solid transparent;
       background: transparent;
@@ -28,12 +29,12 @@
     }
   }
 
-  &__panel { padding: var(--space-4); }
+  &__panel { padding: var(--space-3); }
 
   &__details {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--space-4);
+    gap: var(--space-3);
 
     h2 { margin: 0 0 var(--space-2); font-size: var(--text-sm); font-weight: var(--weight-bold); }
     p { margin: 0; color: var(--color-text-muted); font-size: var(--text-xs); line-height: var(--leading-normal); }

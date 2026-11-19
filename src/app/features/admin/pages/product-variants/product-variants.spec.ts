@@ -306,6 +306,39 @@ describe('ProductVariants edit action', () => {
     expect(component.page()).toBe(2);
   });
 
+  // CHANGED (new): rows shaped like the product_variant/get sample response (COLOR / MATERIAL are IDs).
+  it('shows COLOUR_NAME and MATERIAL_NAME, a dash for null names, and no Barcode column', () => {
+    component.setPage(2);
+    fixture.detectChanges();
+    http.expectOne((req) => req.url.endsWith('/product_variant/get')).flush({
+      status: 'SUCCESS',
+      data: [
+        {
+          VARIANT_ID: 22, VARIANT_NAME: 'Black Leather', SKU: 'SKU00022', BARCODE: '8901234567890',
+          COLOR: 1, COLOUR_NAME: 'Black', MATERIAL: 3, MATERIAL_NAME: 'Leather',
+          PRICE: '2500.00', STOCK_QUANTITY: 5, PRODUCT_ID: 13, SELLER_ID: 44, STATUS: 'ACTIVE',
+        },
+        {
+          VARIANT_ID: 23, VARIANT_NAME: 'Plain', SKU: 'SKU00023', BARCODE: null,
+          COLOR: null, COLOUR_NAME: null, MATERIAL: null, MATERIAL_NAME: null,
+          PRICE: '100.00', STOCK_QUANTITY: 1, PRODUCT_ID: 13, SELLER_ID: 44, STATUS: 'ACTIVE',
+        },
+      ],
+      pagination: { totalRecords: 22 },
+    });
+    fixture.detectChanges();
+
+    const table = fixture.nativeElement.querySelector('.variants-table table') as HTMLTableElement;
+    const headers = Array.from(table.querySelectorAll('thead th')).map((cell) => cell.textContent?.trim());
+    expect(headers).toEqual(['Variant Image', 'Variant Name', 'SKU / Product Code', 'Color', 'Material', 'Stock', 'Price', 'Action']);
+    const rows = Array.from(table.querySelectorAll('tbody tr')).map((row) =>
+      Array.from(row.querySelectorAll('td')).map((cell) => cell.textContent?.trim()),
+    );
+    expect(rows[0].slice(1, 5)).toEqual(['Black Leather', 'SKU00022', 'Black', 'Leather']);
+    expect(rows[1].slice(1, 5)).toEqual(['Plain', 'SKU00023', '—', '—']);
+    expect(table.textContent).not.toContain('8901234567890');
+  });
+
   it('prefills the selected variant and sends its ID and edited values to the update API', () => {
     const selected = component.variants()[0];
     component.openEdit(selected);
