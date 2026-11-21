@@ -9,6 +9,10 @@ export interface AdminProductRow {
   stock: number | null;
   status: 'Active' | 'Inactive' | 'Unknown';
   image: string;
+  // CHANGED (new): S3 key of the product image; the table shows its URL instead of `image` once loaded.
+  imageKey?: string;
+  // CHANGED (new): a PRODUCT_IMAGE that is not an S3 key (legacy "uploads/products/..." path).
+  imagePath?: string;
 }
 
 /** Extra catalogue fields shown on the full Edit Product screen (demo data, no API connected yet). */

@@ -189,6 +189,14 @@
     margin-bottom: var(--space-3);
   }
 
+  // CHANGED (new): while an S3 document's URL loads, or when it cannot be loaded.
+  &__state {
+    margin: 0;
+    padding: var(--space-5) var(--space-3);
+    color: var(--color-text-muted);
+    text-align: center;
+  }
+
   &__title-group {
     min-width: 0;
 

@@ -14,10 +14,14 @@
       <a [routerLink]="routes.products">View All <span aria-hidden="true">→</span></a>
     </div>
     <div class="product-grid">
+      <!-- CHANGED: each card shows its product's own image (signed S3 URL), or the placeholder. -->
       @for (product of bestDeals(); track product.id) {
         <app-product-card
           [product]="product"
           [wishlisted]="wishlist.has(product.id)"
+          [imageSrc]="productImages.src(product)"
+          [imageLoading]="productImages.loading(product)"
+          (imageError)="productImages.failed(product, $event)"
           (wishlistToggle)="toggleWishlist($event)"
         />
       }
@@ -41,7 +45,15 @@
           <a class="category-shelf__item" [routerLink]="[routes.products, product.id]">
             <strong>{{ product.name }}</strong>
             <span>₹ {{ product.price }}</span>
-            <img [src]="product.imageUrl" [alt]="product.name" loading="lazy" decoding="async" />
+            <!-- CHANGED: the product's own image (signed S3 URL), or the placeholder. -->
+            @if (productImages.src(product); as src) {
+              <img [src]="src" [alt]="product.name" loading="lazy" decoding="async" (error)="productImages.failed(product, src)" />
+            } @else {
+              <span class="category-shelf__placeholder" [class.is-loading]="productImages.loading(product)" role="img"
+                [attr.aria-label]="(productImages.loading(product) ? 'Loading image of ' : 'No image for ') + product.name">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="3" /><circle cx="9" cy="9" r="1.5" /><path d="m4.5 18 5-5 3 3 2-2 5 5" /></svg>
+              </span>
+            }
           </a>
         }
       </div>
@@ -54,10 +66,14 @@
       <a [routerLink]="routes.products">View All <span aria-hidden="true">→</span></a>
     </div>
     <div class="product-grid">
+      <!-- CHANGED: each card shows its product's own image (signed S3 URL), or the placeholder. -->
       @for (product of recommended(); track product.id) {
         <app-product-card
           [product]="product"
           [wishlisted]="wishlist.has(product.id)"
+          [imageSrc]="productImages.src(product)"
+          [imageLoading]="productImages.loading(product)"
+          (imageError)="productImages.failed(product, $event)"
           (wishlistToggle)="toggleWishlist($event)"
         />
       }

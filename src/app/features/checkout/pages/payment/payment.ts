@@ -1,5 +1,5 @@
 import { CurrencyPipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { APP_ROUTES } from '@core/constants/app-routes';
 import { CHECKOUT_STEPS, FREE_SHIPPING_THRESHOLD } from '@core/constants/checkout';
@@ -8,6 +8,7 @@ import { AuthService } from '@core/services/auth.service';
 import { CartService } from '@core/services/cart.service';
 import { PaymentMethodService } from '@core/services/payment-method.service';
 import { ProductCatalogService } from '@core/services/product-catalog.service';
+import { ProductImageDisplayService } from '@core/services/product-image-display.service';
 import { ToastService } from '@core/services/toast.service';
 import { ShoppingCartService } from '@features/cart/services/shopping-cart.service';
 import { OrderService } from '@features/orders/services/order.service';
@@ -79,10 +80,14 @@ function displayRank(id: number): number {
   templateUrl: './payment.html',
   styleUrl: './payment.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // CHANGED (new): each Order Summary row shows its product's own image (signed S3 URL).
+  providers: [ProductImageDisplayService],
 })
 export class PaymentPage {
   protected readonly cart = inject(CartService);
   protected readonly catalog = inject(ProductCatalogService);
+  // CHANGED (new)
+  protected readonly productImages = inject(ProductImageDisplayService);
   private readonly paymentMethods = inject(PaymentMethodService);
   private readonly addressBook = inject(AddressService);
   private readonly orders = inject(OrderService);
@@ -185,6 +190,11 @@ export class PaymentPage {
   );
 
   constructor() {
+    // CHANGED (new): loads the S3 image URLs of the order's rows (cached URLs make no request).
+    effect(() => {
+      const products = this.lines().map((line) => line.product);
+      untracked(() => this.productImages.show(products));
+    });
     // The selected address lives in memory only, so after a reload (or when arriving directly)
     // there is none: send the customer back to choose one instead of guessing.
     if (!this.addressBook.selected()) {

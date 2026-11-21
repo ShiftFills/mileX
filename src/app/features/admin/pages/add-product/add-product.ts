@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
-import { EMPTY, Observable, Subscription, catchError, finalize, switchMap, tap } from 'rxjs';
+import { EMPTY, Observable, Subscription, catchError, finalize, of, switchMap, tap, throwError } from 'rxjs';
 import { APP_ROUTES } from '@core/constants/app-routes';
 import { Button } from '@shared/components/button/button';
 import { Card } from '@shared/components/card/card';
@@ -10,6 +10,7 @@ import { Input } from '@shared/components/input/input';
 import { Select } from '@shared/components/select/select';
 import { Textarea } from '@shared/components/textarea/textarea';
 import { ProductCatalogService, ProductInsertPayload, ProductLookupOption } from '@core/services/product-catalog.service';
+import { PRODUCT_IMAGE_FOLDER, S3FileUpload, S3ImageService } from '@core/services/s3-image.service';
 import { ToastService } from '@core/services/toast.service';
 import { SellerOnboardingService } from '@features/seller/services/seller-onboarding.service';
 
@@ -19,9 +20,22 @@ export const REQUIRED_FIELDS = [
 ] as const;
 const ADD_PRODUCT_REQUIRED_FIELDS = REQUIRED_FIELDS.filter((field) => field !== 'sku');
 const PRODUCT_SELLER_ID = 1;
+// CHANGED (new): product image rules (the types and size limit are unchanged).
+export const PRODUCT_IMAGE_TYPES = 'image/png,image/jpeg,image/webp';
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 type ProductLookupName = 'category' | 'brand' | 'taxRate' | 'subcategory';
 type ProductLookupStatus = 'loading' | 'success' | 'error';
+/** Which request a save is waiting for (the button label follows it). */
+// CHANGED (new)
+export type ProductSaveStage = 'idle' | 'uploading' | 'saving';
+
+// CHANGED (new): "245 KB" / "1.2 MB" for the selected image.
+function fileSizeLabel(bytes: number): string {
+  return bytes < 1024 * 1024
+    ? `${Math.max(1, Math.round(bytes / 1024))} KB`
+    : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 interface ProductLookupState {
   status: ProductLookupStatus;
@@ -39,19 +53,37 @@ interface ProductLookupState {
 export class AddProduct implements OnInit {
   private readonly productCatalog = inject(ProductCatalogService);
   protected readonly sellerOnboarding = inject(SellerOnboardingService);
+  // CHANGED (new): uploads the product image to S3 before the product is saved.
+  protected readonly s3Images = inject(S3ImageService);
   private readonly toast = inject(ToastService);
   private readonly addProductRouter = inject(Router);
   private readonly dropdownDestroyRef = inject(DestroyRef);
   private subcategoryRequest?: Subscription;
   private brandRequest?: Subscription;
+  /**
+   * The image uploads of this form ("products/<unique file name>"): the name is fixed when the image is selected,
+   * and retrying a failed save does not upload the same file again.
+   */
+  // CHANGED: the shared S3FileUpload (this form used to keep its own file names and last upload).
+  private readonly imageUpload = new S3FileUpload(this.s3Images, PRODUCT_IMAGE_FOLDER);
   protected readonly loadDropdownLookups: boolean = true;
   protected readonly values = signal<Record<string, string>>({});
   protected readonly attemptedSave = signal(false);
   protected readonly saved = signal(false);
   protected readonly isSubmitting = signal(false);
+  // CHANGED (new)
+  protected readonly saveStage = signal<ProductSaveStage>('idle');
   protected readonly hasVariants = signal(false);
+  // CHANGED: holds at most one image (the products API stores a single PRODUCT_IMAGE); a new pick replaces it.
   protected readonly productImages = signal<File[]>([]);
-  protected readonly imageFileNames = computed(() => this.productImages().map((file) => file.name).join(', '));
+  // CHANGED (new): object URL of the selected image, shown before it is uploaded.
+  protected readonly imagePreview = signal<string | null>(null);
+  protected readonly selectedImage = computed(() => this.productImages()[0] ?? null);
+  protected readonly selectedImageSize = computed(() => {
+    const image = this.selectedImage();
+    return image ? fileSizeLabel(image.size) : '';
+  });
+  protected readonly imageTypes = PRODUCT_IMAGE_TYPES;
   protected readonly productVideo = signal<File | null>(null);
   protected readonly imageError = signal('');
   protected readonly videoError = signal('');
@@ -79,6 +111,11 @@ export class AddProduct implements OnInit {
   protected readonly subCategories = ['Mobile Phones', 'Laptops', 'Accessories', 'Wearables', 'Audio'];
   protected readonly brands = ['MileX', 'Samsung', 'Apple', 'Other'];
   protected readonly taxRates = ['0%', '5%', '12%', '18%', '28%'];
+
+  constructor() {
+    // CHANGED (new): releases the preview's object URL when the screen closes.
+    this.dropdownDestroyRef.onDestroy(() => this.setImagePreview(null));
+  }
 
   ngOnInit(): void {
     if (!this.loadDropdownLookups) return;
@@ -280,22 +317,83 @@ export class AddProduct implements OnInit {
     }
   }
 
+  // CHANGED: one image that replaces the previous pick (was: up to 5, of which only the first was ever saved),
+  // with an empty-file check and a preview.
   protected addProductImage(file: File): void {
-    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
-      this.imageError.set('Choose a PNG, JPG, or WEBP image.');
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      this.imageError.set('Each image must be 5 MB or smaller.');
-      return;
-    }
-    if (this.productImages().length >= 5) {
-      this.imageError.set('You can upload up to 5 images.');
+    if (this.isSubmitting()) return;
+    const error = this.productImageError(file);
+    if (error) {
+      this.imageError.set(error);
       return;
     }
     this.imageError.set('');
-    this.productImages.update((files) => [...files, file]);
+    // CHANGED (new): the image's own S3 file name is fixed now, so every upload attempt of it uses the same name.
+    this.imageFileName(file);
+    this.setImagePreview(URL.createObjectURL(file));
+    this.productImages.set([file]);
     this.saved.set(false);
+  }
+
+  /** The unique S3 file name of a selected image (generated once per selected file). */
+  // CHANGED (new)
+  protected imageFileName(file: File): string {
+    return this.imageUpload.fileName(file);
+  }
+
+  /** The reason a file cannot be the product image, or null when it can. */
+  // CHANGED (new): the type and size checks moved here from addProductImage, plus an empty-file check.
+  // The size message now speaks of one image ("Each image…" before).
+  protected productImageError(file: File): string | null {
+    if (!PRODUCT_IMAGE_TYPES.split(',').includes(file.type)) return 'Choose a PNG, JPG, or WEBP image.';
+    if (file.size === 0) return 'The selected image is empty. Choose another file.';
+    if (file.size > MAX_IMAGE_BYTES) return 'The image must be 5 MB or smaller.';
+    return null;
+  }
+
+  // CHANGED (new)
+  protected removeProductImage(): void {
+    if (this.isSubmitting()) return;
+    this.clearProductImage();
+    this.imageError.set('');
+    this.saved.set(false);
+  }
+
+  /** The browser could not show the selected file, so it is not a usable image. */
+  // CHANGED (new)
+  protected previewFailed(): void {
+    this.clearProductImage();
+    this.imageError.set('This file could not be read as an image. Choose another file.');
+  }
+
+  protected clearProductImage(): void {
+    this.setImagePreview(null);
+    this.productImages.set([]);
+  }
+
+  /**
+   * S3 key of the image, "products/<its unique file name>": uploads it with that file name and folder (the key is
+   * returned once the upload confirms it), or reuses the key when this same file was already uploaded by an
+   * earlier attempt (for example when the upload worked but saving the product failed). The file name is the one
+   * generated when the image was selected, so the upload and PRODUCT_IMAGE always name the same file.
+   */
+  // CHANGED: sends the file name generated at selection and the product image folder.
+  protected uploadProductImage(file: File): Observable<string> {
+    const uploadedKey = this.imageUpload.uploadedKey(file);
+    if (uploadedKey) return of(uploadedKey);
+    this.saveStage.set('uploading');
+    return this.imageUpload.upload(file).pipe(
+      catchError((error: unknown) => {
+        const message = this.s3Images.uploadErrorMessage(error);
+        this.imageError.set(message);
+        return throwError(() => new Error(message));
+      }),
+    );
+  }
+
+  private setImagePreview(url: string | null): void {
+    const previous = this.imagePreview();
+    if (previous) URL.revokeObjectURL(previous);
+    this.imagePreview.set(url);
   }
 
   protected setProductVideo(file: File): void {
@@ -316,12 +414,19 @@ export class AddProduct implements OnInit {
     if (this.isSubmitting()) return;
     this.attemptedSave.set(true);
     const validationFields = [...ADD_PRODUCT_REQUIRED_FIELDS, 'discount'];
-    if (validationFields.some((field) => this.fieldError(field) !== null) || !this.productImages().length) return;
+    const image = this.selectedImage();
+    if (validationFields.some((field) => this.fieldError(field) !== null) || !image) return;
     const payload = this.createProductPayload();
     this.isSubmitting.set(true);
     this.sellerOnboarding.getSellerIdForCurrentUser(payload.SELLER_ID).pipe(
+      // CHANGED: the image is uploaded to S3 first; the product is created only with the returned key.
       switchMap((sellerId) =>
-        this.productCatalog.insertProduct({ ...payload, SELLER_ID: sellerId }),
+        this.uploadProductImage(image).pipe(
+          switchMap((imageKey) => {
+            this.saveStage.set('saving');
+            return this.productCatalog.insertProduct({ ...payload, PRODUCT_IMAGE: imageKey, SELLER_ID: sellerId });
+          }),
+        ),
       ),
       tap((message) => {
         this.cancel();
@@ -333,7 +438,10 @@ export class AddProduct implements OnInit {
         this.toast.showError(this.productCatalog.getErrorMessage(error));
         return EMPTY;
       }),
-      finalize(() => this.isSubmitting.set(false)),
+      finalize(() => {
+        this.isSubmitting.set(false);
+        this.saveStage.set('idle');
+      }),
       takeUntilDestroyed(this.dropdownDestroyRef),
     ).subscribe();
   }
@@ -346,8 +454,6 @@ export class AddProduct implements OnInit {
     const numeric = (name: string): number => Number(values[name]);
     const optionalNumeric = (name: string): number | null =>
       values[name]?.trim() ? Number(values[name]) : null;
-    const imageFile = this.productImages()[0];
-    const imageName = imageFile?.name.split(/[\\/]/).pop() ?? imageFile?.name;
     const videoName = this.productVideo()?.name.split(/[\\/]/).pop();
 
     return {
@@ -355,7 +461,10 @@ export class AddProduct implements OnInit {
       CATEGORY_ID: numeric('category'),
       SUB_CATEGORY_ID: numeric('subcategory'),
       BRAND_ID: numeric('brand'),
-      PRODUCT_IMAGE: media.imagePath ?? (imageName ? `uploads/products/${imageName}` : ''),
+      // CHANGED: the S3 key returned by s3/upload (or the product's saved image). It used to be made up from
+      // the local file name ("uploads/products/<name>"), a file that was never uploaded anywhere.
+      PRODUCT_IMAGE: media.imagePath ?? '',
+      // The S3 API accepts images only, so the video keeps its existing path format.
       PRODUCT_VIDEO: media.videoPath !== undefined
         ? media.videoPath
         : videoName ? `uploads/videos/${videoName}` : null,
@@ -378,7 +487,8 @@ export class AddProduct implements OnInit {
 
   protected cancel(): void {
     this.values.set({});
-    this.productImages.set([]);
+    // CHANGED: also releases the preview (uploads are remembered per selected file, so none carries over).
+    this.clearProductImage();
     this.productVideo.set(null);
     this.imageError.set('');
     this.videoError.set('');

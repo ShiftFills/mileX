@@ -336,7 +336,9 @@ app-stepper {
     padding-block: 0.875rem;
     border-bottom: 1px solid var(--pay-line);
 
-    img {
+    // CHANGED: [role='img'] is the empty image box shown while an S3 image loads or when there is none.
+    img,
+    [role='img'] {
       width: 3.75rem;
       height: 4.75rem;
       flex: 0 0 auto;

@@ -4,8 +4,10 @@ import {
   Component,
   DestroyRef,
   computed,
+  effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
@@ -14,6 +16,7 @@ import { CHECKOUT_STEPS, FREE_SHIPPING_THRESHOLD, PINCODE_PATTERN } from '@core/
 import { AuthService } from '@core/services/auth.service';
 import { CartService } from '@core/services/cart.service';
 import { ProductCatalogService } from '@core/services/product-catalog.service';
+import { ProductImageDisplayService } from '@core/services/product-image-display.service';
 import { ToastService } from '@core/services/toast.service';
 import { WishlistService } from '@core/services/wishlist.service';
 import { ShoppingCartService } from '@features/cart/services/shopping-cart.service';
@@ -43,10 +46,14 @@ type PendingCartAction = 'save' | 'remove';
   templateUrl: './cart.html',
   styleUrl: './cart.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // CHANGED (new): each cart and saved-for-later row shows its product's own image (signed S3 URL).
+  providers: [ProductImageDisplayService],
 })
 export class Cart {
   protected readonly cart = inject(CartService);
   protected readonly catalog = inject(ProductCatalogService);
+  // CHANGED (new)
+  protected readonly productImages = inject(ProductImageDisplayService);
   private readonly auth = inject(AuthService);
   private readonly shoppingCart = inject(ShoppingCartService);
   private readonly wishlist = inject(WishlistService);
@@ -136,6 +143,12 @@ export class Cart {
     // saved cart rows are restored with the latest product values. load() is a no-op once loaded.
     this.catalog.load();
     if (this.isCustomer()) this.loadCustomerCart();
+    // CHANGED (new): loads the S3 image URLs of the rows on screen whenever the cart or saved list changes
+    // (one request per distinct key; cached URLs make none).
+    effect(() => {
+      const products = [...this.cart.items(), ...this.cart.savedItems()].map((item) => item.product);
+      untracked(() => this.productImages.show(products));
+    });
   }
 
   protected variantOf(item: CartItem): {

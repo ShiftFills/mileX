@@ -1,9 +1,12 @@
 import { CurrencyPipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, TemplateRef, computed, inject, signal, viewChild } from '@angular/core';
+import {
+  ChangeDetectionStrategy, Component, TemplateRef, computed, effect, inject, signal, untracked, viewChild,
+} from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { APP_ROUTES } from '@core/constants/app-routes';
 import { CartService } from '@core/services/cart.service';
 import { ProductCatalogService } from '@core/services/product-catalog.service';
+import { ProductImageDisplayService } from '@core/services/product-image-display.service';
 import { CartItem } from '@shared/models';
 import { Alert } from '@shared/components/alert/alert';
 import { Button } from '@shared/components/button/button';
@@ -37,10 +40,14 @@ type PaymentMethod = 'upi' | 'card' | 'bank' | 'cod';
   templateUrl: './checkout.html',
   styleUrl: './checkout.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // CHANGED (new): each product row shows its own image (signed S3 URL).
+  providers: [ProductImageDisplayService],
 })
 export class Checkout {
   protected readonly cart = inject(CartService);
   protected readonly catalog = inject(ProductCatalogService);
+  // CHANGED (new)
+  protected readonly productImages = inject(ProductImageDisplayService);
   private readonly router = inject(Router);
   protected readonly routes = APP_ROUTES;
   protected readonly placed = signal(false);
@@ -90,6 +97,11 @@ export class Checkout {
   // CHANGED (new): loads the catalog for the cart rows (CartService no longer loads it on every page).
   constructor() {
     this.catalog.load();
+    // CHANGED (new): loads the S3 image URLs of the cart rows (cached URLs make no request).
+    effect(() => {
+      const products = this.cart.items().map((item) => item.product);
+      untracked(() => this.productImages.show(products));
+    });
   }
 
   protected retryLoad(): void {

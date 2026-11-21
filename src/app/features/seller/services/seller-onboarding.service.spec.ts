@@ -179,17 +179,18 @@ describe('SellerOnboardingService', () => {
     );
   });
 
-  it('posts file names or nulls with the seller and creator IDs as JSON', () => {
+  // CHANGED: the documents' S3 keys (the onboarding page uploads the files first); it used to send file names.
+  it('posts the documents\' S3 keys or nulls with the seller ID as JSON', () => {
     let result: unknown;
     service
       .uploadDocuments(
         {
-          gstCertificate: new File(['gst'], 'gst-certificate.pdf'),
-          panCard: new File(['pan'], 'pan-card.png'),
-          registrationCertificate: new File(['registration'], 'registration.pdf'),
-          addressProof: new File(['address'], 'address-proof.jpg'),
-          ownerIdProof: new File(['owner'], 'owner-id.pdf'),
-          bankProof: new File(['bank'], 'bank-proof.pdf'),
+          gstCertificate: 'documents/0a1b.pdf',
+          panCard: 'documents/0a1c.png',
+          registrationCertificate: 'documents/0a1d.pdf',
+          addressProof: 'documents/0a1e.jpg',
+          ownerIdProof: 'documents/0a1f.pdf',
+          bankProof: 'documents/0a20.pdf',
         },
         42,
       )
@@ -200,12 +201,12 @@ describe('SellerOnboardingService', () => {
         candidate.url.endsWith('/seller_docs/insert') && candidate.method === 'POST',
     );
     expect(request.request.body).toEqual({
-      GST_CERTIFICATE: 'gst-certificate.pdf',
-      PAN_CARD: 'pan-card.png',
-      BUSINESS_REGISTRATION_CERTIFICATE: 'registration.pdf',
-      ADDRESS_PROOF: 'address-proof.jpg',
-      OWNER_DIRECTOR_ID_PROOF: 'owner-id.pdf',
-      BANK_PROOF: 'bank-proof.pdf',
+      GST_CERTIFICATE: 'documents/0a1b.pdf',
+      PAN_CARD: 'documents/0a1c.png',
+      BUSINESS_REGISTRATION_CERTIFICATE: 'documents/0a1d.pdf',
+      ADDRESS_PROOF: 'documents/0a1e.jpg',
+      OWNER_DIRECTOR_ID_PROOF: 'documents/0a1f.pdf',
+      BANK_PROOF: 'documents/0a20.pdf',
       OTHER_SUPPORTING_DOCUMENT: null,
       SELLER_ID: 42,
       // CHANGED: CREATED_BY removed from the seller_docs/insert payload.

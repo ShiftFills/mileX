@@ -1,0 +1,189 @@
+<div class="store-container order-detail">
+  <a class="order-detail__back" [routerLink]="routes.orders">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5" /></svg>
+    Back to My Orders
+  </a>
+  <app-page-heading heading="Order Details" subtitle="Items, charges and progress for this order" />
+
+  @switch (status()) {
+    @case ('loading') {
+      <div class="order-detail__state" role="status">
+        <app-loading-spinner />
+        <span>Loading order details…</span>
+      </div>
+    }
+
+    @case ('error') {
+      <app-alert tone="danger" role="alert">
+        {{ error() }}
+        @if (canRetry()) {
+          <button type="button" class="order-detail__retry" (click)="retryLoad()">Try again</button>
+        }
+      </app-alert>
+    }
+
+    @case ('not-found') {
+      <section appCard class="od-card order-detail__empty" aria-labelledby="order-missing-title">
+        <h2 id="order-missing-title">We couldn't find order #{{ orderNumber() }}</h2>
+        <p>It may belong to a different account, or the link may be incorrect.</p>
+        <a class="btn btn--accent btn-sm" [routerLink]="routes.orders">Go to My Orders</a>
+      </section>
+    }
+
+    @case ('success') {
+      <div class="order-detail__content">
+        <!-- Order summary -->
+        <section appCard class="od-card od-summary" aria-labelledby="order-number">
+          <header class="od-summary__head">
+            <div class="od-summary__id">
+              <span class="od-summary__bag" aria-hidden="true">
+                <svg viewBox="0 0 16 16"><path d="M3 5.5h10l-.8 7.5H3.8zM5.5 5.5V4.2a2.5 2.5 0 0 1 5 0v1.3" /></svg>
+              </span>
+              <div>
+                <p class="od-summary__eyebrow">Order Number</p>
+                <h2 id="order-number" class="od-summary__number" [title]="orderNumber()">#{{ orderNumber() }}</h2>
+              </div>
+            </div>
+            <app-badge class="od-summary__status" [tone]="statusTone()">{{ statusLabel() }}</app-badge>
+          </header>
+
+          <dl class="od-summary__facts">
+            <div>
+              <dt>Order Date</dt>
+              <dd>{{ placedOn() | date: 'd MMM y, h:mm a' }}</dd>
+            </div>
+            <div>
+              <dt>Items</dt>
+              <dd>{{ itemCount() }} {{ itemCount() === 1 ? 'item' : 'items' }}</dd>
+            </div>
+            <div>
+              <dt>Payment Method</dt>
+              <dd>
+                @if (paymentMethodName(); as method) {
+                  {{ method }}
+                } @else if (paymentMethodLoading()) {
+                  <span class="od-muted">Loading…</span>
+                } @else {
+                  <span class="od-muted">Not available</span>
+                }
+              </dd>
+            </div>
+            <div>
+              <dt>Order Total</dt>
+              <dd class="od-summary__total">{{ pricing().total | currency: 'INR' : 'symbol' : '1.2-2' }}</dd>
+            </div>
+          </dl>
+        </section>
+
+        <!-- Status: tracker for open orders, a note for cancelled/failed ones, nothing for unknown statuses -->
+        @if (closedNote(); as note) {
+          <section appCard class="od-card" aria-labelledby="progress-title">
+            <h2 id="progress-title" class="od-card__title">Order Status</h2>
+            <app-alert tone="danger">{{ note }}</app-alert>
+          </section>
+        } @else if (stage() !== undefined) {
+          <section appCard class="od-card od-progress" aria-labelledby="progress-title">
+            <h2 id="progress-title" class="od-card__title">Order Status</h2>
+            <app-stepper size="large" ariaLabel="Order progress" [steps]="progressSteps()" [current]="stage() ?? 0" />
+          </section>
+        }
+
+        <div class="row g-3">
+          <!-- Items -->
+          <div class="col-12 col-lg-8">
+            <section appCard class="od-card" aria-labelledby="items-title">
+              <h2 id="items-title" class="od-card__title">
+                Items in this Order <span>({{ items().length }})</span>
+              </h2>
+              <ul class="od-items">
+                @for (item of items(); track item.lineId) {
+                  <li class="od-item">
+                    <!-- CHANGED: the item's own image (signed S3 URL); the bag icon while it loads, when it cannot be
+                         shown and when there is none. -->
+                    <span class="od-item__thumb" [attr.aria-busy]="productImages.loading(item.image) || null">
+                      @if (productImages.src(item.image); as src) {
+                        <img [src]="src" alt="" loading="lazy" (error)="productImages.failed(item.image, src)" />
+                      } @else {
+                        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 5.5h10l-.8 7.5H3.8zM5.5 5.5V4.2a2.5 2.5 0 0 1 5 0v1.3" /></svg>
+                      }
+                    </span>
+                    <div class="od-item__info">
+                      @if (item.name) {
+                        <a class="od-item__name" [routerLink]="[routes.products, item.productId]">{{ item.name }}</a>
+                      } @else {
+                        <p class="od-item__name">Product ID: {{ item.productId }}</p>
+                      }
+                      <p class="od-item__meta">
+                        @if (item.variant) {
+                          {{ item.variant }} <span aria-hidden="true">&bull;</span>
+                        }
+                        Qty: {{ item.quantity }}
+                      </p>
+                      @if (mixedStatus()) {
+                        <app-badge class="od-item__status" [tone]="item.statusTone">{{ item.statusLabel }}</app-badge>
+                      }
+                    </div>
+                    @if (item.amount !== null) {
+                      <strong class="od-item__price">{{ item.amount | currency: 'INR' : 'symbol' : '1.2-2' }}</strong>
+                    }
+                  </li>
+                }
+              </ul>
+            </section>
+          </div>
+
+          <!-- Price details + help -->
+          <div class="col-12 col-lg-4">
+            <div class="od-aside">
+              <section appCard class="od-card" aria-labelledby="price-title">
+                <h2 id="price-title" class="od-card__title">Price Details</h2>
+                <dl class="od-price">
+                  @if (pricing().subtotal !== null) {
+                    <div>
+                      <dt>Items Subtotal</dt>
+                      <dd>{{ pricing().subtotal | currency: 'INR' : 'symbol' : '1.2-2' }}</dd>
+                    </div>
+                  }
+                  @if (pricing().discount) {
+                    <div class="od-price__saving">
+                      <dt>Discount</dt>
+                      <dd>&minus;{{ pricing().discount | currency: 'INR' : 'symbol' : '1.2-2' }}</dd>
+                    </div>
+                  }
+                  @if (pricing().tax !== null) {
+                    <div>
+                      <dt>Tax</dt>
+                      <dd>{{ pricing().tax | currency: 'INR' : 'symbol' : '1.2-2' }}</dd>
+                    </div>
+                  }
+                  @if (pricing().shipping !== null) {
+                    <div>
+                      <dt>Shipping</dt>
+                      <dd>
+                        @if (pricing().shipping === 0) {
+                          <span class="od-price__free">Free</span>
+                        } @else {
+                          {{ pricing().shipping | currency: 'INR' : 'symbol' : '1.2-2' }}
+                        }
+                      </dd>
+                    </div>
+                  }
+                  <div class="od-price__total">
+                    <dt>Order Total</dt>
+                    <dd>{{ pricing().total | currency: 'INR' : 'symbol' : '1.2-2' }}</dd>
+                  </div>
+                </dl>
+              </section>
+
+              <section appCard class="od-card od-help" aria-labelledby="help-title">
+                <h2 id="help-title" class="od-card__title">Need help with this order?</h2>
+                <p>Contact support with order #{{ orderNumber() }} for delivery, return or payment questions.</p>
+                <a class="btn btn--outline btn-sm" [routerLink]="routes.support">Help &amp; Support</a>
+              </section>
+            </div>
+          </div>
+        </div>
+      </div>
+    }
+  }
+</div>

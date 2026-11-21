@@ -12,21 +12,26 @@ export class ProductGallery {
   readonly images = input.required<readonly string[]>();
   readonly name = input('');
   readonly wishlisted = input(false);
+  /** True while an image URL is still loading (e.g. a signed S3 URL); with no image, the placeholder shows it. */
+  // CHANGED (new)
+  readonly loading = input(false);
   readonly wishlistToggle = output<void>();
+  /** An image (its URL) could not be displayed, so the page can fetch a fresh S3 URL for it. */
+  // CHANGED (new)
+  readonly imageError = output<string>();
 
   /** Image URLs that failed to load (e.g. a variant image missing on the server). */
   private readonly failedImages = signal<ReadonlySet<string>>(new Set());
 
   /**
    * The images that can be shown: failed ones are skipped, so a missing variant image falls back
-   * to the product image. If every image failed, the original list is kept.
+   * to the product image. With none left, the "no image" placeholder is shown.
    */
   // CHANGED (new): load-failure fallback for the Product View's variant images.
-  protected readonly visibleImages = computed(() => {
-    const images = this.images();
-    const loadable = images.filter((image) => !this.failedImages().has(image));
-    return loadable.length ? loadable : images;
-  });
+  // CHANGED: an empty list (no image, or every image failed) shows the placeholder instead of a broken image.
+  protected readonly visibleImages = computed(() =>
+    this.images().filter((image) => !this.failedImages().has(image)),
+  );
 
   /** Resets to the first image whenever the image set changes (e.g. another product or variant). */
   // CHANGED: follows visibleImages (was images) so dropping a failed image shows the next one.
@@ -45,9 +50,11 @@ export class ProductGallery {
   }
 
   // CHANGED (new): called by the <img> (error) events.
+  // CHANGED: also reports the failed URL to the page.
   protected markFailed(image: string): void {
     if (!this.failedImages().has(image)) {
       this.failedImages.update((failed) => new Set(failed).add(image));
+      this.imageError.emit(image);
     }
   }
 }

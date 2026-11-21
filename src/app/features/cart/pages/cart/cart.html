@@ -30,7 +30,13 @@
               @let product = item.product;
               @let variant = variantOf(item);
               <article appCard class="cart-item">
-                <img class="cart-item__image" [src]="product.imageUrl" [alt]="product.name" />
+                <!-- CHANGED: the product's own image (signed S3 URL); the empty image box while it loads or when there is none. -->
+                @if (productImages.src(product); as src) {
+                  <img class="cart-item__image" [src]="src" [alt]="product.name" (error)="productImages.failed(product, src)" />
+                } @else {
+                  <span class="cart-item__image" role="img" [attr.aria-busy]="productImages.loading(product) || null"
+                    [attr.aria-label]="(productImages.loading(product) ? 'Loading image of ' : 'No image for ') + product.name"></span>
+                }
                 <div class="cart-item__details">
                   <h2 [class.cart-item__name--printed-maxi]="product.name === 'Women Printed Maxi Dress'">{{ product.name }}</h2>
                   @if (item.apiDetails?.productSku || item.apiDetails?.cartSku || product.sku) {
@@ -236,7 +242,13 @@
             @let product = item.product;
             @let variant = variantOf(item);
             <article appCard class="cart-item cart-item--saved">
-              <img class="cart-item__image" [src]="product.imageUrl" [alt]="product.name" />
+              <!-- CHANGED: same image handling as the cart rows above. -->
+              @if (productImages.src(product); as src) {
+                <img class="cart-item__image" [src]="src" [alt]="product.name" (error)="productImages.failed(product, src)" />
+              } @else {
+                <span class="cart-item__image" role="img" [attr.aria-busy]="productImages.loading(product) || null"
+                  [attr.aria-label]="(productImages.loading(product) ? 'Loading image of ' : 'No image for ') + product.name"></span>
+              }
               <div class="cart-item__details">
                 <h2>{{ product.name }}</h2>
                 @if (item.apiDetails?.productSku || item.apiDetails?.cartSku || product.sku) {

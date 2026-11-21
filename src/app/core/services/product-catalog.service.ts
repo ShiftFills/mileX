@@ -5,10 +5,13 @@ import { PaginatedResponse, Product } from '@shared/models';
 import { API_ENDPOINTS } from '../constants/api-endpoints';
 import { ApiService } from './api.service';
 import { AuthService } from './auth.service';
+import { isS3ImageKey } from './s3-image.service';
 
 export type ProductCatalogStatus = 'idle' | 'loading' | 'success' | 'error';
 
-const FALLBACK_IMAGE = '/images/latest-gadgets.svg';
+/** Stock image a product gets when products/get sends no image URL (IMAGE_URL). */
+// CHANGED: exported, so the All Products table can show its own "no image" placeholder instead.
+export const PRODUCT_FALLBACK_IMAGE = '/images/latest-gadgets.svg';
 const MAX_CACHED_PRODUCT_PAGES = 20;
 
 export interface ProductLookupOption {
@@ -169,6 +172,9 @@ function mapProduct(value: unknown): Product | null {
   const categoryName = productFieldText(value['CATEGORY_NAME']).trim();
   const subCategoryName = productFieldText(value['SUB_CATEGORY_NAME']).trim();
   const brandName = productFieldText(value['BRAND_NAME']).trim();
+  // CHANGED (new): an S3 image key from PRODUCT_IMAGE; legacy "uploads/..." paths are not included.
+  const productImage = productFieldText(value['PRODUCT_IMAGE']).trim();
+  const imageKey = isS3ImageKey(productImage) ? productImage : '';
   return {
     id: String(rawId),
     name,
@@ -178,7 +184,7 @@ function mapProduct(value: unknown): Product | null {
         : 'Product description is not available.',
     price,
     currency: 'INR',
-    imageUrl: images?.[0] ?? FALLBACK_IMAGE,
+    imageUrl: images?.[0] ?? PRODUCT_FALLBACK_IMAGE,
     ...(typeof value['PRODUCT_CODE_SKU'] === 'string'
       ? { sku: value['PRODUCT_CODE_SKU'].trim() }
       : {}),
@@ -203,6 +209,9 @@ function mapProduct(value: unknown): Product | null {
     ...(categoryName ? { categoryName } : {}),
     ...(subCategoryName ? { subCategoryName } : {}),
     ...(brandName ? { brandName } : {}),
+    ...(imageKey ? { imageKey } : {}),
+    // CHANGED (new)
+    ...(productImage && !imageKey ? { imagePath: productImage } : {}),
   };
 }
 

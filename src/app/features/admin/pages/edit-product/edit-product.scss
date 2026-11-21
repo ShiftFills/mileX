@@ -81,26 +81,35 @@
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
+    transition: opacity var(--transition-fast);
+
+    // CHANGED (new)
+    &.is-uploading {
+      opacity: 0.55;
+    }
   }
 
   &__empty {
+    // CHANGED: room for the loading spinner and the "could not be displayed" note.
+    display: inline-flex;
+    max-width: 12rem;
+    align-items: center;
+    gap: var(--space-2);
     color: var(--color-placeholder);
     font-size: var(--text-xs);
+    text-align: center;
   }
 }
 
-.gallery-thumbs,
-.media-thumbs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
+// CHANGED (new): note under a newly selected image.
+.gallery-caption {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  text-align: center;
 }
 
-.gallery-thumbs {
-  justify-content: space-between;
-}
-
-.gallery-thumb,
+// CHANGED: the gallery thumbnail strip was removed (one image now); these tiles remain.
 .media-thumb {
   position: relative;
   display: grid;
@@ -123,20 +132,10 @@
   }
 }
 
-.gallery-thumb {
-  width: 2.5rem;
-  height: 2.5rem;
-  cursor: pointer;
-
-  &.is-active {
-    border-color: var(--color-accent);
-    box-shadow: 0 0 0 1px var(--color-accent);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--color-focus-ring);
-    outline-offset: 1px;
-  }
+// CHANGED (new): shown in the image tile while the saved image loads, or when it cannot be displayed.
+.media-thumb__placeholder {
+  color: var(--color-placeholder);
+  font-size: var(--text-xs);
 }
 
 .gallery-add {
@@ -162,26 +161,6 @@
   &:focus-within {
     outline: 2px solid var(--color-focus-ring);
     outline-offset: 1px;
-  }
-}
-
-.gallery-panel .gallery-thumbs {
-  margin-top: var(--space-2);
-}
-
-@media (min-width: 768px) and (max-width: 991.98px) {
-  // The gallery column is narrow at tablet widths. Keep all four controls in
-  // one row while using a compact, fixed tile size that cannot flex-shrink.
-  .gallery-thumbs {
-    flex-wrap: nowrap;
-    gap: 0.125rem;
-  }
-
-  .gallery-thumb,
-  .gallery-panel .gallery-add {
-    width: 1.75rem;
-    height: 1.75rem;
-    flex: 0 0 1.75rem;
   }
 }
 
@@ -218,10 +197,19 @@
   border-left: 0.4rem solid #fff;
 }
 
+// Also used by the product image row (same change/remove controls as the video).
 .video-row {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+}
+
+// CHANGED (new)
+.media-hint {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: 0.6rem;
 }
 
 .existing-video-preview {
@@ -263,6 +251,12 @@
     font-size: inherit;
     text-align: left;
     cursor: pointer;
+
+    // CHANGED (new): the image controls are disabled while the product is saved.
+    &:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
   }
 }
 
@@ -306,11 +300,6 @@
   }
 }
 
-.media-thumbs {
-  gap: var(--space-2);
-  padding: 0.2rem;
-}
-
 .media-thumb,
 .gallery-add--sm {
   width: 2.25rem;
@@ -338,10 +327,6 @@
     .row > div {
       width: 50%;
     }
-  }
-
-  .media-thumbs {
-    gap: var(--space-1);
   }
 
   .video-row {

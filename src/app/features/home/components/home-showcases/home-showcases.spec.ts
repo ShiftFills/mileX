@@ -21,11 +21,13 @@ describe('HomeShowcases', () => {
   let fixture: ComponentFixture<HomeShowcases>;
   let http: HttpTestingController;
 
-  /** Product names shown by the product cards of one section (the card image alt is the name). */
+  /** Product names shown by the product cards of one section. */
+  // CHANGED: read from the card text; a card without a usable image shows a placeholder instead of an <img>.
   const productNames = (section: string): string[] =>
     Array.from(
-      fixture.nativeElement.querySelectorAll(`${section} app-product-card img`) as NodeListOf<HTMLImageElement>,
-      (image) => image.alt,
+      fixture.nativeElement.querySelectorAll(`${section} app-product-card`) as NodeListOf<HTMLElement>,
+      (card) => (card.querySelector('.product-card__details h2') ?? card.querySelector('.product-card__details > p'))
+        ?.textContent?.trim() ?? '',
     );
   const text = (selector: string): string =>
     (fixture.nativeElement.querySelector(selector)?.textContent ?? '').replace(/\s+/g, ' ').trim();
@@ -123,5 +125,123 @@ describe('HomeShowcases', () => {
     fixture.detectChanges();
 
     expect(text('.product-state')).toBe('There are no products to display right now.');
+  });
+
+  // CHANGED (new): each product shows the signed S3 URL of its own PRODUCT_IMAGE, like the All Products table.
+  describe('product images', () => {
+    const SIGNED = (key: string, version = 1) =>
+      `https://bucket.s3.ap-south-1.amazonaws.com/${key}?X-Amz-Signature=sig${version}`;
+    const signedResponse = (key: string, version = 1) => ({
+      success: true, folderName: key.split('/')[0], fileName: key.split('/')[1], imageKey: key,
+      imageUrl: SIGNED(key, version), expiresIn: 3600,
+    });
+    const PHONE_KEY = 'products/9210035e12d5f8ee185b4b73febb919f.png';
+    const TV_KEY = 'images/bc4be536708a4a133f9c18b99217ba51.png';
+    const LEGACY_PATH = 'uploads/products/Screenshot 2026-10-21 154159.png';
+    const HOME_DATA = [
+      { PRODUCT_ID: 21, PRODUCT_NAME: 'iPhone 16 Pro', SELLING_PRICE: '2000.00', STOCK_QUANTITY: 5, PRODUCT_IMAGE: PHONE_KEY },
+      { PRODUCT_ID: 20, PRODUCT_NAME: 'Galaxy TV', SELLING_PRICE: '3000.00', STOCK_QUANTITY: 5, PRODUCT_IMAGE: TV_KEY },
+      { PRODUCT_ID: 16, PRODUCT_NAME: 'Old Laptop', SELLING_PRICE: '1000.00', STOCK_QUANTITY: 5, PRODUCT_IMAGE: LEGACY_PATH },
+      { PRODUCT_ID: 17, PRODUCT_NAME: 'No Image Mouse', SELLING_PRICE: '500.00', STOCK_QUANTITY: 5, PRODUCT_IMAGE: null },
+    ];
+    /** Each card's image in one section: its src, or "loading" / "no image" for the placeholder. */
+    const cardImages = (section: string): (string | null)[] =>
+      Array.from(
+        fixture.nativeElement.querySelectorAll(`${section} .product-card__image > *`) as NodeListOf<HTMLElement>,
+        (cell) => cell instanceof HTMLImageElement
+          ? cell.getAttribute('src')
+          : cell.classList.contains('is-loading') ? 'loading' : 'no image',
+      );
+    const cardImageOf = (section: string, name: string): HTMLElement =>
+      fixture.nativeElement.querySelector(`${section} app-product-card img[alt="${name}"]`) as HTMLElement;
+
+    function loadHome(): void {
+      http.expectOne(HOME_PRODUCTS_URL).flush({ status: 'SUCCESS', data: HOME_DATA });
+      fixture.detectChanges();
+    }
+
+    function flushImages(keys: string[], version = 1): void {
+      for (const key of keys) http.expectOne(`/s3-api/s3/images/${key}`).flush(signedResponse(key, version));
+      fixture.detectChanges();
+    }
+
+    it('shows each product its own S3 image in Best Deals and Recommended Items, with one request per key', () => {
+      loadHome();
+      expect(cardImages(BEST_DEALS)).toEqual(['loading', 'loading', `/${LEGACY_PATH}`, 'no image']);
+
+      flushImages([PHONE_KEY, TV_KEY]);
+
+      expect(cardImages(BEST_DEALS)).toEqual([SIGNED(PHONE_KEY), SIGNED(TV_KEY), `/${LEGACY_PATH}`, 'no image']);
+      // Recommended Items sorts the same products by price: same images, no second request.
+      expect(productNames(RECOMMENDED)).toEqual(['No Image Mouse', 'Old Laptop', 'iPhone 16 Pro', 'Galaxy TV']);
+      expect(cardImages(RECOMMENDED)).toEqual(['no image', `/${LEGACY_PATH}`, SIGNED(PHONE_KEY), SIGNED(TV_KEY)]);
+      expect(fixture.nativeElement.querySelectorAll('img[src="/images/latest-gadgets.svg"]').length).toBe(0);
+      const placeholder = fixture.nativeElement.querySelector(`${BEST_DEALS} .product-card__placeholder`) as HTMLElement;
+      expect(placeholder.getAttribute('role')).toBe('img');
+      expect(placeholder.getAttribute('aria-label')).toBe('No image for No Image Mouse');
+    });
+
+    it('shows shelf items their own images and reuses URLs the Home products already loaded', () => {
+      loadHome();
+      flushImages([PHONE_KEY, TV_KEY]);
+      fixture.componentRef.setInput('categories', [{ id: '3', label: 'Electronics' }]);
+      fixture.detectChanges();
+      http.expectOne(shelfUrl(3)).flush({
+        status: 'SUCCESS',
+        data: [
+          { PRODUCT_ID: 21, PRODUCT_NAME: 'iPhone 16 Pro', SELLING_PRICE: '2000.00', PRODUCT_IMAGE: PHONE_KEY },
+          { PRODUCT_ID: 22, PRODUCT_NAME: 'OnePlus Nord', SELLING_PRICE: '340.00', PRODUCT_IMAGE: 'products/eaccde8a263beb0d630e83a3407f9684.png' },
+        ],
+      });
+      fixture.detectChanges();
+
+      // Only the key not loaded yet is requested.
+      flushImages(['products/eaccde8a263beb0d630e83a3407f9684.png']);
+      const shelfImages = Array.from(
+        fixture.nativeElement.querySelectorAll('.category-shelf__item img') as NodeListOf<HTMLImageElement>,
+        (image) => [image.alt, image.getAttribute('src')],
+      );
+      expect(shelfImages).toEqual([
+        ['iPhone 16 Pro', SIGNED(PHONE_KEY)],
+        ['OnePlus Nord', SIGNED('products/eaccde8a263beb0d630e83a3407f9684.png')],
+      ]);
+    });
+
+    it('never sends a legacy path to the S3 API and shows the placeholder when its file is missing', () => {
+      loadHome();
+      flushImages([PHONE_KEY, TV_KEY]);
+      http.expectNone((request) => request.url.includes('/s3/images/uploads'));
+
+      cardImageOf(BEST_DEALS, 'Old Laptop').dispatchEvent(new Event('error'));
+      fixture.detectChanges();
+
+      expect(cardImages(BEST_DEALS)[2]).toBe('no image');
+      expect(cardImages(RECOMMENDED)[1]).toBe('no image');
+    });
+
+    it('gets one fresh URL when an image fails to display, then shows the placeholder', () => {
+      loadHome();
+      flushImages([PHONE_KEY, TV_KEY]);
+
+      cardImageOf(BEST_DEALS, 'iPhone 16 Pro').dispatchEvent(new Event('error'));
+      fixture.detectChanges();
+      expect(cardImages(BEST_DEALS)[0]).toBe('loading');
+      flushImages([PHONE_KEY], 2);
+      expect(cardImages(BEST_DEALS)[0]).toBe(SIGNED(PHONE_KEY, 2));
+
+      cardImageOf(BEST_DEALS, 'iPhone 16 Pro').dispatchEvent(new Event('error'));
+      fixture.detectChanges();
+      http.expectNone((request) => request.url.includes('/s3/images/'));
+      expect(cardImages(BEST_DEALS)[0]).toBe('no image');
+      expect(cardImages(BEST_DEALS)[1]).toBe(SIGNED(TV_KEY));
+    });
+
+    it('shows the placeholder when the image API fails', () => {
+      loadHome();
+      http.expectOne(`/s3-api/s3/images/${PHONE_KEY}`).flush('Server error', { status: 500, statusText: 'Server Error' });
+      flushImages([TV_KEY]);
+
+      expect(cardImages(BEST_DEALS).slice(0, 2)).toEqual(['no image', SIGNED(TV_KEY)]);
+    });
   });
 });

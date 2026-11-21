@@ -322,7 +322,9 @@ p {
     padding-block: var(--space-3);
     border-block: 1px solid var(--color-border-subtle);
 
-    img {
+    // CHANGED: [role='img'] is the empty image box shown while an S3 image loads or when there is none.
+    img,
+    [role='img'] {
       width: 3.5rem;
       height: 4.4rem;
       flex: 0 0 auto;

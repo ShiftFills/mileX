@@ -120,6 +120,32 @@ describe('SellerVerificationService', () => {
     );
   });
 
+  // CHANGED (new): documents uploaded to S3 keep their key (storageKey); legacy file names keep their /uploads URL.
+  it('keeps the S3 key of an uploaded document instead of building an /uploads URL for it', () => {
+    let result: SellerVerificationRecord | undefined;
+    service.getSellerDetails(59).subscribe((seller) => (result = seller as SellerVerificationRecord));
+
+    http.expectOne((request) => request.url.endsWith('/seller_verification/get')).flush({
+      status: true,
+      data: [{
+        VERIFICATION_ID: 118, SELLER_ID: 59, SELLER_NAME: 'S', BUSINESS_NAME: 'B', VERIFICATION_STATUS: 'PENDING',
+        DOCUMENT_ID: 12,
+        GST_CERTIFICATE: 'documents/9210035e12d5f8ee185b4b73febb919f.png',
+        PAN_CARD: 'pan card.pdf',
+      }],
+    });
+
+    const documents = result?.documents ?? [];
+    expect(documents.find((document) => document.proofType === 'GST_CERTIFICATE')).toMatchObject({
+      fileName: 'documents/9210035e12d5f8ee185b4b73febb919f.png',
+      url: '',
+      storageKey: 'documents/9210035e12d5f8ee185b4b73febb919f.png',
+    });
+    const pan = documents.find((document) => document.proofType === 'PAN_CARD');
+    expect(pan).toMatchObject({ url: '/uploads/pan%20card.pdf' });
+    expect(pan).not.toHaveProperty('storageKey');
+  });
+
   it('loads details for the selected seller and maps the returned seller record', () => {
     let result: unknown;
     service.getSellerDetails(59).subscribe((seller) => (result = seller));

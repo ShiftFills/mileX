@@ -313,7 +313,14 @@
       <app-button variant="plain" size="compact" ariaLabel="Close document preview"
         (clicked)="closeDocumentPreview()">×</app-button>
     </header>
-    <app-document-preview [src]="document.url" [title]="document.name" [readOnly]="true" />
+    <!-- CHANGED: an S3 document is shown from its signed URL once loaded. -->
+    @if (documentSrc(document); as src) {
+    <app-document-preview [src]="src" [title]="document.name" [readOnly]="true" />
+    } @else {
+    <p class="seller-document-preview__state" [attr.role]="documentSrcFailed(document) ? 'alert' : 'status'">
+      {{ documentSrcFailed(document) ? 'This document could not be loaded. Close the preview and try again.' : 'Loading document…' }}
+    </p>
+    }
     @if ((document.status === 'Pending' || document.status === 'Approved') && documentRejectionOpen()) {
     <div class="seller-document-preview__remarks">
       <label class="seller-dialog__section d-block" for="seller-preview-remarks">Remarks</label>
@@ -386,9 +393,12 @@
     }
     }
     <footer class="seller-document-preview__footer">
-      <a class="seller-document-preview__open" [href]="document.url" target="_blank" rel="noopener">
+      <!-- CHANGED: the signed URL for an S3 document. -->
+      @if (documentSrc(document); as src) {
+      <a class="seller-document-preview__open" [href]="src" target="_blank" rel="noopener">
         Open document in a new tab
       </a>
+      }
       @if (
       (document.status === 'Pending' || document.status === 'Approved' || document.status === 'Rejected') &&
       !documentRejectionOpen()
@@ -437,7 +447,7 @@
 </ng-template>
 <ng-template #documentStatusCell let-doc>
   <span class="seller-doc-status">
-    @if (doc.url || doc.required) {
+    @if (doc.url || doc.storageKey || doc.required) {
     <app-badge [tone]="statusTone(doc.status ?? 'Pending')" size="compact">
       {{ doc.status ?? 'Pending' }}
     </app-badge>
@@ -447,6 +457,7 @@
   </span>
 </ng-template>
 <ng-template #documentActionCell let-doc>
-  <app-button variant="outline" size="dense" [disabled]="!doc.url" [ariaLabel]="'View ' + doc.name"
+  <!-- CHANGED: S3 documents (storageKey) can be viewed too. -->
+  <app-button variant="outline" size="dense" [disabled]="!doc.url && !doc.storageKey" [ariaLabel]="'View ' + doc.name"
     (clicked)="viewDocument(doc)">View</app-button>
 </ng-template>

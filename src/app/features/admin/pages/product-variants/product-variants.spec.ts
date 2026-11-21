@@ -6,9 +6,22 @@ import { Observable, of, throwError } from 'rxjs';
 import type { Mock } from 'vitest';
 import { ProductCatalogService } from '@core/services/product-catalog.service';
 import { AuthService } from '@core/services/auth.service';
+import { S3ImageService } from '@core/services/s3-image.service';
 import { ToastService } from '@core/services/toast.service';
 import { SellerOnboardingService } from '@features/seller/services/seller-onboarding.service';
 import { ProductVariants } from './product-variants';
+
+// CHANGED (new): variant images are uploaded to S3 ("variants/<unique file name>") before the variant is saved.
+const UPLOADED_VARIANT_KEY = expect.stringMatching(/^variants\/[0-9a-f]{32}\.png$/);
+const SIGNED = (key: string) => `https://bucket.s3.ap-south-1.amazonaws.com/${key}?X-Amz-Signature=abc`;
+function s3ImagesMock() {
+  return {
+    uploadImage: vi.fn((_file: File, fileName: string, folderName: string) => of(`${folderName}/${fileName}`)),
+    imageUrl: vi.fn((key: string) => of(SIGNED(key))),
+    hasFreshUrl: vi.fn(() => true),
+    uploadErrorMessage: vi.fn((_error: unknown, subject = 'The product image') => `${subject} could not be uploaded. Bucket unavailable.`),
+  };
+}
 
 interface VariantRow {
   id: string;
@@ -96,8 +109,10 @@ describe('ProductVariants edit action', () => {
   let http: HttpTestingController;
   let catalog: { loadPage: ReturnType<typeof vi.fn>; getErrorMessage: ReturnType<typeof vi.fn> };
   let toast: { showError: ReturnType<typeof vi.fn>; showSuccess: ReturnType<typeof vi.fn> };
+  let s3Images: ReturnType<typeof s3ImagesMock>;
 
   beforeEach(async () => {
+    s3Images = s3ImagesMock();
     catalog = {
       loadPage: vi.fn(() => of({
         items: [{ id: '4', name: 'Lenovo 110', sellerId: 1 }],
@@ -115,6 +130,7 @@ describe('ProductVariants edit action', () => {
         { provide: ProductCatalogService, useValue: catalog },
         { provide: SellerOnboardingService, useValue: { getSellerIdForCurrentUser: (id: number) => of(id) } },
         { provide: ToastService, useValue: toast },
+        { provide: S3ImageService, useValue: s3Images },
       ],
     }).compileComponents();
     fixture = TestBed.createComponent(ProductVariants);
@@ -152,6 +168,89 @@ describe('ProductVariants edit action', () => {
   });
 
   afterEach(() => http.verify());
+
+  // CHANGED (new): variant images on S3.
+  describe('variant images', () => {
+    const page = () => component as unknown as {
+      retryLoad(): void;
+      onImageChange(event: Event): void;
+      imageError(): string;
+      imagePreview(): string | null;
+    };
+    const thumbnails = () => Array.from(
+      fixture.nativeElement.querySelectorAll('td .variant-thumb') as NodeListOf<HTMLElement>,
+      (cell) => cell instanceof HTMLImageElement ? cell.getAttribute('src') : 'placeholder',
+    );
+    const s3Row = (id: number, image: string | null) => ({
+      VARIANT_ID: id, VARIANT_NAME: `Variant ${id}`, PRODUCT_ID: 4, SELLER_ID: 6, SELLER_NAME: 'Arun Kumar',
+      STATUS: 'ACTIVE', VARIANT_SKU: `SKU${id}`, VARIANT_IMAGE: image, STOCK_QUANTITY: 5, SELLING_PRICE: 100,
+    });
+    const reload = (rows: Record<string, unknown>[]) => {
+      page().retryLoad();
+      fixture.detectChanges();
+      http.expectOne((req) => req.url.endsWith('/product_variant/get')).flush({ status: 'SUCCESS', data: rows });
+      fixture.detectChanges();
+    };
+    const chooseFile = (file: File) => {
+      const input = document.createElement('input');
+      Object.defineProperty(input, 'files', { value: [file] });
+      page().onImageChange({ target: input } as unknown as Event);
+    };
+
+    it('shows each variant its own image: an S3 key through its signed URL, a legacy name through /uploads', () => {
+      expect(thumbnails()).toEqual(['/uploads/black_leather.png']);
+
+      reload([s3Row(31, 'variants/aa11.png'), s3Row(32, 'variants/bb22.png'), s3Row(33, null)]);
+
+      expect(s3Images.imageUrl.mock.calls.map(([key]) => key)).toEqual(['variants/aa11.png', 'variants/bb22.png']);
+      expect(thumbnails()).toEqual([SIGNED('variants/aa11.png'), SIGNED('variants/bb22.png'), 'placeholder']);
+    });
+
+    it('keeps the saved S3 key when a variant is edited without choosing a new image', () => {
+      reload([s3Row(31, 'variants/aa11.png')]);
+      component.openEdit(component.variants()[0]);
+      flushVariantLookups(http);
+      component.save();
+
+      const request = http.expectOne((req) => req.url.endsWith('/product_variant/update'));
+      expect(request.request.body).toMatchObject({ VARIANT_ID: 31, VARIANT_IMAGE: 'variants/aa11.png' });
+      expect(s3Images.uploadImage).not.toHaveBeenCalled();
+      request.flush({ status: 'SUCCESS', message: 'Product variant updated successfully' });
+      fixture.detectChanges();
+      http.expectOne((req) => req.url.endsWith('/product_variant/get')).flush({ status: 'SUCCESS', data: [] });
+    });
+
+    it('does not save the variant when its image cannot be uploaded', () => {
+      s3Images.uploadImage.mockReturnValue(throwError(() => new Error('Bucket unavailable')));
+      component.openEdit(component.variants()[0]);
+      flushVariantLookups(http);
+      component.selectedImage.set(new File(['image'], 'new.png', { type: 'image/png' }));
+      component.save();
+
+      http.expectNone((req) => req.url.endsWith('/product_variant/update'));
+      expect(page().imageError()).toBe('The variant image could not be uploaded. Bucket unavailable.');
+      expect(toast.showError).toHaveBeenCalledWith('The variant image could not be uploaded. Bucket unavailable.');
+      expect(component.dialog()).toBe('edit');
+      expect(component.isSubmitting()).toBe(false);
+    });
+
+    it('accepts only PNG, JPG and WEBP images and previews the selected one', () => {
+      Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:preview'), revokeObjectURL: vi.fn() });
+      component.openAdd();
+      flushVariantLookups(http);
+
+      chooseFile(new File(['%PDF'], 'spec.pdf', { type: 'application/pdf' }));
+      expect(page().imageError()).toBe('Choose a PNG, JPG, or WEBP image.');
+      expect(component.selectedImage()).toBeNull();
+
+      chooseFile(new File(['png'], 'front.webp', { type: 'image/webp' }));
+      expect(page().imageError()).toBe('');
+      expect(component.selectedImage()?.name).toBe('front.webp');
+      expect(page().imagePreview()).toBe('blob:preview');
+      fixture.detectChanges();
+      expect((fixture.nativeElement.querySelector('.upload-preview') as HTMLImageElement).getAttribute('src')).toBe('blob:preview');
+    });
+  });
 
   it('displays the variants returned by the listing API', () => {
     expect(component.loadStatus()).toBe('success');
@@ -389,7 +488,8 @@ describe('ProductVariants edit action', () => {
       WEIGHT: 0.4,
       PRICE: 3200,
       STOCK_QUANTITY: 80,
-      VARIANT_IMAGE: 'variant-new.png',
+      // CHANGED: the S3 key of the uploaded image (was the local file name).
+      VARIANT_IMAGE: UPLOADED_VARIANT_KEY,
       SELLER_ID: 1,
       SELLER_NAME: 'Arun Kumar',
       STATUS: 'INACTIVE',
@@ -618,7 +718,8 @@ describe('ProductVariants edit action', () => {
       WEIGHT: 1.2,
       PRICE: 2499,
       STOCK_QUANTITY: 50,
-      VARIANT_IMAGE: 'black_leather.png',
+      // CHANGED: the S3 key of the uploaded image (was the local file name).
+      VARIANT_IMAGE: UPLOADED_VARIANT_KEY,
       PRODUCT_ID: 4,
       SELLER_ID: 1,
       SELLER_NAME: 'Arun Kumar',
@@ -779,6 +880,7 @@ describe('ProductVariants listing by role', () => {
           },
         },
         { provide: ToastService, useValue: { showError: vi.fn(), showSuccess: vi.fn() } },
+        { provide: S3ImageService, useValue: s3ImagesMock() },
       ],
     }).compileComponents();
     fixture = TestBed.createComponent(ProductVariants);

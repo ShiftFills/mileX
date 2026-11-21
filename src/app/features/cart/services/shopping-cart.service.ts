@@ -4,6 +4,8 @@ import { Observable, map, throwError } from 'rxjs';
 import { API_ENDPOINTS } from '@core/constants/api-endpoints';
 import { ApiService } from '@core/services/api.service';
 import { AuthService } from '@core/services/auth.service';
+// CHANGED (new): PRODUCT_IMAGE can be an S3 key ("products/<file>"), shown through the S3 image API.
+import { isS3ImageKey } from '@core/services/s3-image.service';
 const FALLBACK_IMAGE = '/images/latest-gadgets.svg';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -108,13 +110,19 @@ function mapCartItem(value: unknown): CartItem {
     variant?.material,
   ].filter(Boolean).join(' · ');
   const description = text(value['PRODUCT_DESCRIPTION']);
+  // CHANGED (new): an S3 key is kept as imageKey (the page loads its signed URL) instead of being turned into
+  // the broken relative URL "/products/<file>". Legacy paths ("uploads/products/...") keep their URL as before.
+  const productImage = text(value['PRODUCT_IMAGE']);
+  const imageKey = productImage && isS3ImageKey(productImage) ? productImage : undefined;
   const product: Product = {
     id: String(productId),
     name,
     description: description ?? 'Product description is not available.',
     price: unitPrice,
     currency: 'INR',
-    imageUrl: imageUrl(value['PRODUCT_IMAGE']),
+    // CHANGED: the stock image for an S3 key; screens that load S3 images use imageKey instead.
+    imageUrl: imageKey ? FALLBACK_IMAGE : imageUrl(productImage),
+    ...(imageKey ? { imageKey } : {}),
     category: 'uncategorized',
     inStock: stock === undefined || stock > 0,
     ...(productSku ? { sku: productSku } : cartSku ? { sku: cartSku } : {}),

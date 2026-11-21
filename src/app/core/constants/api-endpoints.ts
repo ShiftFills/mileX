@@ -104,4 +104,14 @@ export const API_ENDPOINTS = {
   wishlist: {
     saveForLater: 'wishlist/save_for_later',
   },
+  // CHANGED (new): product image storage on AWS S3.
+  s3Images: {
+    /** POST multipart/form-data with the file in the `image` field. */
+    upload: 's3/upload',
+    /**
+     * GET `s3/images/<folder>/<file name>` (the image key, e.g. `s3/images/images/a1.png`) returns a signed URL.
+     * `s3/image/<name>` is not a route (404).
+     */
+    image: 's3/images',
+  },
 } as const;

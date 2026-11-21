@@ -1,10 +1,53 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
-import { of, throwError } from 'rxjs';
+import { Subject, of, throwError } from 'rxjs';
 import { ProductCatalogService, ProductLookupOption } from '@core/services/product-catalog.service';
+import { S3ImageService } from '@core/services/s3-image.service';
 import { ToastService } from '@core/services/toast.service';
 import { SellerOnboardingService } from '@features/seller/services/seller-onboarding.service';
 import { AddProduct } from './add-product';
+
+// CHANGED (new): the product image is uploaded through S3ImageService before products/insert.
+// CHANGED: product images are uploaded to the "products" folder under a generated unique file name.
+const IMAGE_KEY = 'products/0f3a.png';
+const UNIQUE_PNG_NAME = expect.stringMatching(/^[0-9a-f]{32}\.png$/);
+
+type LookupSetter = { set(state: { status: string; options: ProductLookupOption[]; error: string | null }): void };
+
+interface SubmitHarness {
+  values: { set(value: Record<string, string>): void };
+  productImages: { set(files: File[]): void };
+  categoryLookup: LookupSetter;
+  subcategoryLookup: LookupSetter;
+  brandLookup: LookupSetter;
+  taxRateLookup: LookupSetter;
+  valueFor(name: string): string;
+  saveProduct(): void;
+  addProductImage(file: File): void;
+  removeProductImage(): void;
+  previewFailed(): void;
+  imagePreview(): string | null;
+  selectedImage(): File | null;
+  imageError(): string;
+  isSubmitting(): boolean;
+  saveStage(): string;
+}
+
+/** A valid form with one selected image, ready to save. */
+function fillValidForm(submit: SubmitHarness, image = new File(['image'], 'headphones.png', { type: 'image/png' })): File {
+  submit.values.set({
+    productName: 'Bluetooth Headphones', category: '1', subcategory: '11', brand: '3',
+    description: 'Wireless audio', hsnCode: '851830', taxRate: '4', sellingPrice: '1800',
+    mrp: '2200', discount: '400', stockQuantity: '18', minimumOrderQuantity: '1',
+    maximumOrderQuantity: '4',
+  });
+  submit.categoryLookup.set({ status: 'success', options: [{ id: '1', label: 'Electronics' }], error: null });
+  submit.subcategoryLookup.set({ status: 'success', options: [{ id: '11', label: 'Audio' }], error: null });
+  submit.brandLookup.set({ status: 'success', options: [{ id: '3', label: 'Milex' }], error: null });
+  submit.taxRateLookup.set({ status: 'success', options: [{ id: '4', label: '18%' }], error: null });
+  submit.addProductImage(image);
+  return image;
+}
 
 interface ValidationHarness {
   attemptedSave: { set(value: boolean): void };
@@ -29,8 +72,18 @@ describe('AddProduct Pricing & Inventory validation', () => {
   };
   let toast: { showError: ReturnType<typeof vi.fn>; showSuccess: ReturnType<typeof vi.fn> };
   let router: { navigateByUrl: ReturnType<typeof vi.fn> };
+  let s3Images: { uploadImage: ReturnType<typeof vi.fn>; uploadErrorMessage: ReturnType<typeof vi.fn> };
+  const createObjectURL = vi.fn((file: File) => `blob:${file.name}`);
+  const revokeObjectURL = vi.fn();
 
   beforeEach(async () => {
+    Object.assign(URL, { createObjectURL, revokeObjectURL });
+    createObjectURL.mockClear();
+    revokeObjectURL.mockClear();
+    s3Images = {
+      uploadImage: vi.fn(() => of(IMAGE_KEY)),
+      uploadErrorMessage: vi.fn(() => 'The product image could not be uploaded. Bucket unavailable.'),
+    };
     router = { navigateByUrl: vi.fn(() => Promise.resolve(true)) };
     productCatalog = {
       loadCategories: vi.fn(() => of([{ id: '1', label: 'Electronics' }])),
@@ -50,6 +103,7 @@ describe('AddProduct Pricing & Inventory validation', () => {
         { provide: SellerOnboardingService, useValue: { getSellerIdForCurrentUser: (id: number) => of(id) } },
         { provide: ToastService, useValue: toast },
         { provide: Router, useValue: router },
+        { provide: S3ImageService, useValue: s3Images },
       ],
     }).compileComponents();
     fixture = TestBed.createComponent(AddProduct);
@@ -236,12 +290,15 @@ describe('AddProduct Pricing & Inventory validation', () => {
     submit.subcategoryLookup.set({ status: 'success', options: [{ id: '11', label: 'Audio' }], error: null });
     submit.brandLookup.set({ status: 'success', options: [{ id: '3', label: 'Milex' }], error: null });
     submit.taxRateLookup.set({ status: 'success', options: [{ id: '4', label: '18%' }], error: null });
-    submit.productImages.set([new File(['image'], 'headphones.png', { type: 'image/png' })]);
+    const image = new File(['image'], 'headphones.png', { type: 'image/png' });
+    submit.productImages.set([image]);
     submit.saveProduct();
 
+    // CHANGED: PRODUCT_IMAGE is the key s3/upload returned (was "uploads/products/<local file name>").
+    expect(s3Images.uploadImage).toHaveBeenCalledWith(image, UNIQUE_PNG_NAME, 'products');
     expect(productCatalog.insertProduct).toHaveBeenCalledWith({
       PRODUCT_NAME: 'Bluetooth Headphones', CATEGORY_ID: 1, SUB_CATEGORY_ID: 11, BRAND_ID: 3,
-      PRODUCT_IMAGE: 'uploads/products/headphones.png', PRODUCT_VIDEO: null,
+      PRODUCT_IMAGE: IMAGE_KEY, PRODUCT_VIDEO: null,
       PRODUCT_DESCRIPTION: 'Wireless audio', HSN_CODE: '851830', TAX_RATE: 18,
       SELLING_PRICE: 1800, PRICE: 2200, DISCOUNT: 400,
       STOCK_QUANTITY: 18, MINIMUM_ORDER_QUANTITY: 1, MAXIMUM_ORDER_QUANTITY: 4,
@@ -290,5 +347,175 @@ describe('AddProduct Pricing & Inventory validation', () => {
     expect(toast.showSuccess).not.toHaveBeenCalled();
     expect(toast.showError).toHaveBeenCalledWith('Create failed');
     expect(submit.valueFor('productName')).toBe('Bluetooth Headphones');
+  });
+
+  // CHANGED (new): image selection, preview, validation and the S3 upload.
+  describe('product image', () => {
+    let submit: SubmitHarness;
+    const render = () => {
+      fixture.detectChanges();
+      return fixture.nativeElement as HTMLElement;
+    };
+
+    beforeEach(() => {
+      submit = fixture.componentInstance as unknown as SubmitHarness;
+      validation.attemptedSave.set(false);
+    });
+
+    it('previews the selected image before uploading it and replaces it with a new pick', () => {
+      submit.addProductImage(new File(['a'], 'front.png', { type: 'image/png' }));
+      let element = render();
+
+      const preview = element.querySelector('.upload-zone__preview img') as HTMLImageElement;
+      expect(preview.getAttribute('src')).toBe('blob:front.png');
+      expect(preview.alt).toBe('Preview of front.png');
+      expect(element.querySelector('.upload-zone__filename')?.textContent).toContain('front.png · 1 KB');
+      expect(element.querySelector('app-file-upload label')?.textContent).toContain('Change image');
+      expect(s3Images.uploadImage).not.toHaveBeenCalled();
+
+      submit.addProductImage(new File(['b'], 'side.webp', { type: 'image/webp' }));
+      element = render();
+      expect(submit.selectedImage()?.name).toBe('side.webp');
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:front.png');
+      expect((element.querySelector('.upload-zone__preview img') as HTMLImageElement).getAttribute('src')).toBe('blob:side.webp');
+    });
+
+    it('rejects files that are not a PNG, JPG or WEBP image, are empty or are over 5 MB', () => {
+      submit.addProductImage(new File(['a'], 'notes.pdf', { type: 'application/pdf' }));
+      expect(submit.imageError()).toBe('Choose a PNG, JPG, or WEBP image.');
+      submit.addProductImage(new File([], 'empty.png', { type: 'image/png' }));
+      expect(submit.imageError()).toBe('The selected image is empty. Choose another file.');
+      submit.addProductImage(new File([new Uint8Array(5 * 1024 * 1024 + 1)], 'huge.jpg', { type: 'image/jpeg' }));
+      expect(submit.imageError()).toBe('The image must be 5 MB or smaller.');
+
+      expect(submit.selectedImage()).toBeNull();
+      expect(createObjectURL).not.toHaveBeenCalled();
+    });
+
+    it('drops a file the browser cannot display and explains why', () => {
+      submit.addProductImage(new File(['not really a png'], 'broken.png', { type: 'image/png' }));
+      submit.previewFailed();
+
+      expect(submit.selectedImage()).toBeNull();
+      expect(submit.imagePreview()).toBeNull();
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:broken.png');
+      expect(submit.imageError()).toBe('This file could not be read as an image. Choose another file.');
+    });
+
+    it('removes the selected image and requires one before saving', () => {
+      fillValidForm(submit);
+      submit.removeProductImage();
+      submit.saveProduct();
+      const element = render();
+
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:headphones.png');
+      expect(s3Images.uploadImage).not.toHaveBeenCalled();
+      expect(productCatalog.insertProduct).not.toHaveBeenCalled();
+      expect(element.textContent).toContain('Please upload a product image.');
+    });
+
+    it('uploads the image first and creates the product only after the upload succeeds', () => {
+      const upload = new Subject<string>();
+      s3Images.uploadImage.mockReturnValue(upload);
+      fillValidForm(submit);
+
+      submit.saveProduct();
+      let element = render();
+      expect(submit.isSubmitting()).toBe(true);
+      expect(submit.saveStage()).toBe('uploading');
+      expect(element.textContent).toContain('Uploading image…');
+      expect(productCatalog.insertProduct).not.toHaveBeenCalled();
+
+      upload.next(IMAGE_KEY);
+      upload.complete();
+      element = render();
+      expect(productCatalog.insertProduct).toHaveBeenCalledWith(expect.objectContaining({ PRODUCT_IMAGE: IMAGE_KEY }));
+      expect(submit.isSubmitting()).toBe(false);
+      expect(submit.selectedImage()).toBeNull();
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:headphones.png');
+    });
+
+    it('does not create the product when the upload fails and keeps the image for a retry', () => {
+      s3Images.uploadImage.mockReturnValue(throwError(() => new Error('Bucket unavailable')));
+      fillValidForm(submit);
+
+      submit.saveProduct();
+      const element = render();
+
+      expect(productCatalog.insertProduct).not.toHaveBeenCalled();
+      expect(toast.showError).toHaveBeenCalledWith('The product image could not be uploaded. Bucket unavailable.');
+      expect(element.querySelector('[role="alert"]')?.textContent).toContain('could not be uploaded');
+      expect(submit.selectedImage()?.name).toBe('headphones.png');
+      expect(submit.isSubmitting()).toBe(false);
+      expect(router.navigateByUrl).not.toHaveBeenCalled();
+    });
+
+    it('reuses the uploaded image when only the product insert failed', () => {
+      productCatalog.insertProduct.mockReturnValueOnce(throwError(() => new Error('Create failed')));
+      fillValidForm(submit);
+
+      submit.saveProduct();
+      submit.saveProduct();
+
+      expect(s3Images.uploadImage).toHaveBeenCalledTimes(1);
+      expect(productCatalog.insertProduct).toHaveBeenCalledTimes(2);
+      expect(productCatalog.insertProduct).toHaveBeenLastCalledWith(expect.objectContaining({ PRODUCT_IMAGE: IMAGE_KEY }));
+      expect(toast.showSuccess).toHaveBeenCalledWith('Product inserted successfully');
+    });
+
+    it('ignores a second save while the image is uploading', () => {
+      s3Images.uploadImage.mockReturnValue(new Subject<string>());
+      fillValidForm(submit);
+
+      submit.saveProduct();
+      submit.saveProduct();
+
+      expect(s3Images.uploadImage).toHaveBeenCalledTimes(1);
+    });
+
+    // CHANGED (new): one unique file name per selected image, used for its upload; the key the upload returns
+    // is what products/insert receives.
+    it('generates the image\'s unique file name when it is selected and uploads it under that name to "products"', () => {
+      const image = new File(['a'], 'photo.png', { type: 'image/png' });
+      submit.addProductImage(image);
+      const nameAtSelection = (submit as unknown as { imageFileName(file: File): string }).imageFileName(image);
+      expect(nameAtSelection).toMatch(/^[0-9a-f]{32}\.png$/);
+      expect(nameAtSelection).not.toBe('photo.png');
+
+      s3Images.uploadImage.mockImplementation((_file: File, fileName: string, folder: string) => of(`${folder}/${fileName}`));
+      fillValidForm(submit, image);
+      submit.saveProduct();
+
+      expect(s3Images.uploadImage).toHaveBeenCalledWith(image, nameAtSelection, 'products');
+      expect(productCatalog.insertProduct)
+        .toHaveBeenCalledWith(expect.objectContaining({ PRODUCT_IMAGE: `products/${nameAtSelection}` }));
+    });
+
+    it('retries a failed upload under the same file name, and gives a newly selected image a new one', () => {
+      s3Images.uploadImage.mockReturnValueOnce(throwError(() => new Error('Bucket unavailable')));
+      const first = fillValidForm(submit);
+      submit.saveProduct();
+      submit.saveProduct();
+      const [failedName, retriedName] = s3Images.uploadImage.mock.calls.map((call) => call[1] as string);
+      expect(retriedName).toBe(failedName);
+
+      fillValidForm(submit, new File(['b'], first.name, { type: 'image/png' }));
+      productCatalog.insertProduct.mockReturnValueOnce(throwError(() => new Error('Create failed')));
+      submit.saveProduct();
+      expect(s3Images.uploadImage.mock.calls.at(-1)?.[1]).not.toBe(failedName);
+    });
+
+    it('gives each product created in a row its own image file name, even for files with the same name', () => {
+      s3Images.uploadImage.mockImplementation((_file: File, fileName: string, folder: string) => of(`${folder}/${fileName}`));
+      for (let product = 0; product < 3; product++) {
+        fillValidForm(submit, new File([`image ${product}`], 'products.jpg', { type: 'image/jpeg' }));
+        submit.saveProduct();
+      }
+
+      const sentImages = productCatalog.insertProduct.mock.calls.map((call) => (call[0] as { PRODUCT_IMAGE: string }).PRODUCT_IMAGE);
+      expect(sentImages).toHaveLength(3);
+      expect(new Set(sentImages).size).toBe(3);
+      for (const key of sentImages) expect(key).toMatch(/^products\/[0-9a-f]{32}\.jpg$/);
+    });
   });
 });

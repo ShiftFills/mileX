@@ -6,6 +6,7 @@ import { Router, RouterLink } from '@angular/router';
 import { APP_ROUTES } from '@core/constants/app-routes';
 import { AuthService } from '@core/services/auth.service';
 import { CartService } from '@core/services/cart.service';
+import { ProductImageDisplayService } from '@core/services/product-image-display.service';
 import { ToastService } from '@core/services/toast.service';
 import { ProductVariant, ProductVariantService } from '@features/admin/services/product-variant.service';
 import { ShoppingCartService } from '@features/cart/services/shopping-cart.service';
@@ -22,7 +23,7 @@ import { EMPTY, catchError, distinctUntilChanged, finalize, map, of, switchMap, 
 import { ProductGallery } from '../../components/product-gallery/product-gallery';
 import { ProductInfoNames, ProductInfoTabs } from '../../components/product-info-tabs/product-info-tabs';
 import { ProductVariantDetails } from '../../components/product-variant-details/product-variant-details';
-import { ProductVariantSelector, variantImageUrl } from '../../components/product-variant-selector/product-variant-selector';
+import { ProductVariantSelector, variantImageSource } from '../../components/product-variant-selector/product-variant-selector';
 import { ProductService } from '../../services/product.service';
 import { WishlistService } from '../../services/wishlist.service';
 
@@ -43,6 +44,8 @@ interface CartAmounts {
 @Component({
   selector: 'app-product-detail',
   imports: [Alert, Badge, Button, Card, CurrencyPipe, Dialog, Input, LoadingSpinner, ProductCard, ProductGallery, ProductInfoTabs, ProductVariantDetails, ProductVariantSelector, RouterLink],
+  // CHANGED (new): product and variant images from S3 (signed URLs), shared with Home and All Products.
+  providers: [ProductImageDisplayService],
   templateUrl: './product-detail.html',
   styleUrl: './product-detail.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -77,6 +80,8 @@ export class ProductDetail {
   private readonly router = inject(Router);
   private readonly productService = inject(ProductService);
   private readonly variantService = inject(ProductVariantService);
+  // CHANGED (new): each product's and variant's own image (signed S3 URL from its PRODUCT_IMAGE / VARIANT_IMAGE).
+  protected readonly productImages = inject(ProductImageDisplayService);
 
   // CHANGED: the viewed product is loaded by its PRODUCT_ID (products/get?PRODUCT_ID=<id>). It used to be looked
   // up in the full catalog, which does not contain most products, so the page showed "Product not found".
@@ -131,14 +136,43 @@ export class ProductDetail {
     };
   });
 
-  // CHANGED: the selected variant's image comes first; the gallery skips it if it fails to load.
-  protected readonly images = computed(() => {
+  /** The viewed product's own image (signed S3 URL, API image URL or legacy path), or null. */
+  // CHANGED (new)
+  protected readonly productImage = computed(() => {
     const item = this.product();
-    if (!item) return [];
-    const productImages = item.images?.length ? item.images : [item.imageUrl];
+    return item ? this.productImages.src(item) : null;
+  });
+  /** Each variant's own image URL (signed S3 URL or legacy /uploads URL), by variant ID. */
+  // CHANGED (new)
+  protected readonly variantImageUrls = computed(() => {
+    const urls = new Map<string, string>();
+    for (const variant of this.variants()) {
+      const src = this.productImages.src(variantImageSource(variant));
+      if (src) urls.set(variant.id, src);
+    }
+    return urls;
+  });
+  /** Shown by a variant card without an image of its own: the product's image (stock image if it has none). */
+  // CHANGED (new)
+  protected readonly variantFallbackImage = computed(() => this.productImage() ?? this.product()?.imageUrl ?? '');
+
+  // CHANGED: the selected variant's image comes first; the gallery skips it if it fails to load.
+  // CHANGED: both come from S3 when stored there; a product without any image shows the gallery placeholder
+  // (it used to show the catalog's stock image).
+  protected readonly images = computed(() => {
+    if (!this.product()) return [];
+    const productImage = this.productImage();
+    const productImages = productImage ? [productImage] : [];
     const variant = this.selectedVariant();
-    const variantImage = variant ? variantImageUrl(variant) : '';
+    const variantImage = variant ? this.variantImageUrls().get(variant.id) ?? '' : '';
     return variantImage && !productImages.includes(variantImage) ? [variantImage, ...productImages] : productImages;
+  });
+  /** True while the product's or the selected variant's S3 URL is loading. */
+  // CHANGED (new)
+  protected readonly imagesLoading = computed(() => {
+    const item = this.product();
+    const variant = this.selectedVariant();
+    return !!item && (this.productImages.loading(item) || (!!variant && this.productImages.loading(variantImageSource(variant))));
   });
   protected readonly colorName = computed(() => this.selectedColor() ?? this.product()?.colors?.[0]?.name ?? '');
   // CHANGED: limited by the selected variant's stock when there is one.
@@ -170,6 +204,11 @@ export class ProductDetail {
       this.id();
       untracked(() => this.resetSelection());
     });
+    // CHANGED (new): the "You may also like" products' images (keys with a valid URL make no request).
+    effect(() => {
+      const related = this.related();
+      untracked(() => this.productImages.show(related));
+    });
 
     // CHANGED (new): loads the viewed product by its PRODUCT_ID (again for another product, or on Try again).
     toObservable(computed(() => ({ id: this.id(), retry: this.productRetry() })))
@@ -187,6 +226,8 @@ export class ProductDetail {
           return this.productService.loadProduct(productId).pipe(
             tap((item) => {
               this.loadedProduct.set(item);
+              // CHANGED (new): the product image's signed S3 URL (cached app-wide while valid).
+              if (item) this.productImages.show([item]);
               this.productStatus.set('success');
             }),
             catchError((error: unknown) => {
@@ -211,6 +252,8 @@ export class ProductDetail {
           return this.variantService.loadProductVariants(Number(id)).pipe(
             tap((variants) => {
               this.loadedVariants.set(variants);
+              // CHANGED (new): the variant images' signed S3 URLs (one request per distinct key).
+              this.productImages.show(variants.map(variantImageSource));
               // Default: the first variant in stock, otherwise the first one.
               const choices = this.variants();
               this.selectedVariantId.set((choices.find((variant) => variant.stock > 0) ?? choices[0])?.id ?? null);
@@ -314,6 +357,15 @@ export class ProductDetail {
 
   protected toggleWishlist(id = this.product()?.id): void {
     if (id) this.wishlist.toggle(id);
+  }
+
+  /** A gallery image failed to display: its S3 URL gets one fresh URL (it may have expired), then it is dropped. */
+  // CHANGED (new)
+  protected galleryImageFailed(src: string): void {
+    const item = this.product();
+    const variant = this.selectedVariant();
+    if (item && src === this.productImage()) this.productImages.failed(item, src);
+    else if (variant && src === this.variantImageUrls().get(variant.id)) this.productImages.failed(variantImageSource(variant), src);
   }
 
   protected updatePincode(event: Event): void {

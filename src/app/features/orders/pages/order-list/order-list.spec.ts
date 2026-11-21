@@ -153,6 +153,27 @@ describe('OrderList', () => {
     expect(fixture.nativeElement.textContent).toContain("You haven't placed any orders yet.");
   });
 
+  // CHANGED (new)
+  it('shows the signed S3 URL of an S3 PRODUCT_IMAGE instead of a relative "/products/..." URL', async () => {
+    const key = 'products/866dea6fc30de9342300a6e901f8df6f.png';
+    const signed = `https://milex.s3.amazonaws.com/${key}?X-Amz-Signature=abc`;
+    await render(ordersResponse(1), {
+      success: true,
+      data: [{ PRODUCT_ID: 1, PRODUCT_NAME: 'Lenovo IdeaPad Slim 5', PRODUCT_IMAGE: key }],
+    });
+
+    const request = http.expectOne(`/s3-api/s3/images/${key}`);
+    expect(request.request.headers.has('Authorization')).toBe(false);
+    expect(root.querySelector(`.my-order__items img[src="/${key}"]`)).toBeNull();
+    expect(root.querySelector('.my-order__items [role="img"]')?.getAttribute('aria-label'))
+      .toBe('Loading image of Lenovo IdeaPad Slim 5');
+
+    request.flush({ success: true, imageKey: key, imageUrl: signed, expiresIn: 3600 });
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(root.querySelector('.my-order__items img')?.getAttribute('src')).toBe(signed);
+  });
+
   it('does not fabricate product names or images when the product lookup has no match', async () => {
     await render(ordersResponse(1), { success: true, data: [] });
 

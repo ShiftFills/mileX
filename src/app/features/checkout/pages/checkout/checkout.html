@@ -112,7 +112,14 @@
             <app-button class="checkout-card-edit" variant="plain" [disabled]="editingCard() !== null" (clicked)="editProducts()">Edit</app-button>
           </header>
           <app-table class="checkout-products-table d-none d-md-block" [columns]="productColumns()" [rows]="cart.items()" ariaLabel="Checkout products" [nowrapCells]="true" />
-          <ng-template #productCell let-row><div class="checkout-product"><img [src]="row.product.imageUrl" [alt]="row.product.name" /></div></ng-template>
+          <!-- CHANGED: the product's own image (signed S3 URL); an empty image box while it loads or when there is none. -->
+          <ng-template #productCell let-row><div class="checkout-product">
+            @if (productImages.src(row.product); as src) {
+              <img [src]="src" [alt]="row.product.name" (error)="productImages.failed(row.product, src)" />
+            } @else {
+              <span role="img" [attr.aria-label]="(productImages.loading(row.product) ? 'Loading image of ' : 'No image for ') + row.product.name"></span>
+            }
+          </div></ng-template>
           <ng-template #variantCell let-row>{{ variantFor(row) }}</ng-template>
           <ng-template #unitPriceCell let-row><span class="checkout-unit-price">{{ row.product.price | currency: 'INR' : 'symbol' : '1.0-0' }}</span></ng-template>
           <ng-template #discountCell let-row>{{ discountFor(row) ? (discountFor(row) | currency: 'INR' : 'symbol' : '1.0-0') : '—' }}</ng-template>
@@ -122,7 +129,12 @@
             @for (item of cart.items(); track item.product.id) {
               <li class="checkout-product-item">
                 <div class="checkout-product-summary">
-                  <img [src]="item.product.imageUrl" [alt]="item.product.name" />
+                  <!-- CHANGED: same image handling as the table above. -->
+                  @if (productImages.src(item.product); as src) {
+                    <img [src]="src" [alt]="item.product.name" (error)="productImages.failed(item.product, src)" />
+                  } @else {
+                    <span role="img" [attr.aria-label]="(productImages.loading(item.product) ? 'Loading image of ' : 'No image for ') + item.product.name"></span>
+                  }
                   <div class="checkout-product-copy">
                     <strong>{{ item.product.name }}</strong>
                     <span>{{ item.product.variantDetails ?? '—' }}</span>

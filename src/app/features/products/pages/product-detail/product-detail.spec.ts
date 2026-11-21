@@ -167,6 +167,84 @@ describe('ProductDetail', () => {
     fixture.detectChanges();
   }
 
+  // CHANGED (new): product, variant and related-product images from S3 (s3/images/<key> on the S3 API base).
+  describe('S3 images', () => {
+    const SIGNED = (key: string, version = 1) =>
+      `https://bucket.s3.ap-south-1.amazonaws.com/${key}?X-Amz-Signature=sig${version}`;
+    const flushImage = (key: string, version = 1) => {
+      http.expectOne(`/s3-api/s3/images/${key}`).flush({
+        success: true, folderName: key.split('/')[0], fileName: key.split('/')[1], imageKey: key,
+        imageUrl: SIGNED(key, version), expiresIn: 3600,
+      });
+      fixture.detectChanges();
+    };
+    const openS3Product = (variants: Record<string, unknown>[] = []) => {
+      fixture.componentRef.setInput('id', '7');
+      fixture.detectChanges();
+      http.expectOne(productUrl(7)).flush({
+        status: 'SUCCESS',
+        data: [{ ...PRODUCT_ROWS[0], PRODUCT_ID: 7, PRODUCT_NAME: 'iPhone 16 Pro', PRODUCT_IMAGE: 'products/9210.png' }],
+      });
+      fixture.detectChanges();
+      http.expectOne(variantUrl(7)).flush({ status: 'SUCCESS', data: variants });
+      fixture.detectChanges();
+    };
+    const galleryPlaceholder = () =>
+      fixture.nativeElement.querySelector('app-product-gallery .gallery__placeholder') as HTMLElement | null;
+
+    it('shows the product\'s own S3 image in the gallery, with a loading placeholder until its URL arrives', () => {
+      openS3Product();
+      expect(galleryPlaceholder()?.classList.contains('is-loading')).toBe(true);
+      expect(galleryPlaceholder()?.getAttribute('aria-label')).toBe('Loading image of iPhone 16 Pro');
+
+      flushImage('products/9210.png');
+
+      expect(mainImage()).toBe(SIGNED('products/9210.png'));
+      expect(mainImage()).not.toContain('latest-gadgets');
+    });
+
+    it('shows a selected variant\'s own S3 image first, and in its variant card and details', () => {
+      openS3Product([
+        variantRow(71, { PRODUCT_ID: 7, VARIANT_NAME: 'Blue', STOCK_QUANTITY: 4, VARIANT_IMAGE: 'variants/blue.png' }),
+        variantRow(72, { PRODUCT_ID: 7, VARIANT_NAME: 'Plain', STOCK_QUANTITY: 4 }),
+      ]);
+      flushImage('products/9210.png');
+      flushImage('variants/blue.png');
+
+      expect(mainImage()).toBe(SIGNED('variants/blue.png'));
+      const cardImages = cards().map((card) => card.querySelector('img')?.getAttribute('src'));
+      // The variant without an image shows the product's own image.
+      expect(cardImages).toEqual([SIGNED('variants/blue.png'), SIGNED('products/9210.png')]);
+      expect((fixture.nativeElement.querySelector('app-product-variant-details img') as HTMLImageElement).getAttribute('src'))
+        .toBe(SIGNED('variants/blue.png'));
+    });
+
+    it('gets one fresh URL when the gallery image fails to display, then shows the placeholder', () => {
+      openS3Product();
+      flushImage('products/9210.png');
+
+      (fixture.nativeElement.querySelector('app-product-gallery .gallery__main img') as HTMLImageElement)
+        .dispatchEvent(new Event('error'));
+      fixture.detectChanges();
+      flushImage('products/9210.png', 2);
+      expect(mainImage()).toBe(SIGNED('products/9210.png', 2));
+
+      (fixture.nativeElement.querySelector('app-product-gallery .gallery__main img') as HTMLImageElement)
+        .dispatchEvent(new Event('error'));
+      fixture.detectChanges();
+      http.expectNone((request) => request.url.includes('/s3-api/'));
+      expect(galleryPlaceholder()?.getAttribute('aria-label')).toBe('No image for iPhone 16 Pro');
+    });
+
+    it('shows the placeholder when the image API fails', () => {
+      openS3Product();
+      http.expectOne('/s3-api/s3/images/products/9210.png').flush('Server error', { status: 500, statusText: 'Server Error' });
+      fixture.detectChanges();
+
+      expect(galleryPlaceholder()?.getAttribute('aria-label')).toBe('No image for iPhone 16 Pro');
+    });
+  });
+
   it('renders the product with price, discount and four related products', () => {
     expect(fixture.nativeElement.textContent).toContain('Samsung Galaxy S25');
     expect(component.discountPercent()).toBe(6);
@@ -372,10 +450,12 @@ describe('ProductDetail', () => {
       expect(actionButtons().map((button) => button.disabled)).toEqual([true, true]);
 
       // A variant image missing on the server falls back to the product image.
+      // CHANGED: product 5 has no image, so the gallery shows its placeholder (it used to show the stock image).
       (fixture.nativeElement.querySelector('app-product-gallery .gallery__main img') as HTMLImageElement)
         .dispatchEvent(new Event('error'));
       fixture.detectChanges();
-      expect(mainImage()).toBe('/images/latest-gadgets.svg');
+      expect(fixture.nativeElement.querySelector('app-product-gallery .gallery__placeholder')?.getAttribute('aria-label'))
+        .toBe('No image for Wireless Mouse');
 
       cards()[2].click();
       fixture.detectChanges();

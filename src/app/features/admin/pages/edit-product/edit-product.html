@@ -16,24 +16,22 @@
       <div class="row g-2 g-lg-3 align-items-start">
         <!-- Gallery -->
         <div class="col-12 col-md-4 col-xl-3">
-          <section appCard class="product-panel gallery-panel" aria-label="Product images">
-            <div class="gallery-main">
-              @if (activeImage(); as image) { <img [src]="image.src" [alt]="image.alt" /> }
-              @else { <span class="gallery-main__empty">No images</span> }
-            </div>
-            <div class="gallery-thumbs">
-              @for (image of gallery(); track image.id) {
-                <button type="button" class="gallery-thumb" [class.is-active]="activeImage()?.id === image.id" [attr.aria-pressed]="activeImage()?.id === image.id" [attr.aria-label]="'Show image ' + ($index + 1)" (click)="selectImage(image)">
-                  <img [src]="image.src" alt="" />
-                </button>
-              }
-              @if (canAddImage()) {
-                <label class="gallery-add" aria-label="Add product image">
-                  <span aria-hidden="true">+</span>
-                  <input type="file" accept="image/png,image/jpeg,image/webp" multiple (change)="onImagesPicked($event)" />
-                </label>
+          <!-- CHANGED: one image (the saved one, or the new pick that replaces it), with loading and error states. -->
+          <section appCard class="product-panel gallery-panel" aria-label="Product image">
+            <div class="gallery-main" [attr.aria-busy]="saveStage() === 'uploading'">
+              @if (activeImage(); as image) {
+                <img [src]="image.src" [alt]="image.alt" [class.is-uploading]="!!image.file && saveStage() === 'uploading'" (error)="galleryImageFailed(image)" />
+              } @else if (hasProductImage() && savedImage()?.status === 'loading') {
+                <span class="gallery-main__empty"><app-loading-spinner /> Loading image…</span>
+              } @else if (hasProductImage() && savedImage()?.status === 'error') {
+                <span class="gallery-main__empty">The saved image could not be displayed. It is kept unless you change it.</span>
+              } @else {
+                <span class="gallery-main__empty">No image</span>
               }
             </div>
+            @if (activeImage()?.file) {
+              <p class="gallery-caption">{{ saveStage() === 'uploading' ? 'Uploading new image…' : 'New image. It is uploaded when you update the product.' }}</p>
+            }
           </section>
         </div>
 
@@ -99,24 +97,33 @@
           <section appCard class="product-panel media-panel">
             <h2>Media</h2>
             <div class="row g-2">
+              <!-- CHANGED: change/remove one image, like the video controls next to it. -->
               <div class="col-12 col-sm-6">
-                <span class="product-label">Product Images <b>*</b></span>
-                <div class="media-thumbs">
-                  @for (image of gallery(); track image.id) {
+                <span class="product-label">Product Image <b>*</b></span>
+                @if (hasProductImage()) {
+                  <div class="video-row">
                     <span class="media-thumb">
-                      <img [src]="image.src" alt="" />
-                      <button type="button" class="media-thumb__remove" [attr.aria-label]="'Remove image ' + ($index + 1)" (click)="removeImage(image)">×</button>
+                      @if (activeImage(); as image) { <img [src]="image.src" alt="" /> }
+                      @else { <span class="media-thumb__placeholder" aria-hidden="true">{{ savedImage()?.status === 'loading' ? '…' : '!' }}</span> }
                     </span>
-                  }
-                  @if (canAddImage()) {
-                    <label class="gallery-add gallery-add--sm" aria-label="Add product image">
-                      <span aria-hidden="true">+</span>
-                      <input type="file" accept="image/png,image/jpeg,image/webp" multiple (change)="onImagesPicked($event)" />
-                    </label>
-                  }
-                </div>
-                @if (attemptedSave() && !gallery().length) { <span class="product-error">Please upload a product image.</span> }
-                @if (imageError()) { <span class="product-error">{{ imageError() }}</span> }
+                    <span class="video-actions">
+                      @if (saveStage() === 'uploading') {
+                        <span role="status">Uploading image…</span>
+                      } @else {
+                        <label class="video-actions__change">Change image<input type="file" [accept]="imageTypes" [disabled]="isSubmitting()" (change)="onImagesPicked($event)" /></label>
+                        <button type="button" class="video-actions__remove" [disabled]="isSubmitting()" (click)="removeImage()">{{ selectedImage() ? 'Discard new image' : 'Remove' }}</button>
+                      }
+                    </span>
+                  </div>
+                } @else {
+                  <label class="gallery-add gallery-add--sm" aria-label="Add product image">
+                    <span aria-hidden="true">+</span>
+                    <input type="file" [accept]="imageTypes" [disabled]="isSubmitting()" (change)="onImagesPicked($event)" />
+                  </label>
+                }
+                <small class="media-hint">PNG, JPG or WEBP, max 5 MB.</small>
+                @if (attemptedSave() && !hasProductImage() && !imageError()) { <span class="product-error">Please upload a product image.</span> }
+                @if (imageError()) { <span class="product-error" role="alert">{{ imageError() }}</span> }
               </div>
               <div class="col-12 col-sm-6">
                 <span class="product-label">Product Video <span class="optional-label">(Optional)</span></span>
@@ -220,7 +227,8 @@
           @if (saved()) { <p class="save-message" role="status">Product updated successfully.</p> }
           <footer class="product-actions">
             <app-button class="edit-cancel-button" variant="outline" size="small" [disabled]="isSubmitting()" (clicked)="cancel()">Cancel</app-button>
-            <app-button variant="accent" size="small" type="submit" [loading]="isSubmitting()" [disabled]="isSubmitting()">{{ isSubmitting() ? 'Updating…' : 'Update Product' }}</app-button>
+            <!-- CHANGED: says when the new image is being uploaded. -->
+            <app-button variant="accent" size="small" type="submit" [loading]="isSubmitting()" [disabled]="isSubmitting()">{{ isSubmitting() ? (saveStage() === 'uploading' ? 'Uploading image…' : 'Updating…') : 'Update Product' }}</app-button>
           </footer>
         </div>
       </div>

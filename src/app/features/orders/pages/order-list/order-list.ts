@@ -1,4 +1,3 @@
-import { HttpErrorResponse } from '@angular/common/http';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -11,6 +10,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { AuthService } from '@core/services/auth.service';
 import { ProductCatalogService, ProductDetails } from '@core/services/product-catalog.service';
+import { isS3ImageKey } from '@core/services/s3-image.service';
 import { ToastService } from '@core/services/toast.service';
 import { APP_ROUTES } from '@core/constants/app-routes';
 import { Alert } from '@shared/components/alert/alert';
@@ -19,18 +19,13 @@ import { OrderCard } from '@shared/components/order-card/order-card';
 import { PageHeading } from '@shared/components/page-heading/page-heading';
 import { Pagination } from '@shared/components/pagination/pagination';
 import { CustomerOrdersPage, OrderSummary } from '@shared/models';
+import { productImageUrl } from '@shared/utils/product-image-url';
 import { Observable, Subscription, catchError, forkJoin, map, of, switchMap } from 'rxjs';
 import { OrderService } from '../../services/order.service';
 
 const PAGE_SIZE = 10;
 
 type OrderListStatus = 'idle' | 'loading' | 'success' | 'error';
-
-function productImageUrl(path: string | null | undefined): string | undefined {
-  if (!path?.trim()) return undefined;
-  if (/^(?:https?:|blob:|data:)/i.test(path)) return path;
-  return `/${path.replace(/^\/+/, '')}`;
-}
 
 @Component({
   selector: 'app-order-list',
@@ -109,7 +104,7 @@ export class OrderList {
           this.status.set('success');
         },
         error: (error: unknown) => {
-          const message = this.errorMessage(error);
+          const message = this.orderService.customerOrdersErrorMessage(error);
           this.error.set(message);
           this.status.set('error');
           this.toast.showError(message);
@@ -157,33 +152,20 @@ export class OrderList {
         items: order.items.map((item) => {
           const details =
             item.productId === undefined ? null : this.productDetails.get(item.productId);
+          // CHANGED: an S3 key is passed as imageKey (the card shows its signed URL) instead of being turned
+          // into the broken relative URL "/products/<file>". Legacy "uploads/..." paths keep their URL.
+          const productImage = details?.PRODUCT_IMAGE?.trim() ?? '';
+          const imageKey = isS3ImageKey(productImage) ? productImage : '';
+          const image = imageKey ? undefined : productImageUrl(productImage);
           return {
             ...item,
             ...(details?.PRODUCT_NAME.trim() ? { name: details.PRODUCT_NAME.trim() } : {}),
-            ...(productImageUrl(details?.PRODUCT_IMAGE)
-              ? { image: productImageUrl(details?.PRODUCT_IMAGE) }
-              : {}),
+            ...(imageKey ? { imageKey } : {}),
+            ...(image ? { image } : {}),
           };
         }),
       })),
     };
   }
 
-  private errorMessage(error: unknown): string {
-    if (error instanceof HttpErrorResponse) {
-      const body: unknown = error.error;
-      if (typeof body === 'string' && body.trim()) return body.trim();
-      if (typeof body === 'object' && body !== null && !Array.isArray(body)) {
-        const record = body as Record<string, unknown>;
-        const message = record['message'] ?? record['MESSAGE'];
-        if (typeof message === 'string' && message.trim()) return message.trim();
-      }
-      return error.status
-        ? `Orders could not be loaded (HTTP ${error.status}).`
-        : 'Orders could not be loaded. Check your connection and try again.';
-    }
-    return error instanceof Error && error.message
-      ? error.message
-      : 'Orders could not be loaded. Please try again.';
-  }
 }

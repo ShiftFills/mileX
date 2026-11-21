@@ -7,14 +7,22 @@
       <h2 class="my-order__id" [title]="order().id">#{{ order().id }}</h2>
       <p class="my-order__meta">{{ order().placedOn | date: 'mediumDate' }} <span aria-hidden="true">&bull;</span> {{ itemCount() }} items</p>
       <p class="my-order__total">{{ order().total | currency: 'INR' : 'symbol' : '1.0-0' }}</p>
-      <a class="my-order__link" [routerLink]="detailsLink()">View Details &rarr;</a>
+      <a class="my-order__link" [routerLink]="detailsLink()" [attr.aria-label]="'View details for order ' + order().id">View Details &rarr;</a>
     </div>
   </div>
 
   <div class="my-order__items">
-    @for (item of order().items; track item.productId ?? item.name ?? $index) {
+    @for (entry of items(); track entry.item.productId ?? entry.item.name ?? $index) {
+      @let item = entry.item;
       <div class="my-order__item">
-        @if (item.image) { <img [src]="item.image" [alt]="item.name ?? ''" /> }
+        <!-- CHANGED: the item's own image (signed S3 URL). An empty image box while it loads or when it cannot be
+             shown; an item without any image shows none, as before. -->
+        @if (productImages.src(entry.image); as src) {
+          <img [src]="src" [alt]="item.name ?? ''" (error)="productImages.failed(entry.image, src)" />
+        } @else if (item.imageKey || item.image) {
+          <span role="img" [attr.aria-busy]="productImages.loading(entry.image) || null"
+            [attr.aria-label]="(productImages.loading(entry.image) ? 'Loading image of ' : 'No image for ') + (item.name ?? 'this product')"></span>
+        }
         <div>
           <strong>{{ item.name ?? (item.productId === undefined ? 'Product details unavailable' : 'Product ID: ' + item.productId) }}</strong>
           <span>
@@ -38,7 +46,8 @@
         </p>
       }
     </div>
-    <a class="my-order__chevron" [routerLink]="detailsLink()" [attr.aria-label]="'Open order ' + order().id">
+    <!-- Larger pointer/touch target for the same Order Details page; "View Details" is the one keyboard/screen-reader link. -->
+    <a class="my-order__chevron" [routerLink]="detailsLink()" tabindex="-1" aria-hidden="true">
       <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>
     </a>
   </div>

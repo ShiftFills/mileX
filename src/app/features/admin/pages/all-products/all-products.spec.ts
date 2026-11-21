@@ -77,6 +77,7 @@ interface AllProductsHarness {
   setCategory(event: Event): void;
   setBrand(event: Event): void;
   setStatus(status: 'All' | 'Active' | 'Inactive'): void;
+  statusTab(): 'All' | 'Active' | 'Inactive';
   categoryLookup(): { status: string; options: { id: string; label: string }[]; error: string | null };
   brandLookup(): { status: string; options: { id: string; label: string }[]; error: string | null };
   retryCategoryLookup(): void;
@@ -942,6 +943,150 @@ describe('AllProducts', () => {
         .find((button) => text(button) === 'Manage Variants');
       manage!.click();
       expect(navigate).toHaveBeenCalledWith('/admin/products/variants');
+    });
+  });
+
+  // CHANGED: products whose PRODUCT_IMAGE is an S3 key ("<folder>/<file name>") show their own image from
+  // s3/images/<image key>; rows without a usable image show a neutral placeholder, not the catalog's stock photo.
+  describe('S3 product images', () => {
+    const SIGNED = (key: string, version = 1) =>
+      `https://bucket.s3.ap-south-1.amazonaws.com/${key}?X-Amz-Signature=sig${version}`;
+    const signedResponse = (key: string, version = 1) => ({
+      success: true, folderName: key.split('/')[0], fileName: key.split('/')[1], imageKey: key,
+      imageUrl: SIGNED(key, version), expiresIn: 3600,
+    });
+    // CHANGED: the key from the live data (product 22) and the response shape of s3/images/<image key>.
+    const GALAXY_KEY = 'images/galaxy.png';
+    const LENOVO_KEY = 'products/eaccde8a263beb0d630e83a3407f9684.png';
+    const LEGACY_PATH = 'uploads/products/Screenshot 2026-10-21 154159.png';
+    const LEGACY_SRC = `/${LEGACY_PATH}`;
+    // Modelled on the live products/get data: S3 keys in two folders, two products sharing one legacy path that
+    // was never uploaded, and one product with a direct image URL.
+    const S3_PRODUCTS = [
+      { ...API_PRODUCTS[0], IMAGE_URL: undefined, PRODUCT_IMAGE: GALAXY_KEY },
+      { ...API_PRODUCTS[1], PRODUCT_ID: 16, PRODUCT_NAME: 'Lenovo IdeaPad Slim 57', PRODUCT_IMAGE: LENOVO_KEY },
+      { ...API_PRODUCTS[1], PRODUCT_ID: 6, PRODUCT_NAME: 'Old Lamp', PRODUCT_IMAGE: LEGACY_PATH },
+      { ...API_PRODUCTS[1], PRODUCT_ID: 7, PRODUCT_NAME: 'Old Chair', PRODUCT_IMAGE: LEGACY_PATH },
+      { ...API_PRODUCTS[1], PRODUCT_ID: 8, PRODUCT_NAME: 'Direct', PRODUCT_IMAGE: null, IMAGE_URL: 'https://example.test/direct.jpg' },
+    ];
+    /** Each row's image cell: its src, or "loading" / "no image" for the placeholder. */
+    const cells = () => Array.from(
+      fixture.nativeElement.querySelectorAll('.product-thumbnail') as NodeListOf<HTMLElement>,
+      (cell) => cell instanceof HTMLImageElement
+        ? cell.getAttribute('src')
+        : cell.classList.contains('is-loading') ? 'loading' : 'no image',
+    );
+    /** Fires the browser's load error on the image cell of row `index`. */
+    const failImage = (index: number) => {
+      const cell = fixture.nativeElement.querySelectorAll('.product-thumbnail')[index] as HTMLElement;
+      cell.dispatchEvent(new Event('error'));
+      fixture.detectChanges();
+    };
+
+    afterEach(() => vi.useRealTimers());
+
+    function loadS3Page(products: Record<string, unknown>[] = S3_PRODUCTS): void {
+      loadLookups();
+      http.expectOne((req) => req.url.endsWith('/products/get')).flush(response(products, products.length));
+      fixture.detectChanges();
+    }
+
+    function reloadPage(): void {
+      component.setStatus(component.statusTab() === 'All' ? 'Active' : 'All');
+      fixture.detectChanges();
+      http.expectOne((req) => req.url.endsWith('/products/get')).flush(response(S3_PRODUCTS, S3_PRODUCTS.length));
+      fixture.detectChanges();
+    }
+
+    function flushImages(keys: string[], version = 1): void {
+      for (const key of keys) http.expectOne(`/s3-api/s3/images/${key}`).flush(signedResponse(key, version));
+      fixture.detectChanges();
+    }
+
+    it('binds each product\'s own imageUrl from s3/images/<PRODUCT_IMAGE>, with one request per key', () => {
+      loadS3Page();
+      expect(cells()).toEqual(['loading', 'loading', LEGACY_SRC, LEGACY_SRC, 'https://example.test/direct.jpg']);
+
+      flushImages([GALAXY_KEY, LENOVO_KEY]);
+
+      expect(cells()).toEqual([
+        SIGNED(GALAXY_KEY), SIGNED(LENOVO_KEY), LEGACY_SRC, LEGACY_SRC, 'https://example.test/direct.jpg',
+      ]);
+      expect(cells()).not.toContain('/images/latest-gadgets.svg');
+    });
+
+    // CHANGED (new): legacy paths use the existing /uploads route and never reach the S3 API.
+    it('shows a legacy path through /uploads, never sends it to the S3 API, and shows the placeholder if it is missing', () => {
+      loadS3Page();
+      flushImages([GALAXY_KEY, LENOVO_KEY]);
+      http.expectNone((req) => req.url.includes('/s3/images/uploads'));
+
+      failImage(2);
+
+      expect(cells().slice(2, 4)).toEqual(['no image', 'no image']);
+      const placeholder = fixture.nativeElement.querySelector('.product-thumbnail--empty') as HTMLElement;
+      expect(placeholder.getAttribute('role')).toBe('img');
+      expect(placeholder.getAttribute('aria-label')).toBe('No image for Old Lamp');
+      http.expectNone((req) => req.url.includes('/s3/images/'));
+    });
+
+    it('requests a key shared by several products only once', () => {
+      loadS3Page([
+        { ...API_PRODUCTS[0], IMAGE_URL: undefined, PRODUCT_IMAGE: GALAXY_KEY },
+        { ...API_PRODUCTS[1], PRODUCT_ID: 9, PRODUCT_IMAGE: GALAXY_KEY },
+      ]);
+      flushImages([GALAXY_KEY]);
+
+      expect(cells()).toEqual([SIGNED(GALAXY_KEY), SIGNED(GALAXY_KEY)]);
+    });
+
+    it('reuses the URLs while they are valid when the page is loaded again', () => {
+      loadS3Page();
+      flushImages([GALAXY_KEY, LENOVO_KEY]);
+
+      reloadPage();
+
+      http.expectNone((req) => req.url.includes('/s3/images/'));
+      expect(cells().slice(0, 2)).toEqual([SIGNED(GALAXY_KEY), SIGNED(LENOVO_KEY)]);
+    });
+
+    // CHANGED (new): expiresIn is 3600 s; a URL is renewed 5 minutes before it expires.
+    it('gets fresh URLs after they expire and never shows an expired one meanwhile', () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-11-21T10:00:00Z'));
+      loadS3Page();
+      flushImages([GALAXY_KEY, LENOVO_KEY]);
+
+      vi.setSystemTime(new Date('2026-11-21T10:56:00Z'));
+      reloadPage();
+      expect(cells().slice(0, 2)).toEqual(['loading', 'loading']);
+
+      flushImages([GALAXY_KEY, LENOVO_KEY], 2);
+      expect(cells().slice(0, 2)).toEqual([SIGNED(GALAXY_KEY, 2), SIGNED(LENOVO_KEY, 2)]);
+    });
+
+    // CHANGED: a failed S3 image gets one fresh URL before the placeholder is shown.
+    it('gets one fresh URL when an S3 image fails to display, then shows the placeholder if that fails too', () => {
+      loadS3Page();
+      flushImages([GALAXY_KEY, LENOVO_KEY]);
+
+      failImage(0);
+      expect(cells()[0]).toBe('loading');
+      flushImages([GALAXY_KEY], 2);
+      expect(cells().slice(0, 2)).toEqual([SIGNED(GALAXY_KEY, 2), SIGNED(LENOVO_KEY)]);
+
+      failImage(0);
+      http.expectNone((req) => req.url.includes('/s3/images/'));
+      expect(cells().slice(0, 2)).toEqual(['no image', SIGNED(LENOVO_KEY)]);
+    });
+
+    it('shows the placeholder when the image API fails and keeps the listing usable', () => {
+      loadS3Page();
+      http.expectOne(`/s3-api/s3/images/${GALAXY_KEY}`).flush('Server error', { status: 500, statusText: 'Server Error' });
+      flushImages([LENOVO_KEY]);
+
+      expect(component.loadStatus()).toBe('success');
+      expect(cells().slice(0, 2)).toEqual(['no image', SIGNED(LENOVO_KEY)]);
     });
   });
 });

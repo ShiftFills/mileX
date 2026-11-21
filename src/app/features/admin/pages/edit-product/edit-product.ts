@@ -10,19 +10,31 @@ import { Select } from '@shared/components/select/select';
 import { Textarea } from '@shared/components/textarea/textarea';
 import { LoadingSpinner } from '@shared/components/loading-spinner/loading-spinner';
 import { ProductCatalogService, ProductDetails, ProductLookupOption, ProductUpdatePayload } from '@core/services/product-catalog.service';
+import { isS3ImageKey } from '@core/services/s3-image.service';
 import { ToastService } from '@core/services/toast.service';
 import { AddProduct, REQUIRED_FIELDS } from '../add-product/add-product';
 
 const DIMENSION_FIELDS = ['weight', 'length', 'width', 'height'] as const;
-const MAX_IMAGES = 5;
 
+// CHANGED: one image (the product's saved image or a new pick that replaces it); was a gallery of up to 5.
 interface GalleryImage {
   id: number;
   src: string;
   alt: string;
-  /** Present only for images added in this session (not yet uploaded). */
+  /** Present only for a newly selected image (uploaded when the product is updated). */
   file?: File;
 }
+
+/** The product's saved image (PRODUCT_IMAGE) and the URL it is shown with. */
+// CHANGED (new): an S3 key gets its URL from the S3 API, so it starts as 'loading'.
+interface SavedImage {
+  path: string;
+  src: string | null;
+  status: 'loading' | 'ready' | 'error';
+}
+
+const NEW_IMAGE_ID = 2;
+const SAVED_IMAGE_ID = 1;
 
 interface ProductCodeLookupState {
   status: 'loading' | 'success' | 'error';
@@ -54,8 +66,9 @@ export class EditProduct extends AddProduct {
   private readonly destroyRef = inject(DestroyRef);
   private readonly editProductCatalog = inject(ProductCatalogService);
   private readonly editToast = inject(ToastService);
-  private nextImageId = 1;
   private readonly selectedProductIds = new Subject<string>();
+  // CHANGED (new): S3 key of the loaded product's image, or null to stop loading a previous one.
+  private readonly savedImageKeys = new Subject<string | null>();
   private readonly lookupPrefill = signal<{ category: string; subcategory: string; brand: string; taxRate: string } | null>(null);
   private readonly lookupPrefillStage = signal<'category' | 'subcategory' | 'brand' | 'done'>('done');
   private readonly taxRatePrefilled = signal(false);
@@ -68,18 +81,29 @@ export class EditProduct extends AddProduct {
   protected readonly productCodeDetailError = signal<string | null>(null);
 
   protected readonly product = signal<ProductDetails | null>(null);
-  protected readonly gallery = signal<GalleryImage[]>([]);
-  protected readonly activeImageId = signal<number | null>(null);
-  protected readonly activeImage = computed(
-    () => this.gallery().find((image) => image.id === this.activeImageId()) ?? this.gallery()[0] ?? null,
+  // CHANGED (new)
+  protected readonly savedImage = signal<SavedImage | null>(null);
+  private readonly savedImageRemoved = signal(false);
+  /** True when the update will send an image: a new pick, or the saved image the user kept. */
+  protected readonly hasProductImage = computed(
+    () => !!this.selectedImage() || (!!this.savedImage() && !this.savedImageRemoved()),
   );
+  /** The image shown: the new pick's preview, otherwise the saved image once its URL is known. */
+  // CHANGED: derived from the selected file and the saved image (was a list the screen added to).
+  protected readonly gallery = computed<GalleryImage[]>(() => {
+    const file = this.selectedImage();
+    const preview = this.imagePreview();
+    if (file && preview) return [{ id: NEW_IMAGE_ID, src: preview, alt: file.name, file }];
+    const saved = this.savedImage();
+    if (!saved?.src || this.savedImageRemoved()) return [];
+    return [{ id: SAVED_IMAGE_ID, src: saved.src, alt: this.product()?.PRODUCT_NAME ?? '' }];
+  });
+  protected readonly activeImage = computed(() => this.gallery()[0] ?? null);
   protected readonly videoRemoved = signal(false);
   protected readonly existingVideoUrl = signal<string | null>(null);
   protected readonly hasVideo = computed(() => !!this.productVideo() || (!!this.existingVideoUrl() && !this.videoRemoved()));
   protected readonly videoLabel = computed(() => this.productVideo()?.name ?? this.product()?.PRODUCT_VIDEO ?? 'Current product video');
   protected readonly dimensionFields = DIMENSION_FIELDS;
-  protected readonly maxImages = MAX_IMAGES;
-  protected readonly canAddImage = computed(() => this.gallery().length < MAX_IMAGES);
 
   constructor() {
     super();
@@ -157,12 +181,23 @@ export class EditProduct extends AddProduct {
       }),
       takeUntilDestroyed(this.destroyRef),
     ).subscribe();
+    // CHANGED (new): the saved image's URL from the S3 API (cached by S3ImageService). switchMap drops the
+    // result for a product the screen no longer shows.
+    this.savedImageKeys.pipe(
+      switchMap((imageKey) => !imageKey ? EMPTY : this.s3Images.imageUrl(imageKey).pipe(
+        tap((src) => this.updateSavedImage(imageKey, { src, status: 'ready' })),
+        catchError(() => {
+          this.updateSavedImage(imageKey, { src: null, status: 'error' });
+          return EMPTY;
+        }),
+      )),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe();
     effect(() => this.applyLookupPrefill());
     effect(() => {
       const productId = this.id();
       untracked(() => this.selectedProductIds.next(productId));
     });
-    this.destroyRef.onDestroy(() => this.gallery().forEach((image) => this.release(image)));
   }
 
   protected setVariants(event: Event): void {
@@ -173,37 +208,38 @@ export class EditProduct extends AddProduct {
     }
   }
 
-  protected selectImage(image: GalleryImage): void {
-    this.activeImageId.set(image.id);
-  }
-
-  protected override addProductImage(file: File): void {
-    if (this.gallery().length >= MAX_IMAGES) {
-      this.imageError.set(`You can upload up to ${MAX_IMAGES} images.`);
-      return;
-    }
-    const before = this.productImages().length;
-    super.addProductImage(file);
-    if (this.productImages().length === before) return; // rejected by base validation
-    const image: GalleryImage = { id: this.nextImageId++, src: URL.createObjectURL(file), alt: file.name, file };
-    this.gallery.update((images) => [...images, image]);
-    this.activeImageId.set(image.id);
-  }
-
+  // CHANGED: one file; a new pick replaces the shown image (validation and preview come from AddProduct).
   protected onImagesPicked(event: Event): void {
     const input = event.target;
     if (!(input instanceof HTMLInputElement)) return;
-    for (const file of Array.from(input.files ?? [])) this.addProductImage(file);
+    const file = input.files?.[0];
     input.value = '';
+    if (file) this.addProductImage(file);
   }
 
-  protected removeImage(image: GalleryImage): void {
-    this.gallery.update((images) => images.filter((item) => item.id !== image.id));
-    if (image.file) this.productImages.update((files) => files.filter((file) => file !== image.file));
-    this.release(image);
-    if (this.activeImageId() === image.id) this.activeImageId.set(null);
+  /** Discards a new pick (the saved image shows again), or removes the saved image. */
+  // CHANGED: no argument; there is only one image.
+  protected removeImage(): void {
+    if (this.isSubmitting()) return;
+    if (this.selectedImage()) this.clearProductImage();
+    else this.savedImageRemoved.set(true);
     this.imageError.set('');
     this.saved.set(false);
+  }
+
+  /** An image that cannot be displayed: the new pick is rejected; the saved image is kept but marked unavailable. */
+  // CHANGED (new)
+  protected galleryImageFailed(image: GalleryImage): void {
+    if (image.file) {
+      this.previewFailed();
+      return;
+    }
+    const saved = this.savedImage();
+    if (saved) this.updateSavedImage(saved.path, { src: null, status: 'error' });
+  }
+
+  private updateSavedImage(path: string, changes: Pick<SavedImage, 'src' | 'status'>): void {
+    this.savedImage.update((image) => image?.path === path ? { ...image, ...changes } : image);
   }
 
   protected onVideoPicked(event: Event): void {
@@ -338,16 +374,15 @@ export class EditProduct extends AddProduct {
     if (this.isSubmitting()) return;
     this.attemptedSave.set(true);
     const fields = [...REQUIRED_FIELDS, 'discount', ...DIMENSION_FIELDS];
-    if (fields.some((field) => this.fieldError(field) !== null) || !this.gallery().length) return;
+    if (fields.some((field) => this.fieldError(field) !== null) || !this.hasProductImage()) return;
     const product = this.product();
     if (!product) return;
 
-    const newImage = this.productImages()[0];
-    const imageName = newImage?.name.split(/[\\/]/).pop() ?? newImage?.name;
-    const imagePath = imageName
-      ? `uploads/products/${imageName}`
-      : product.PRODUCT_IMAGE;
-    if (!imagePath) {
+    // CHANGED: a new image is uploaded to S3 and its key is sent; otherwise the saved PRODUCT_IMAGE is kept
+    // exactly as stored. (A new image used to be sent as a made-up "uploads/products/<file name>" path.)
+    const newImage = this.selectedImage();
+    const savedImagePath = this.savedImageRemoved() ? null : this.savedImage()?.path ?? null;
+    if (!newImage && !savedImagePath) {
       this.imageError.set('Please select a product image.');
       return;
     }
@@ -361,13 +396,18 @@ export class EditProduct extends AddProduct {
         : product.PRODUCT_VIDEO;
     const payload: Omit<ProductUpdatePayload, 'CREATED_BY'> = {
       PRODUCT_ID: product.PRODUCT_ID,
-      ...this.createProductPayload({ imagePath, videoPath }),
+      ...this.createProductPayload({ imagePath: savedImagePath ?? '', videoPath }),
     };
 
     this.isSubmitting.set(true);
     this.sellerOnboarding.getSellerIdForCurrentUser(payload.SELLER_ID).pipe(
       switchMap((sellerId) =>
-        this.editProductCatalog.updateProduct({ ...payload, SELLER_ID: sellerId }),
+        (newImage ? this.uploadProductImage(newImage) : of(payload.PRODUCT_IMAGE)).pipe(
+          switchMap((imagePath) => {
+            this.saveStage.set('saving');
+            return this.editProductCatalog.updateProduct({ ...payload, PRODUCT_IMAGE: imagePath, SELLER_ID: sellerId });
+          }),
+        ),
       ),
       tap((message) => {
         this.saved.set(true);
@@ -378,7 +418,10 @@ export class EditProduct extends AddProduct {
         this.editToast.showError(this.editProductCatalog.getErrorMessage(error));
         return EMPTY;
       }),
-      finalize(() => this.isSubmitting.set(false)),
+      finalize(() => {
+        this.isSubmitting.set(false);
+        this.saveStage.set('idle');
+      }),
       takeUntilDestroyed(this.destroyRef),
     ).subscribe();
   }
@@ -388,8 +431,9 @@ export class EditProduct extends AddProduct {
   }
 
   private loadProduct(product: ProductDetails | null | undefined): void {
-    this.gallery().forEach((image) => this.release(image));
-    this.productImages.set([]);
+    // CHANGED: also releases a new pick's preview and resets the saved image.
+    this.clearProductImage();
+    this.savedImageRemoved.set(false);
     this.productVideo.set(null);
     this.videoRemoved.set(false);
     this.existingVideoUrl.set(null);
@@ -400,7 +444,7 @@ export class EditProduct extends AddProduct {
     if (!product) {
       this.selectedProductCodes.next(undefined);
       this.values.set({});
-      this.gallery.set([]);
+      this.setSavedImage(null);
       this.lookupPrefill.set(null);
       return;
     }
@@ -433,12 +477,21 @@ export class EditProduct extends AddProduct {
     this.lookupPrefillStage.set('category');
     this.taxRatePrefilled.set(false);
     this.hasVariants.set(product.HAS_VARIANTS ?? false);
-    const image = this.mediaUrl(product.PRODUCT_IMAGE);
-    this.gallery.set(image ? [{ id: this.nextImageId++, src: image, alt: product.PRODUCT_NAME }] : []);
+    this.setSavedImage(product.PRODUCT_IMAGE);
     this.existingVideoUrl.set(this.mediaUrl(product.PRODUCT_VIDEO));
-    this.activeImageId.set(null);
     this.selectedProductCodes.next(product);
     this.product.set(product);
+  }
+
+  /** An S3 key is shown once the S3 API returns its URL; any other saved path is shown as before. */
+  // CHANGED (new)
+  private setSavedImage(path: string | null): void {
+    const value = path?.trim() ?? '';
+    const isS3Key = isS3ImageKey(value);
+    this.savedImage.set(!value ? null : isS3Key
+      ? { path: value, src: null, status: 'loading' }
+      : { path: value, src: this.mediaUrl(value), status: 'ready' });
+    this.savedImageKeys.next(isS3Key ? value : null);
   }
 
   private mediaUrl(path: string | null): string | null {
@@ -446,9 +499,5 @@ export class EditProduct extends AddProduct {
     if (!value) return null;
     if (/^(?:https?:|blob:|data:)/i.test(value)) return value;
     return `/${value.replace(/^\/+/, '')}`;
-  }
-
-  private release(image: GalleryImage): void {
-    if (image.file) URL.revokeObjectURL(image.src);
   }
 }

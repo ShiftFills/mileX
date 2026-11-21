@@ -113,6 +113,124 @@ describe('OrderService', () => {
     http.expectNone((request) => request.url.endsWith('/customer_orders/get'));
   });
 
+  describe('getCustomerOrderDetail', () => {
+    function row(orderId: number, orderNumber: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+      return {
+        ORDER_ID: orderId,
+        ORDER_NUMBER: orderNumber,
+        CUSTOMER_ID: 1,
+        PRODUCT_ID: 1,
+        PRODUCT_VARIANT_ID: null,
+        QUANTITY: 1,
+        SUBTOTAL: '2000.00',
+        DISCOUNT: '0.00',
+        TAX: '360.00',
+        ORDER_DATE: '2026-11-16T01:59:01.000Z',
+        SHIPPING_CHARGES: '0.00',
+        TOTAL_AMOUNT: '2360.00',
+        PAYMENT_METHOD: 2,
+        STATUS: 'ORDERED',
+        ...overrides,
+      };
+    }
+
+    function expectPage(offset: number) {
+      return http.expectOne(
+        (request) =>
+          request.url.endsWith('/customer_orders/get') &&
+          request.params.get('LIMIT') === '50' &&
+          request.params.get('OFFSET') === String(offset),
+      );
+    }
+
+    it('collects every row of the order across a page boundary and maps the pricing fields', () => {
+      let result: unknown;
+      service.getCustomerOrderDetail(1, ' ORD0005 ').subscribe((detail) => (result = detail));
+
+      // Page 1 ends with a row of the wanted order, so the next page is needed too.
+      const firstPage = Array.from({ length: 49 }, (_, index) => row(100 - index, `ORD9${index}`));
+      expectPage(0).flush({
+        success: true,
+        total_records: 120,
+        data: [...firstPage, row(15, 'ORD0005', { PRODUCT_VARIANT_ID: 13 })],
+      });
+      // Page 2: the order's last row, then another order, so the lookup stops here.
+      expectPage(50).flush({
+        success: true,
+        total_records: 120,
+        data: [row(14, 'ORD0005', { PRODUCT_ID: 2, QUANTITY: 2, DISCOUNT: '100.00' }), row(13, 'ORD0004')],
+      });
+      http.expectNone((request) => request.params.get('OFFSET') === '52');
+
+      expect(result).toEqual({
+        orderNumber: 'ORD0005',
+        lines: [
+          {
+            orderId: 15, orderNumber: 'ORD0005', productId: 1, productVariantId: 13, quantity: 1,
+            subtotal: 2000, discount: 0, tax: 360, shippingCharges: 0, total: 2360,
+            paymentMethodId: 2, orderDate: '2026-11-16T01:59:01.000Z', status: 'ORDERED',
+          },
+          {
+            orderId: 14, orderNumber: 'ORD0005', productId: 2, productVariantId: null, quantity: 2,
+            subtotal: 2000, discount: 100, tax: 360, shippingCharges: 0, total: 2360,
+            paymentMethodId: 2, orderDate: '2026-11-16T01:59:01.000Z', status: 'ORDERED',
+          },
+        ],
+      });
+    });
+
+    it('keeps missing amounts as null instead of zero', () => {
+      let result: { lines: { subtotal: number | null; tax: number | null; paymentMethodId: number | null }[] } | null = null;
+      service.getCustomerOrderDetail(1, 'ORD0005').subscribe((detail) => (result = detail));
+      expectPage(0).flush({
+        success: true,
+        total_records: 1,
+        data: [row(15, 'ORD0005', { SUBTOTAL: null, TAX: '', PAYMENT_METHOD: null })],
+      });
+
+      expect(result!.lines[0]).toEqual(expect.objectContaining({ subtotal: null, tax: null, paymentMethodId: null }));
+    });
+
+    it('accepts totals with paise and still rejects a missing total', () => {
+      let result: { lines: { total: number }[] } | null = null;
+      service.getCustomerOrderDetail(1, 'ORD0005').subscribe((detail) => (result = detail));
+      expectPage(0).flush({ success: true, total_records: 1, data: [row(15, 'ORD0005', { TOTAL_AMOUNT: '4128.82' })] });
+      expect(result!.lines[0].total).toBe(4128.82);
+
+      let error: unknown;
+      service.getCustomerOrders(1, 10, 0).subscribe({ error: (caught: unknown) => (error = caught) });
+      http
+        .expectOne((request) => request.url.endsWith('/customer_orders/get'))
+        .flush({ success: true, total_records: 1, data: [row(15, 'ORD0005', { TOTAL_AMOUNT: null })] });
+      expect(error).toEqual(new Error('The customer orders API returned an invalid total amount.'));
+    });
+
+    it('emits null after the last record when the customer has no such order', () => {
+      let result: unknown = 'pending';
+      service.getCustomerOrderDetail(1, 'ORD0099').subscribe((detail) => (result = detail));
+      expectPage(0).flush({ success: true, total_records: 2, data: [row(15, 'ORD0005'), row(14, 'ORD0004')] });
+
+      expect(result).toBeNull();
+    });
+
+    it('stops when the API ignores OFFSET and repeats the same rows', () => {
+      let result: unknown = 'pending';
+      service.getCustomerOrderDetail(1, 'ORD0099').subscribe((detail) => (result = detail));
+      const page = Array.from({ length: 50 }, (_, index) => row(200 - index, `ORD1${index}`));
+      expectPage(0).flush({ success: true, total_records: 500, data: page });
+      expectPage(50).flush({ success: true, total_records: 500, data: page });
+      http.expectNone((request) => request.params.get('OFFSET') === '100');
+
+      expect(result).toBeNull();
+    });
+
+    it('rejects an empty order number before making a request', () => {
+      expect(() => service.getCustomerOrderDetail(1, '  ')).toThrowError(RangeError);
+      expect(() => service.getCustomerOrderDetail(0, 'ORD0005')).toThrowError(RangeError);
+      http.expectNone((request) => request.url.endsWith('/customer_orders/get'));
+    });
+  });
+
   it('loads return reasons using the all-reasons filters and maps IDs and labels', () => {
     let result: unknown;
     service.getReturnReasons().subscribe((reasons) => (result = reasons));

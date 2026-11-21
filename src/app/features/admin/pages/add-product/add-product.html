@@ -62,18 +62,35 @@
               <h2>Media</h2>
               <div class="row g-2">
                 <div class="col-12 col-sm-6">
-                  <label class="product-label">Product Images <b>*</b></label>
-                  <div class="upload-zone" [class.upload-zone--invalid]="attemptedSave() && !productImages().length">
-                    <span class="upload-zone__icon" aria-hidden="true">
-                      <svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="3.5" width="17" height="17" rx="3"/><circle cx="9" cy="9" r="1.5"/><path d="m4.5 18 5-5 3 3 2-2 5 5"/></svg>
-                    </span>
-                    <p>Drag &amp; drop images or</p>
-                    <app-file-upload inputId="product-image" name="productImage" accept="image/png,image/jpeg,image/webp" buttonLabel="Browse files" appearance="accent-outline" [multiple]="true" (fileSelected)="addProductImage($event)" />
-                    @if (productImages().length) { <span class="upload-zone__filename" [title]="imageFileNames()">{{ productImages().length }}/5 · {{ imageFileNames() }}</span> }
-                    @else { <small>(Max 5 images, JPG/PNG, 5MB each)</small> }
+                  <!-- CHANGED: one product image with a preview; it is uploaded to S3 when the product is saved. -->
+                  <label class="product-label" for="product-image">Product Image <b>*</b></label>
+                  <div class="upload-zone" [class.upload-zone--invalid]="attemptedSave() && !selectedImage()" [class.upload-zone--preview]="!!imagePreview()" [attr.aria-busy]="saveStage() === 'uploading'">
+                    @if (selectedImage(); as image) {
+                      @if (imagePreview(); as preview) {
+                        <span class="upload-zone__preview" [class.is-uploading]="saveStage() === 'uploading'">
+                          <img [src]="preview" [alt]="'Preview of ' + image.name" (error)="previewFailed()" />
+                        </span>
+                      }
+                      <span class="upload-zone__filename" [title]="image.name">{{ image.name }} · {{ selectedImageSize() }}</span>
+                      @if (saveStage() === 'uploading') {
+                        <small role="status">Uploading image…</small>
+                      } @else {
+                        <span class="upload-zone__actions">
+                          <app-file-upload inputId="product-image" name="productImage" [accept]="imageTypes" buttonLabel="Change image" appearance="accent-outline" (fileSelected)="addProductImage($event)" />
+                          <button type="button" class="upload-zone__remove" [disabled]="isSubmitting()" [attr.aria-label]="'Remove ' + image.name" (click)="removeProductImage()">Remove</button>
+                        </span>
+                      }
+                    } @else {
+                      <span class="upload-zone__icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="3.5" width="17" height="17" rx="3"/><circle cx="9" cy="9" r="1.5"/><path d="m4.5 18 5-5 3 3 2-2 5 5"/></svg>
+                      </span>
+                      <p>Choose a product image</p>
+                      <app-file-upload inputId="product-image" name="productImage" [accept]="imageTypes" buttonLabel="Browse files" appearance="accent-outline" (fileSelected)="addProductImage($event)" />
+                      <small>(JPG, PNG or WEBP, max 5 MB)</small>
+                    }
                   </div>
-                  @if (attemptedSave() && !productImages().length) { <span class="product-error">Please upload a product image.</span> }
-                  @if (imageError()) { <span class="product-error">{{ imageError() }}</span> }
+                  @if (attemptedSave() && !selectedImage() && !imageError()) { <span class="product-error">Please upload a product image.</span> }
+                  @if (imageError()) { <span class="product-error" role="alert">{{ imageError() }}</span> }
                 </div>
                 <div class="col-12 col-sm-6">
                   <label class="product-label">Product Video <span class="optional-label">(Optional)</span></label>
@@ -155,7 +172,8 @@
         @if (saved()) { <p class="save-message" role="status">Product added successfully.</p> }
         <footer class="product-actions">
           <app-button variant="outline" size="small" [disabled]="isSubmitting()" (clicked)="cancel()">Cancel</app-button>
-          <app-button variant="accent" size="small" [loading]="isSubmitting()" [disabled]="isSubmitting()" (clicked)="saveProduct()">{{ isSubmitting() ? 'Saving…' : 'Save Product' }}</app-button>
+          <!-- CHANGED: says when the image is being uploaded. -->
+          <app-button variant="accent" size="small" [loading]="isSubmitting()" [disabled]="isSubmitting()" (clicked)="saveProduct()">{{ isSubmitting() ? (saveStage() === 'uploading' ? 'Uploading image…' : 'Saving…') : 'Save Product' }}</app-button>
         </footer>
       </form>
 </main>

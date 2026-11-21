@@ -21,6 +21,27 @@
     }
   }
 
+  // CHANGED (new): no image yet / no usable image.
+  &__placeholder {
+    display: grid;
+    width: 100%;
+    height: 100%;
+    place-items: center;
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    color: var(--color-placeholder);
+
+    &.is-loading {
+      opacity: 0.55;
+    }
+
+    svg {
+      width: 4rem;
+      stroke: currentColor;
+      stroke-width: 1.1;
+    }
+  }
+
   &__wish {
     position: absolute;
     top: var(--space-3);

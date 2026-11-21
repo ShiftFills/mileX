@@ -25,12 +25,17 @@ export class ProductVariantDetails {
   readonly variant = input.required<ProductVariant>();
   /** Shown when the variant has no image or its image fails to load (the product image). */
   readonly fallbackImage = input('');
+  /** The variant's image URL as the page resolved it (signed S3 URL); used before its own legacy URL. */
+  // CHANGED (new)
+  readonly imageUrl = input('');
 
   /** The variant image URL that failed to load, if any. */
   private readonly failedImage = signal('');
 
+  // CHANGED: a URL resolved by the page (signed S3 URL) comes first.
+  private readonly ownImage = computed(() => this.imageUrl() || variantImageUrl(this.variant()));
   protected readonly image = computed(() => {
-    const url = variantImageUrl(this.variant());
+    const url = this.ownImage();
     return url && url !== this.failedImage() ? url : this.fallbackImage();
   });
   protected readonly options = computed(() => variantOptionsLabel(this.variant()));
@@ -46,6 +51,6 @@ export class ProductVariantDetails {
   });
 
   protected useFallbackImage(): void {
-    this.failedImage.set(variantImageUrl(this.variant()));
+    this.failedImage.set(this.ownImage());
   }
 }

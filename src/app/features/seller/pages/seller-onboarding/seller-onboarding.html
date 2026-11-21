@@ -125,9 +125,11 @@
           <h2>2. Seller Documents</h2>
           <p>Documents and ID Proof</p>
         </div>
+        <!-- CHANGED: also shows a saved document from its signed S3 URL. -->
         @if (previewedDocument(); as preview) {
           <app-document-preview
             [file]="preview.file"
+            [src]="preview.src"
             [title]="preview.label"
             (replaced)="updateDocument(preview.name, $event)"
             (removed)="removeDocument(preview.name)"
@@ -169,7 +171,10 @@
                       <path d="M8 11V2m0 0L5 5m3-3 3 3M3 9v4h10V9" />
                     </svg>
                     <span>{{ fileName }}</span>
-                    <app-button class="seller-document-card__view" variant="link" size="dense" (clicked)="openPreview(field.name)">View</app-button>
+                    <!-- CHANGED: only when there is something to show (a selected file or a saved S3 document). -->
+                    @if (canPreview(field.name)) {
+                      <app-button class="seller-document-card__view" variant="link" size="dense" (clicked)="openPreview(field.name)">View</app-button>
+                    }
                   </div>
                 }
                 @if (errorFor(field.name); as message) {

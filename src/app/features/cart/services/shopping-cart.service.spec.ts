@@ -174,6 +174,20 @@ describe('ShoppingCartService', () => {
     expect(items[1]?.product.imageUrl).toBe('/images/latest-gadgets.svg');
   });
 
+  // CHANGED (new)
+  it('keeps an S3 PRODUCT_IMAGE as imageKey instead of a relative URL', () => {
+    let items: CartItem[] = [];
+    service.getCart(3).subscribe((result) => (items = result));
+    http.expectOne('/api/shopping_cart/get?CUSTOMER_ID=3').flush({
+      ...CART_RESPONSE,
+      data: [{ ...CART_RESPONSE.data[0], PRODUCT_IMAGE: 'products/866dea6fc30de9342300a6e901f8df6f.png' }],
+    });
+
+    expect(items[0]?.product.imageKey).toBe('products/866dea6fc30de9342300a6e901f8df6f.png');
+    expect(items[0]?.product.imageUrl).toBe('/images/latest-gadgets.svg');
+    expect(items[0]?.product.imageUrl).not.toBe('/products/866dea6fc30de9342300a6e901f8df6f.png');
+  });
+
   it('returns an empty list for a successful empty cart', () => {
     let items: unknown;
     service.getCart(3).subscribe((result) => (items = result));

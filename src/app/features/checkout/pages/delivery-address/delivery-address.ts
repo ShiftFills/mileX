@@ -1,5 +1,5 @@
 import { CurrencyPipe, DOCUMENT } from '@angular/common';
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
 import { APP_ROUTES } from '@core/constants/app-routes';
@@ -8,6 +8,7 @@ import { INDIAN_STATES } from '@core/constants/indian-states';
 import { AddressInput, AddressService } from '@core/services/address.service';
 import { CartService } from '@core/services/cart.service';
 import { ProductCatalogService } from '@core/services/product-catalog.service';
+import { ProductImageDisplayService } from '@core/services/product-image-display.service';
 import { ToastService } from '@core/services/toast.service';
 import { Alert } from '@shared/components/alert/alert';
 import { Badge, BadgeTone } from '@shared/components/badge/badge';
@@ -92,10 +93,14 @@ const EMPTY_FORM: AddressForm = {
   templateUrl: './delivery-address.html',
   styleUrl: './delivery-address.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // CHANGED (new): each Order Summary row shows its product's own image (signed S3 URL).
+  providers: [ProductImageDisplayService],
 })
 export class DeliveryAddressPage {
   protected readonly cart = inject(CartService);
   protected readonly catalog = inject(ProductCatalogService);
+  // CHANGED (new)
+  protected readonly productImages = inject(ProductImageDisplayService);
   protected readonly addressBook = inject(AddressService);
   private readonly toast = inject(ToastService);
   private readonly destroyRef = inject(DestroyRef);
@@ -168,6 +173,11 @@ export class DeliveryAddressPage {
     this.catalog.load();
     // Fetch the logged-in customer's saved addresses; the service selects the default (or the first).
     this.addressBook.load();
+    // CHANGED (new): loads the S3 image URLs of the cart rows (cached URLs make no request).
+    effect(() => {
+      const products = this.cart.items().map((item) => item.product);
+      untracked(() => this.productImages.show(products));
+    });
   }
 
   /** The error to show under a field: only after it was edited or a save was attempted. */

@@ -1,3 +1,5 @@
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { MyOrders } from './my-orders';
@@ -9,7 +11,8 @@ describe('MyOrders', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [MyOrders],
-      providers: [provideRouter([])],
+      // CHANGED: HttpClient for the order card's S3 image service (these orders have no S3 images: no request).
+      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
     }).compileComponents();
     fixture = TestBed.createComponent(MyOrders);
     await fixture.whenStable();

@@ -1,7 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, OnDestroy, signal, WritableSignal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { NgTemplateOutlet } from '@angular/common';
-import { EMPTY, Observable, Subscription, catchError, concatMap, finalize, forkJoin, map, of, switchMap, tap } from 'rxjs';
+import { EMPTY, Observable, Subscription, catchError, concatMap, finalize, forkJoin, map, of, switchMap, tap, throwError } from 'rxjs';
+import { S3FileUpload, S3ImageService, SELLER_DOCUMENT_FOLDER, isS3ImageKey } from '@core/services/s3-image.service';
 import { ToastService } from '@core/services/toast.service';
 import { Button } from '@shared/components/button/button';
 import { Badge } from '@shared/components/badge/badge';
@@ -96,6 +97,14 @@ export class SellerOnboarding implements OnDestroy {
   protected readonly attemptedNext = signal(false);
   /** Name of the document currently shown in the Step 2 preview panel (null = document list). */
   protected readonly previewDocument = signal<string | null>(null);
+  /** Signed URL of a saved (S3) document opened in the preview panel. */
+  // CHANGED (new): saved documents can be viewed, not only newly selected files.
+  private readonly savedDocumentUrl = signal<{ name: string; url: string } | null>(null);
+  private savedDocumentRequest: Subscription | null = null;
+  /** Document uploads to S3 ("documents/<unique file name>"); null only when constructed without the S3 service. */
+  // CHANGED (new)
+  private readonly documentUpload: S3FileUpload | null;
+  private readonly s3Images: S3ImageService | undefined;
   protected readonly touchedFields = signal<Record<string, boolean>>({});
   protected readonly accuracyConfirmed = signal(true);
   protected readonly businessTypes = signal<SellerFieldOption[]>([]);
@@ -134,11 +143,15 @@ export class SellerOnboarding implements OnDestroy {
   private bankDetailsSaved = false;
   private readonly router: Router;
 
+  // CHANGED: a newly selected file, or a saved document shown from its signed S3 URL (`src`).
   protected readonly previewedDocument = computed(() => {
     const name = this.previewDocument();
-    const file = name ? this.uploadedDocuments()[name] : undefined;
     const field = this.documentFields.find((item) => item.name === name);
-    return name && file && field ? { name, label: field.label, file } : null;
+    if (!name || !field) return null;
+    const file = this.uploadedDocuments()[name];
+    if (file) return { name, label: field.label, file, src: null };
+    const saved = this.savedDocumentUrl();
+    return saved?.name === name ? { name, label: field.label, file: null, src: saved.url } : null;
   });
 
   protected readonly steps = [
@@ -397,13 +410,17 @@ export class SellerOnboarding implements OnDestroy {
     accountType: 'Please select an account type.',
   };
 
+  // CHANGED: S3ImageService for the document uploads and previews (always provided by Angular).
   constructor(
     router: Router,
     private readonly sellerOnboarding: SellerOnboardingService,
     private readonly toast: ToastService,
     route?: ActivatedRoute,
+    s3Images?: S3ImageService,
   ) {
     this.router = router;
+    this.s3Images = s3Images;
+    this.documentUpload = s3Images ? new S3FileUpload(s3Images, SELLER_DOCUMENT_FOLDER) : null;
     const sellerIdValue = route?.snapshot.queryParamMap.get('sellerId');
     const sellerId = sellerIdValue === null || sellerIdValue === undefined ? NaN : Number(sellerIdValue);
     if (sellerIdValue !== null && sellerIdValue !== undefined) {
@@ -437,6 +454,7 @@ export class SellerOnboarding implements OnDestroy {
   ngOnDestroy(): void {
     for (const subscription of this.lookupSubscriptions.values()) subscription.unsubscribe();
     this.submissionSubscription?.unsubscribe();
+    this.savedDocumentRequest?.unsubscribe();
   }
 
   protected valueFor(name: string): string {
@@ -820,14 +838,36 @@ export class SellerOnboarding implements OnDestroy {
 
   protected updateDocument(name: string, file: File): void {
     if (this.isSubmitting()) return;
+    // CHANGED (new): the document's unique S3 file name is fixed now; its upload uses the same name.
+    this.documentUpload?.fileName(file);
     this.uploadedDocuments.update((current) => ({ ...current, [name]: file }));
     this.values.update((current) => ({ ...current, [name]: file.name }));
     this.documentsUploaded = false;
     if (this.createdSeller?.documentId) this.reviewEditRequested = true;
   }
 
+  // CHANGED: a saved S3 document opens too, from its signed URL (S3ImageService, cached until it expires).
   protected openPreview(name: string): void {
-    if (this.uploadedDocuments()[name]) this.previewDocument.set(name);
+    if (this.uploadedDocuments()[name]) {
+      this.previewDocument.set(name);
+      return;
+    }
+    const key = this.existingDocuments()[name];
+    if (!key || !isS3ImageKey(key) || !this.s3Images) return;
+    this.savedDocumentRequest?.unsubscribe();
+    this.savedDocumentRequest = this.s3Images.imageUrl(key).subscribe({
+      next: (url) => {
+        this.savedDocumentUrl.set({ name, url });
+        this.previewDocument.set(name);
+      },
+      error: () => this.toast.showError('The document could not be loaded. Please try again.'),
+    });
+  }
+
+  /** True when the document has something to preview (a selected file or a saved S3 document). */
+  // CHANGED (new)
+  protected canPreview(name: string): boolean {
+    return !!this.uploadedDocuments()[name] || isS3ImageKey(this.existingDocuments()[name]);
   }
 
   protected removeDocument(name: string): void {
@@ -919,7 +959,10 @@ export class SellerOnboarding implements OnDestroy {
     }
     const { sellerId } = this.createdSeller;
     this.runStepRequest(
-      this.sellerOnboarding.uploadDocuments(this.uploadedDocuments(), sellerId),
+      // CHANGED: the selected documents are uploaded to S3 first; seller_docs/insert gets their keys.
+      this.uploadDocumentFiles().pipe(
+        switchMap((documentKeys) => this.sellerOnboarding.uploadDocuments(documentKeys, sellerId)),
+      ),
       (result) => {
         this.createdSeller = { ...this.createdSeller!, documentId: result.documentId };
         this.documentsUploaded = true;
@@ -993,8 +1036,16 @@ export class SellerOnboarding implements OnDestroy {
     // CHANGED: a guest applicant (/sell, no session) editing the records they created in this session
     // passes their own USER_ID for UPDATED_BY. Editing an existing seller (?sellerId=) still needs a session.
     const applicantUserId = this.isEditing() ? undefined : this.editIdentity.userId;
-    const updates = this.sellerOnboarding.updateSeller(this.createSellerUpdatePayload(), applicantUserId).pipe(
-      concatMap(() => this.sellerOnboarding.updateDocuments(this.createDocumentsUpdatePayload(), applicantUserId)),
+    // CHANGED: newly selected documents are uploaded to S3 before any update, so a failed upload changes nothing;
+    // seller_docs/update gets their keys (and the saved value of every other document).
+    const updates = this.uploadDocumentFiles().pipe(
+      concatMap((documentKeys) =>
+        this.sellerOnboarding.updateSeller(this.createSellerUpdatePayload(), applicantUserId).pipe(
+          concatMap(() =>
+            this.sellerOnboarding.updateDocuments(this.createDocumentsUpdatePayload(documentKeys), applicantUserId),
+          ),
+        ),
+      ),
       concatMap(() => this.sellerOnboarding.updateBankDetails(this.createBankUpdatePayload(), applicantUserId)),
       map(() => 'Seller, documents, and bank details were updated successfully.'),
     );
@@ -1140,11 +1191,15 @@ export class SellerOnboarding implements OnDestroy {
     };
   }
 
-  private createDocumentsUpdatePayload(): Omit<SellerDocumentsUpdatePayload, 'UPDATED_BY'> {
+  // CHANGED: a newly uploaded document is sent as its S3 key (it used to be its local file name); any other document
+  // keeps its saved value.
+  private createDocumentsUpdatePayload(
+    documentKeys: Readonly<Record<string, string>>,
+  ): Omit<SellerDocumentsUpdatePayload, 'UPDATED_BY'> {
     const identity = this.editIdentity;
     if (!identity) throw new Error('Document edit identifiers are unavailable.');
     const valueForDocument = (field: keyof typeof DOCUMENT_FIELD_MAP) =>
-      this.uploadedDocuments()[field]?.name ?? this.existingDocuments()[field] ?? null;
+      documentKeys[field] ?? this.existingDocuments()[field] ?? null;
     return {
       DOCUMENT_ID: identity.documentId,
       GST_CERTIFICATE: valueForDocument('gstCertificate'),
@@ -1156,6 +1211,38 @@ export class SellerOnboarding implements OnDestroy {
       OTHER_SUPPORTING_DOCUMENT: valueForDocument('supportingDocument'),
       SELLER_ID: identity.sellerId,
     };
+  }
+
+  /**
+   * Uploads every selected document to S3 (in parallel) and returns their keys by field. Each file keeps the unique
+   * name fixed when it was selected, and a file uploaded by an earlier attempt is not uploaded again. Every upload
+   * runs to the end (so the ones that worked are kept for a retry); if any was rejected, this fails with each
+   * rejected document's name and the API's reason (e.g. a file type the storage does not accept).
+   */
+  // CHANGED (new)
+  private uploadDocumentFiles(): Observable<Record<string, string>> {
+    const files = Object.entries(this.uploadedDocuments());
+    if (!files.length) return of({});
+    const upload = this.documentUpload;
+    const s3Images = this.s3Images;
+    if (!upload || !s3Images) return throwError(() => new Error('Documents cannot be uploaded right now.'));
+    return forkJoin(
+      files.map(([field, file]) =>
+        upload.upload(file).pipe(
+          map((key) => ({ field, key, error: null as string | null })),
+          catchError((error: unknown) => {
+            const label = this.documentFields.find((item) => item.name === field)?.label ?? 'document';
+            return of({ field, key: '', error: s3Images.uploadErrorMessage(error, `The ${label}`) });
+          }),
+        ),
+      ),
+    ).pipe(
+      map((results) => {
+        const failed = results.filter((result) => result.error !== null);
+        if (failed.length) throw new Error(failed.map((result) => result.error).join(' '));
+        return Object.fromEntries(results.map((result) => [result.field, result.key]));
+      }),
+    );
   }
 
   // Shared by the bank insert and update payloads.

@@ -2,8 +2,9 @@
 <main class="product-detail container">
   <section appCard class="product-detail__layout">
     <!-- Gallery -->
+    <!-- CHANGED: the product's and selected variant's own images (signed S3 URLs), with loading and error handling. -->
     <app-product-gallery [images]="images()" [name]="item.name" [wishlisted]="wishlist.has(item.id)"
-      (wishlistToggle)="toggleWishlist()" />
+      [loading]="imagesLoading()" (imageError)="galleryImageFailed($event)" (wishlistToggle)="toggleWishlist()" />
 
     <!-- Buy box -->
     <div class="product-detail__info">
@@ -30,8 +31,9 @@
         <button type="button" class="product-detail__retry" (click)="retryVariants()">Try again</button>
       </app-alert>
       } @else if (variants().length) {
+      <!-- CHANGED: variant images resolved from S3; the fallback is the product's own image. -->
       <app-product-variant-selector [variants]="variants()" [selectedId]="selectedVariantId()"
-        [fallbackImage]="item.imageUrl" (selectedChange)="selectVariant($event)" />
+        [imageUrls]="variantImageUrls()" [fallbackImage]="variantFallbackImage()" (selectedChange)="selectVariant($event)" />
       }
 
       @if (item.colors?.length) {
@@ -92,7 +94,9 @@
 
       <!-- CHANGED (new): the selected variant's details. -->
       @if (selectedVariant(); as variant) {
-      <app-product-variant-details [variant]="variant" [fallbackImage]="item.imageUrl" />
+      <!-- CHANGED: the variant image resolved from S3; the fallback is the product's own image. -->
+      <app-product-variant-details [variant]="variant" [imageUrl]="variantImageUrls().get(variant.id) ?? ''"
+        [fallbackImage]="variantFallbackImage()" />
       }
 
       <form class="product-detail__delivery" (submit)="$event.preventDefault(); checkDelivery()" novalidate>
@@ -149,7 +153,10 @@
     <div class="row g-3">
       @for (other of related(); track other.id) {
       <div class="col-6 col-lg-3">
+        <!-- CHANGED: each card shows its product's own image (signed S3 URL), or the placeholder. -->
         <app-product-card [product]="other" [wishlisted]="wishlist.has(other.id)" [showAddToCart]="true"
+          [imageSrc]="productImages.src(other)" [imageLoading]="productImages.loading(other)"
+          (imageError)="productImages.failed(other, $event)"
           (wishlistToggle)="toggleWishlist($event)" (addToCart)="addRelatedToCart($event)" />
       </div>
       }

@@ -9,6 +9,7 @@ import {
   ProductListingFilters,
   ProductLookupOption,
 } from '@core/services/product-catalog.service';
+import { ProductImageDisplayService } from '@core/services/product-image-display.service';
 import { Alert } from '@shared/components/alert/alert';
 import { LoadingSpinner } from '@shared/components/loading-spinner/loading-spinner';
 import { Product } from '@shared/models';
@@ -50,6 +51,8 @@ interface CategoryShelf {
 @Component({
   selector: 'app-home-showcases',
   imports: [Alert, LoadingSpinner, ProductCard, RouterLink],
+  // CHANGED (new): each product's own S3 image, handled like the All Products table.
+  providers: [ProductImageDisplayService],
   templateUrl: './home-showcases.html',
   styleUrl: './home-showcases.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -58,6 +61,8 @@ export class HomeShowcases {
   protected readonly routes = APP_ROUTES;
   readonly categories = input<readonly ProductLookupOption[]>([]);
   protected readonly wishlist = inject(WishlistService);
+  // CHANGED (new): the image of each product card and shelf item (signed S3 URL from its PRODUCT_IMAGE).
+  protected readonly productImages = inject(ProductImageDisplayService);
   private readonly productService = inject(ProductCatalogService);
   private readonly destroyRef = inject(DestroyRef);
   // CHANGED: Home keeps its own request state. The shared catalog (load/status/error/products) is still
@@ -117,7 +122,11 @@ export class HomeShowcases {
         }),
         takeUntilDestroyed(),
       )
-      .subscribe((shelves) => this.shelves.set(shelves));
+      .subscribe((shelves) => {
+        this.shelves.set(shelves);
+        // CHANGED (new): one URL request per distinct image key (keys already loaded make none).
+        this.productImages.show(shelves.flatMap((shelf) => shelf.products));
+      });
   }
 
   protected toggleWishlist(productId: string): void {
@@ -136,6 +145,8 @@ export class HomeShowcases {
     this.productService.loadListingPage(HOME_PRODUCT_FILTERS, 1, HOME_PRODUCTS).pipe(
       tap((page) => {
         this.bestDeals.set(activeProducts(page.items, HOME_PRODUCTS));
+        // CHANGED (new): Best Deals and Recommended Items show the same products, so one call covers both.
+        this.productImages.show(this.bestDeals());
         this.catalogStatus.set('success');
       }),
       catchError((error: unknown) => {

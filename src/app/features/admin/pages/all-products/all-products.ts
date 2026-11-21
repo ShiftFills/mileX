@@ -24,9 +24,11 @@ import {
   ProductListingStatus,
   ProductLookupOption,
 } from '@core/services/product-catalog.service';
+import { ProductImageDisplayService, ProductImageSource } from '@core/services/product-image-display.service';
 import { SellerOnboardingService } from '@features/seller/services/seller-onboarding.service';
 import {
   VARIANT_OPTIONS,
+  variantImageSource,
   variantImageUrl,
   variantOptionValue,
   variantText,
@@ -47,6 +49,12 @@ interface ProductEditForm {
 
 const DEFAULT_PAGE_SIZE = 5;
 const PAGE_SIZES = [5, 10, 20] as const;
+
+/** A row's image fields as ProductImageDisplayService reads them (`image` is the catalog's imageUrl). */
+// CHANGED (new)
+function imageSource(row: AdminProductRow): ProductImageSource {
+  return { imageKey: row.imageKey, imagePath: row.imagePath, imageUrl: row.image };
+}
 
 type ProductStatusTab = 'All' | 'Active' | 'Inactive';
 
@@ -90,6 +98,8 @@ interface VariantRow {
   stock: number;
   status: AdminProductRow['status'];
   image: string;
+  // CHANGED (new): the variant's S3 key or legacy URL, shown through ProductImageDisplayService.
+  imageSource: ProductImageSource;
 }
 
 /** Prices as the product table shows them, e.g. "₹6,000". */
@@ -116,6 +126,7 @@ function mapVariantRow(variant: ProductVariant): VariantRow {
     stock: variant.stock,
     status: variantStatus(variant.status),
     image: variantImageUrl(variant),
+    imageSource: variantImageSource(variant),
   };
 }
 
@@ -141,12 +152,16 @@ function mapAdminProduct(product: Product): AdminProductRow {
           ? 'Active'
           : 'Inactive',
     image: product.imageUrl,
+    ...(product.imageKey ? { imageKey: product.imageKey } : {}),
+    ...(product.imagePath ? { imagePath: product.imagePath } : {}),
   };
 }
 
 @Component({
   selector: 'app-admin-all-products',
   imports: [Badge, Button, Card, Checkbox, ClickOutside, Dialog, Input, LoadingSpinner, Pagination, Select, Table],
+  // CHANGED (new): image state for this screen.
+  providers: [ProductImageDisplayService],
   templateUrl: './all-products.html',
   styleUrl: './all-products.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -158,6 +173,9 @@ export class AllProducts {
   private readonly sellerOnboarding = inject(SellerOnboardingService);
   private readonly variantService = inject(ProductVariantService);
   private readonly destroyRef = inject(DestroyRef);
+  // CHANGED: the product images (S3 signed URLs, legacy paths, placeholder, expiry and refresh) are handled by
+  // ProductImageDisplayService, shared with the Home page.
+  private readonly productImages = inject(ProductImageDisplayService);
   // CHANGED (new): Sellers list only their own products; Admins keep the full catalog (PRODUCT_ID=-1).
   private readonly isSeller = computed(
     () => this.auth.user()?.userType?.trim().toUpperCase() === 'SELLER',
@@ -193,8 +211,6 @@ export class AllProducts {
   // so reopening a product (or reopening it while its request is still running) makes no new call.
   protected readonly variantDialog = signal<VariantDialogState | null>(null);
   protected readonly variantRows = computed(() => (this.variantDialog()?.variants ?? []).map(mapVariantRow));
-  /** Variant IDs whose image failed to load; they show the product image instead. */
-  protected readonly failedVariantImages = signal<ReadonlySet<string>>(new Set());
   private readonly variantRequests = new Map<number, Observable<readonly ProductVariant[]>>();
   private readonly openVariantsFor = new Subject<AdminProductRow>();
   protected readonly categoryLookup = signal<ProductFilterLookup>({
@@ -350,6 +366,8 @@ export class AllProducts {
                 return;
               }
               this.products.set(products);
+              // CHANGED (new): each distinct image key on the page is requested once.
+              this.productImages.show(products);
               this.pageData.set({
                 ...(response.total !== undefined ? { total: response.total } : {}),
                 ...(totalPages !== undefined ? { totalPages } : {}),
@@ -376,7 +394,11 @@ export class AllProducts {
       .pipe(
         switchMap((product) =>
           this.productVariants(product.id).pipe(
-            tap((variants) => this.updateVariantDialog(product.id, { status: 'success', variants, error: null })),
+            tap((variants) => {
+              this.updateVariantDialog(product.id, { status: 'success', variants, error: null });
+              // CHANGED (new): the URLs of the variants' S3 images (one request per distinct key).
+              this.productImages.show(variants.map(variantImageSource));
+            }),
             catchError((error: unknown) => {
               this.updateVariantDialog(product.id, {
                 status: 'error',
@@ -606,8 +628,38 @@ export class AllProducts {
     this.variantDialog.set(null);
   }
 
-  protected variantImageFailed(variantId: string): void {
-    this.failedVariantImages.update((failed) => failed.has(variantId) ? failed : new Set(failed).add(variantId));
+  /**
+   * The row's own image (signed S3 URL, API image URL or legacy /uploads path), or null for the "no image"
+   * placeholder: see ProductImageDisplayService.
+   */
+  // CHANGED: delegates to the shared ProductImageDisplayService (the logic used to live here).
+  protected productImage(product: AdminProductRow): string | null {
+    return this.productImages.src(imageSource(product));
+  }
+
+  // CHANGED (new)
+  protected productImageLoading(product: AdminProductRow): boolean {
+    return this.productImages.loading(imageSource(product));
+  }
+
+  /** The browser could not display an image: one fresh S3 URL, else the placeholder. */
+  // CHANGED: delegates to the shared ProductImageDisplayService.
+  protected productImageFailed(product: AdminProductRow, src: string): void {
+    this.productImages.failed(imageSource(product), src);
+  }
+
+  /**
+   * A variant's own image (signed S3 URL or legacy /uploads URL); otherwise, and while it loads or after it
+   * failed, the product's image.
+   */
+  // CHANGED (new): replaces the failed-variant-ID list; S3 variant images get one fresh URL before falling back.
+  protected variantImage(variant: VariantRow, product: AdminProductRow): string {
+    return this.productImages.src(variant.imageSource) ?? this.productImage(product) ?? product.image;
+  }
+
+  // CHANGED: takes the failed URL (was the variant ID).
+  protected variantImageFailed(variant: VariantRow, src: string): void {
+    this.productImages.failed(variant.imageSource, src);
   }
 
   protected toggleActionMenu(productId: number): void {

@@ -135,6 +135,24 @@
   background: var(--color-bg);
 }
 
+// CHANGED (new): no image yet / no usable image.
+.product-thumbnail--empty {
+  display: inline-grid;
+  place-items: center;
+  color: var(--color-placeholder);
+  vertical-align: middle;
+
+  &.is-loading {
+    opacity: 0.5;
+  }
+
+  svg {
+    width: 0.8rem;
+    stroke: currentColor;
+    stroke-width: 1.5;
+  }
+}
+
 .product-row-actions {
   position: relative;
   display: flex;

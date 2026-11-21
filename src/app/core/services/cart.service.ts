@@ -50,6 +50,7 @@ export class CartService {
   readonly shippingCost = computed(() => this.shippingFor(this.subtotal(), this.count()));
   readonly total = computed(() => this.subtotal() + this.shippingCost());
 
+  
   /**
    * Restores the saved rows with the latest product values as soon as the catalog is loaded.
    * The catalog is loaded by the pages that show cart or catalog products (cart, checkout, payment,

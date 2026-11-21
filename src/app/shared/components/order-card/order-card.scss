@@ -125,7 +125,9 @@
     gap: u(0.75);
     min-width: 0;
 
-    img {
+    // CHANGED: [role='img'] is the empty image box shown while an S3 image loads or when it cannot be shown.
+    img,
+    [role='img'] {
       width: u(1.7);
       height: u(1.7);
       max-width: 100%;

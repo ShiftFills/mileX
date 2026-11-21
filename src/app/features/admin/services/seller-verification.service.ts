@@ -4,6 +4,7 @@ import { Observable, map, throwError } from 'rxjs';
 import { API_ENDPOINTS } from '@core/constants/api-endpoints';
 import { ApiService } from '@core/services/api.service';
 import { AuthService } from '@core/services/auth.service';
+import { isS3ImageKey } from '@core/services/s3-image.service';
 import type { StatusOption } from '@shared/models/api.model';
 
 export type { StatusOption } from '@shared/models/api.model';
@@ -13,7 +14,10 @@ export type SellerVerificationStatus = 'Pending' | 'Approved' | 'Rejected';
 export interface SellerVerificationDocument {
   name: string;
   fileName: string;
+  /** A ready URL (legacy /uploads path or full URL); '' for an S3 document, whose URL comes from `storageKey`. */
   url: string;
+  // CHANGED (new): S3 key of the document ("documents/<file name>"); its signed URL comes from S3ImageService.
+  storageKey?: string;
   required?: boolean;
   documentId?: number;
   proofType?: string;
@@ -256,10 +260,13 @@ function mapSellerDocuments(
           ? undefined
           : 'Pending'
         : mapStatus(fieldStatus);
+    // CHANGED: an S3 key is kept as storageKey (it used to become a broken "/uploads/documents/..." URL).
+    const storageKey = isS3ImageKey(fileName) ? fileName : '';
     return {
       name,
       fileName: fileName || 'Not Available',
-      url: fileName ? documentUrl(fileName) : '',
+      url: fileName && !storageKey ? documentUrl(fileName) : '',
+      ...(storageKey ? { storageKey } : {}),
       required,
       ...(recordDocumentId !== undefined ? { documentId: recordDocumentId } : {}),
       proofType: field,

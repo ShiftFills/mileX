@@ -1,11 +1,17 @@
 {
+  "/s3-api/**": {
+    "target": "http://43.204.96.192:81",
+    "secure": false,
+    "changeOrigin": true,
+    "pathRewrite": { "^/s3-api": "/api" }
+  },
   "/api/**": {
     "target": "http://10.148.24.41:81",
     "secure": false,
     "changeOrigin": true
   },
   "/uploads/**": {
-    "target": "http://10.148.24.41:81",
+    "target": "http://43.204.96.192:81",
     "secure": false,
     "changeOrigin": true
   }

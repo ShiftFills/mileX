@@ -543,18 +543,24 @@ export class SellerOnboardingService {
       .pipe(map((response) => readSuccess(response, 'seller onboarding', 'Seller details updated successfully.')));
   }
 
+  /**
+   * `seller_docs/insert` with the stored S3 key of each uploaded document ("documents/<file name>"), by form field
+   * (gstCertificate, panCard, …). A document that was not uploaded is sent as null.
+   */
+  // CHANGED: takes the documents' S3 keys (the files are uploaded by the onboarding page first); it used to take
+  // the files and send their local names, for files that were never uploaded anywhere.
   uploadDocuments(
-    files: Readonly<Record<string, File>>,
+    documentKeys: Readonly<Record<string, string>>,
     sellerId: number,
   ): Observable<SellerDocumentsResult> {
     const payload: Omit<SellerDocumentsPayload, 'SELLER_ID'> = {
-      GST_CERTIFICATE: files['gstCertificate']?.name ?? null,
-      PAN_CARD: files['panCard']?.name ?? null,
-      BUSINESS_REGISTRATION_CERTIFICATE: files['registrationCertificate']?.name ?? null,
-      ADDRESS_PROOF: files['addressProof']?.name ?? null,
-      OWNER_DIRECTOR_ID_PROOF: files['ownerIdProof']?.name ?? null,
-      BANK_PROOF: files['bankProof']?.name ?? null,
-      OTHER_SUPPORTING_DOCUMENT: files['supportingDocument']?.name ?? null,
+      GST_CERTIFICATE: documentKeys['gstCertificate'] ?? null,
+      PAN_CARD: documentKeys['panCard'] ?? null,
+      BUSINESS_REGISTRATION_CERTIFICATE: documentKeys['registrationCertificate'] ?? null,
+      ADDRESS_PROOF: documentKeys['addressProof'] ?? null,
+      OWNER_DIRECTOR_ID_PROOF: documentKeys['ownerIdProof'] ?? null,
+      BANK_PROOF: documentKeys['bankProof'] ?? null,
+      OTHER_SUPPORTING_DOCUMENT: documentKeys['supportingDocument'] ?? null,
     };
     const request: SellerDocumentsPayload = {
       ...payload,

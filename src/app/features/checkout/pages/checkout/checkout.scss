@@ -41,11 +41,12 @@
 .checkout-products h2 { margin-bottom: 1.8rem; }
 .checkout-products-table { --table-responsive-min-width: 100%; --table-cell-padding: 0.35rem; --table-font-size: 0.6rem; --table-header-font-size: 0.57rem; --table-row-height: 3rem; --table-text-color: var(--color-text-muted); --table-header-color: var(--color-text); --table-header-background: var(--color-surface); --table-border-color: #f0f2f5; --table-header-border-color: #edf0f4; }
 .checkout-product { display: flex; width: 2.75rem; min-width: 2.75rem; align-items: center; justify-content: center; }
-.checkout-product img { width: 2.5rem; height: 1.75rem; object-fit: contain; border-radius: 3px; background: #f4f6f8; }
+/* CHANGED: [role=img] is the empty image box shown while an S3 image loads or when there is none. */
+.checkout-product img, .checkout-product [role=img] { width: 2.5rem; height: 1.75rem; object-fit: contain; border-radius: 3px; background: #f4f6f8; }
 .checkout-product-list { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
 .checkout-product-item { min-width: 0; padding: var(--space-2); border: 1px solid #f0f2f5; border-radius: var(--radius-sm); }
 .checkout-product-summary { display: grid; grid-template-columns: 2.75rem minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); min-width: 0; }
-.checkout-product-summary > img { width: 2.75rem; height: 2.75rem; object-fit: contain; border-radius: 3px; background: #f4f6f8; }
+.checkout-product-summary > img, .checkout-product-summary > [role=img] { width: 2.75rem; height: 2.75rem; object-fit: contain; border-radius: 3px; background: #f4f6f8; }
 .checkout-product-copy { display: grid; min-width: 0; gap: 0.15rem; }
 .checkout-product-copy strong { overflow: hidden; color: var(--color-text); font-size: 0.68rem; font-weight: var(--weight-medium); text-overflow: ellipsis; white-space: nowrap; }
 .checkout-product-copy span { overflow: hidden; color: var(--color-text-muted); font-size: 0.58rem; text-overflow: ellipsis; white-space: nowrap; }

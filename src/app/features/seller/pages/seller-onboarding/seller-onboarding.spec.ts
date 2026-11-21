@@ -5,9 +5,22 @@ import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, Router, provideRouter } from '@angular/router';
 import { Observable, of, throwError } from 'rxjs';
 import { AuthService } from '@core/services/auth.service';
+import { S3ImageService } from '@core/services/s3-image.service';
 import { ToastService } from '@core/services/toast.service';
 import { Home } from '@features/home/pages/home/home';
 import { SellerOnboarding } from './seller-onboarding';
+
+// CHANGED (new): seller documents are uploaded to S3 ("documents/<unique file name>") before seller_docs is saved.
+const DOCUMENT_KEY = (extension: string) => expect.stringMatching(new RegExp(`^documents/[0-9a-f]{32}\\.${extension}$`));
+function s3ImagesMock() {
+  return {
+    uploadImage: vi.fn((_file: File, fileName: string, folderName: string) => of(`${folderName}/${fileName}`)),
+    imageUrl: vi.fn((key: string) => of(`https://bucket.s3.ap-south-1.amazonaws.com/${key}?X-Amz-Signature=abc`)),
+    uploadErrorMessage: vi.fn((error: unknown, subject = 'The product image') =>
+      `${subject} could not be uploaded. ${error instanceof Error ? error.message : ''}`.trim()),
+  };
+}
+const s3Service = (mock = s3ImagesMock()) => mock as unknown as S3ImageService;
 import {
   SellerOnboardingPayload,
   SellerOnboardingResult,
@@ -65,7 +78,9 @@ describe('SellerOnboarding validation', () => {
   let submissionResult: Observable<SellerOnboardingResult>;
   let documentResult: Observable<SellerDocumentsResult>;
   let bankResult: Observable<SellerBankDetailsResult>;
-  let documentUploadCalls: { files: Readonly<Record<string, File>>; sellerId: number }[];
+  // CHANGED: seller_docs/insert receives the documents' S3 keys (it used to receive the files).
+  let documentUploadCalls: { files: Readonly<Record<string, string>>; sellerId: number }[];
+  let s3Images: ReturnType<typeof s3ImagesMock>;
   let apiCallOrder: string[];
   let updatePayloads: { seller?: unknown; documents?: unknown; bank?: unknown };
   let toastMessages: { type: 'success' | 'error'; message: string }[];
@@ -89,6 +104,7 @@ describe('SellerOnboarding validation', () => {
     documentResult = of({ documentId: 17, message: 'Seller documents uploaded successfully.' });
     bankResult = of({ bankDetailId: 24, message: 'Bank details saved successfully.' });
     documentUploadCalls = [];
+    s3Images = s3ImagesMock();
     apiCallOrder = [];
     updatePayloads = {};
     toastMessages = [];
@@ -129,7 +145,7 @@ describe('SellerOnboarding validation', () => {
         apiCallOrder.push('onboarding');
         return submissionResult;
       },
-      uploadDocuments: (files: Readonly<Record<string, File>>, sellerId: number) => {
+      uploadDocuments: (files: Readonly<Record<string, string>>, sellerId: number) => {
         documentUploadCalls.push({ files, sellerId });
         apiCallOrder.push('documents');
         return documentResult;
@@ -162,7 +178,7 @@ describe('SellerOnboarding validation', () => {
       showSuccess: (message: string) => toastMessages.push({ type: 'success', message }),
       showError: (message: string) => toastMessages.push({ type: 'error', message }),
     } as unknown as ToastService;
-    component = new SellerOnboarding(router, sellerOnboarding, toast) as unknown as ValidationHarness;
+    component = new SellerOnboarding(router, sellerOnboarding, toast, undefined, s3Service(s3Images)) as unknown as ValidationHarness;
     component.attemptedNext.set(true);
   });
 
@@ -379,7 +395,7 @@ describe('SellerOnboarding validation', () => {
       showSuccess: vi.fn(),
       showError: vi.fn(),
     } as unknown as ToastService;
-    const edit = new SellerOnboarding(router, existingSellerService, toast, route) as unknown as ValidationHarness;
+    const edit = new SellerOnboarding(router, existingSellerService, toast, route, s3Service()) as unknown as ValidationHarness;
     const setInput = (name: string, value: string) => {
       const input = document.createElement('input');
       input.value = value;
@@ -445,10 +461,11 @@ describe('SellerOnboarding validation', () => {
       USER_PASSWORD: 'Seller@123',
     });
     expect(updatedDocuments).toHaveLength(1);
+    // CHANGED: the replaced document is sent as its S3 key; the others keep their saved values.
     expect(updatedDocuments[0]).toMatchObject({
       DOCUMENT_ID: 7,
       SELLER_ID: 42,
-      GST_CERTIFICATE: 'gst-updated.pdf',
+      GST_CERTIFICATE: DOCUMENT_KEY('pdf'),
       PAN_CARD: 'pan.pdf',
     });
     expect(updatedBankDetails[0]).toMatchObject({
@@ -1120,8 +1137,10 @@ describe('SellerOnboarding validation', () => {
     component.continue();
 
     expect(apiCallOrder).toEqual(['onboarding', 'documents', 'bank']);
+    // CHANGED: the document is uploaded to S3 and seller_docs/insert gets its key.
+    expect(s3Images.uploadImage).toHaveBeenCalledWith(gstCertificate, expect.stringMatching(/^[0-9a-f]{32}\.pdf$/), 'documents');
     expect(documentUploadCalls).toEqual([
-      { files: { gstCertificate }, sellerId: 42 },
+      { files: { gstCertificate: DOCUMENT_KEY('pdf') }, sellerId: 42 },
     ]);
     expect(component.activeStep()).toBe(4);
     expect(toastMessages.map(({ type }) => type)).toEqual(['success', 'success', 'success']);
@@ -1210,8 +1229,9 @@ describe('SellerOnboarding validation', () => {
       },
     ]);
     expect(apiCallOrder).toEqual(['onboarding', 'documents', 'bank']);
+    // CHANGED: seller_docs/insert gets the uploaded document's S3 key.
     expect(documentUploadCalls).toEqual([
-      { files: { gstCertificate }, sellerId: 42 },
+      { files: { gstCertificate: DOCUMENT_KEY('pdf') }, sellerId: 42 },
     ]);
   });
 
@@ -1362,6 +1382,64 @@ describe('SellerOnboarding validation', () => {
       expect(component.previewedDocument()).toEqual(
         expect.objectContaining({ name: 'gstCertificate', label: 'GST Certificate' }),
       );
+    });
+
+    // CHANGED (new): S3 document uploads and saved-document previews.
+    it('does not save documents when the storage rejects one, and names the document in the error', () => {
+      component.activeStep.set(2);
+      (component as unknown as { createdSeller: unknown }).createdSeller = { sellerId: 42, userId: 2 };
+      const gst = new File(['gst'], 'gst.pdf', { type: 'application/pdf' });
+      const pan = new File(['pan'], 'pan.png', { type: 'image/png' });
+      component.updateDocument('gstCertificate', gst);
+      component.updateDocument('panCard', pan);
+      s3Images.uploadImage.mockImplementation((file: File, fileName: string, folderName: string) =>
+        file === gst
+          ? throwError(() => new Error('Only JPG, PNG and WEBP images are allowed'))
+          : of(`${folderName}/${fileName}`));
+
+      (component as unknown as { submitDocuments(): void }).submitDocuments();
+
+      expect(component.activeStep()).toBe(2);
+      expect(documentUploadCalls).toHaveLength(0);
+      expect(toastMessages.at(-1)).toEqual({
+        type: 'error',
+        message: 'The GST Certificate could not be uploaded. Only JPG, PNG and WEBP images are allowed',
+      });
+
+      // Replacing the rejected file with an image: only that file is uploaded again.
+      const gstImage = new File(['gst'], 'gst.jpg', { type: 'image/jpeg' });
+      component.updateDocument('gstCertificate', gstImage);
+      s3Images.uploadImage.mockClear();
+      (component as unknown as { submitDocuments(): void }).submitDocuments();
+
+      expect(s3Images.uploadImage).toHaveBeenCalledTimes(1);
+      expect(s3Images.uploadImage).toHaveBeenCalledWith(gstImage, expect.stringMatching(/^[0-9a-f]{32}\.jpg$/), 'documents');
+      expect(documentUploadCalls).toEqual([
+        { files: { gstCertificate: DOCUMENT_KEY('jpg'), panCard: DOCUMENT_KEY('png') }, sellerId: 42 },
+      ]);
+      expect(component.activeStep()).toBe(3);
+    });
+
+    it('previews a saved S3 document from its signed URL', () => {
+      component.activeStep.set(2);
+      const page = component as unknown as {
+        existingDocuments: WritableSignal<Record<string, string | null>>;
+        canPreview(name: string): boolean;
+      };
+      page.existingDocuments.set({ gstCertificate: 'documents/0a1b.png', panCard: 'pan.pdf' });
+
+      expect(page.canPreview('gstCertificate')).toBe(true);
+      expect(page.canPreview('panCard')).toBe(false); // a legacy name: the file was never uploaded
+      component.openPreview('gstCertificate');
+
+      expect(s3Images.imageUrl).toHaveBeenCalledWith('documents/0a1b.png');
+      expect(component.previewDocument()).toBe('gstCertificate');
+      expect(component.previewedDocument()).toEqual({
+        name: 'gstCertificate',
+        label: 'GST Certificate',
+        file: null,
+        src: 'https://bucket.s3.ap-south-1.amazonaws.com/documents/0a1b.png?X-Amz-Signature=abc',
+      });
     });
 
     it('only previews documents that have been uploaded', () => {

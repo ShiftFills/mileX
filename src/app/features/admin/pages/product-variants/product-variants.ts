@@ -2,10 +2,13 @@ import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, computed,
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { EMPTY, Observable, catchError, distinctUntilChanged, expand, finalize, map, of, switchMap, tap, toArray } from 'rxjs';
+import { EMPTY, Observable, catchError, distinctUntilChanged, expand, finalize, map, of, switchMap, tap, throwError, toArray } from 'rxjs';
 import { AuthService } from '@core/services/auth.service';
 import { ProductCatalogService } from '@core/services/product-catalog.service';
+import { ProductImageDisplayService } from '@core/services/product-image-display.service';
+import { S3FileUpload, S3ImageService, VARIANT_IMAGE_FOLDER } from '@core/services/s3-image.service';
 import { ToastService } from '@core/services/toast.service';
+import { variantImageSource } from '@features/products/components/product-variant-selector/product-variant-selector';
 import { SellerOnboardingService } from '@features/seller/services/seller-onboarding.service';
 import { Button } from '@shared/components/button/button';
 import { Dialog } from '@shared/components/dialog/dialog';
@@ -30,6 +33,8 @@ const PAGE_SIZE = 5;
 const SELLER_PAGE_SIZE = 10;
 const PRODUCT_PAGE_SIZE = 100;
 const MAX_VARIANT_IMAGE_SIZE = 5 * 1024 * 1024;
+// CHANGED (new): the image types the S3 upload API accepts.
+const VARIANT_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 const VARIANT_SELLER_ID = 1;
 const VARIANT_SELLER_NAME = 'Arun Kumar';
 const VARIANT_UPDATE_SELLER_ID = 1;
@@ -58,6 +63,8 @@ function hasVariantDimensionSelection(value: string, id: number | null): boolean
   selector: 'app-product-variants',
   // CHANGED: SearchableSelect for the Add Variant product dropdown.
   imports: [DecimalPipe, FormsModule, Button, Dialog, Input, LoadingSpinner, Pagination, SearchableSelect, Select],
+  // CHANGED (new): variant images from S3 (signed URLs), shared with All Products and the Home page.
+  providers: [ProductImageDisplayService],
   templateUrl: './product-variants.html',
   styleUrl: './product-variants.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -69,6 +76,10 @@ export class ProductVariants {
   private readonly toast = inject(ToastService);
   private readonly auth = inject(AuthService);
   private readonly destroyRef = inject(DestroyRef);
+  // CHANGED (new): variant images are uploaded to S3 ("variants/<unique file name>") and shown from their key.
+  private readonly s3Images = inject(S3ImageService);
+  private readonly imageUpload = new S3FileUpload(this.s3Images, VARIANT_IMAGE_FOLDER);
+  protected readonly variantImages = inject(ProductImageDisplayService);
   // CHANGED (new): a Seller lists only their own variants; Admins (and any other role) keep the full listing.
   private readonly isSeller = computed(
     () => this.auth.user()?.userType?.trim().toUpperCase() === 'SELLER',
@@ -113,6 +124,9 @@ export class ProductVariants {
   protected readonly error = signal(false);
   protected readonly imageError = signal('');
   protected readonly selectedImage = signal<File | null>(null);
+  // CHANGED (new): object URL of the selected image (shown before it is uploaded), and the upload in progress.
+  protected readonly imagePreview = signal<string | null>(null);
+  protected readonly uploadingImage = signal(false);
   protected readonly isSubmitting = signal(false);
   protected readonly variantLookups = signal<Record<ProductVariantLookup, VariantLookupState>>({
     colours: { ...EMPTY_LOOKUP_STATE },
@@ -139,6 +153,8 @@ export class ProductVariants {
           return this.loadVariantPage(page).pipe(
             tap((result) => {
               this.variants.set(result.items);
+              // CHANGED (new): one URL request per distinct S3 image key on the page.
+              this.variantImages.show(result.items.map(variantImageSource));
               this.totalVariants.set(result.total ?? null);
               this.hasNextPage.set(result.hasNext);
               this.loadStatus.set('success');
@@ -153,6 +169,24 @@ export class ProductVariants {
         takeUntilDestroyed(),
       )
       .subscribe();
+    // CHANGED (new): releases the preview's object URL when the page closes.
+    this.destroyRef.onDestroy(() => this.setSelectedImage(null));
+  }
+
+  /** The variant's own image (signed S3 URL or legacy /uploads URL), or null for the placeholder. */
+  // CHANGED (new)
+  protected variantImage(variant: ProductVariant): string | null {
+    return this.variantImages.src(variantImageSource(variant));
+  }
+
+  // CHANGED (new)
+  protected variantImageLoading(variant: ProductVariant): boolean {
+    return this.variantImages.loading(variantImageSource(variant));
+  }
+
+  // CHANGED (new): one fresh URL for an S3 image that fails to display, then the placeholder.
+  protected variantImageFailed(variant: ProductVariant, src: string): void {
+    this.variantImages.failed(variantImageSource(variant), src);
   }
 
   /**
@@ -433,7 +467,7 @@ export class ProductVariants {
     this.form.set({ productId: '', name: '', sku: '', barcode: '', size: '', sizeId: null, color: '', colorId: null, material: '', materialId: null, weight: '', price: '', stock: '', status: 'ACTIVE' });
     this.error.set(false);
     this.imageError.set('');
-    this.selectedImage.set(null);
+    this.setSelectedImage(null);
     this.dialog.set('add');
     if (this.productsStatus() !== 'success') this.loadProducts();
     this.loadVariantLookups();
@@ -443,7 +477,7 @@ export class ProductVariants {
     this.form.set({ productId: '', name: row.name, sku: row.sku, barcode: row.barcode, size: row.size, sizeId: null, color: row.color, colorId: null, material: row.material, materialId: null, weight: row.weight, price: String(row.price), stock: String(row.stock), status: row.status });
     this.error.set(false);
     this.imageError.set('');
-    this.selectedImage.set(null);
+    this.setSelectedImage(null);
     this.dialog.set('edit');
     this.menu.set(null);
     this.menuPosition.set(null);
@@ -460,7 +494,7 @@ export class ProductVariants {
     this.dialog.set(null);
     this.error.set(false);
     this.imageError.set('');
-    this.selectedImage.set(null);
+    this.setSelectedImage(null);
   }
   protected setField(key: keyof ReturnType<typeof this.form>, event: Event): void {
     const target = event.target;
@@ -470,21 +504,62 @@ export class ProductVariants {
   protected setProductId(productId: string): void {
     this.form.update((v) => ({ ...v, productId }));
   }
+  // CHANGED: only the types the S3 API accepts (PNG, JPG, WEBP; was any image/*), no empty file, and a preview.
+  // The image's unique S3 file name is fixed here and used by its upload.
   protected onImageChange(event: Event): void {
     const target = event.target;
     const file = target instanceof HTMLInputElement ? target.files?.[0] ?? null : null;
     this.imageError.set('');
-    if (file && !file.type.startsWith('image/')) {
-      this.selectedImage.set(null);
-      this.imageError.set('Select an image file.');
+    if (file && !VARIANT_IMAGE_TYPES.includes(file.type)) {
+      this.setSelectedImage(null);
+      this.imageError.set('Choose a PNG, JPG, or WEBP image.');
+      return;
+    }
+    if (file && file.size === 0) {
+      this.setSelectedImage(null);
+      this.imageError.set('The selected image is empty. Choose another file.');
       return;
     }
     if (file && file.size > MAX_VARIANT_IMAGE_SIZE) {
-      this.selectedImage.set(null);
+      this.setSelectedImage(null);
       this.imageError.set('The image must be 5 MB or smaller.');
       return;
     }
+    if (file) this.imageUpload.fileName(file);
+    this.setSelectedImage(file);
+  }
+
+  /** The browser could not show the selected file, so it is not a usable image. */
+  // CHANGED (new)
+  protected previewFailed(): void {
+    this.setSelectedImage(null);
+    this.imageError.set('This file could not be read as an image. Choose another file.');
+  }
+
+  // CHANGED (new): keeps the preview object URL in step with the selected file.
+  private setSelectedImage(file: File | null): void {
+    const previous = this.imagePreview();
+    if (previous) URL.revokeObjectURL(previous);
+    this.imagePreview.set(file && typeof URL.createObjectURL === 'function' ? URL.createObjectURL(file) : null);
     this.selectedImage.set(file);
+  }
+
+  /**
+   * The variant image's S3 key: uploads the new image ("variants/<its unique file name>"), or reuses the key of an
+   * earlier upload of the same file (e.g. when the upload worked but saving the variant failed).
+   */
+  // CHANGED (new)
+  private uploadVariantImage(file: File): Observable<string> {
+    if (this.imageUpload.uploadedKey(file)) return this.imageUpload.upload(file);
+    this.uploadingImage.set(true);
+    return this.imageUpload.upload(file).pipe(
+      catchError((error: unknown) => {
+        const message = this.s3Images.uploadErrorMessage(error, 'The variant image');
+        this.imageError.set(message);
+        return throwError(() => new Error(message));
+      }),
+      finalize(() => this.uploadingImage.set(false)),
+    );
   }
   protected save(): void {
     if (this.isSubmitting()) return;
@@ -515,7 +590,8 @@ export class ProductVariants {
         return;
       }
 
-      const imageName = imageFile.name.split(/[\\/]/).pop() ?? imageFile.name;
+      // CHANGED: VARIANT_IMAGE is the S3 key of the uploaded image (set below); it used to be the local file name
+      // of a file that was never uploaded.
       const payload: Omit<ProductVariantInsertPayload, 'CREATED_BY'> = {
         VARIANT_NAME: v.name.trim(),
         BARCODE: v.barcode.trim() || null,
@@ -525,7 +601,7 @@ export class ProductVariants {
         WEIGHT: weight,
         PRICE: price,
         STOCK_QUANTITY: stock,
-        VARIANT_IMAGE: imageName,
+        VARIANT_IMAGE: '',
         PRODUCT_ID: productId,
         SELLER_ID: VARIANT_SELLER_ID,
         SELLER_NAME: VARIANT_SELLER_NAME,
@@ -534,13 +610,18 @@ export class ProductVariants {
       this.error.set(false);
       this.isSubmitting.set(true);
       this.sellerOnboarding.getSellerIdForCurrentUser(payload.SELLER_ID).pipe(
+        // CHANGED: the image is uploaded first; the variant is created only with its S3 key.
         switchMap((sellerId) =>
-          this.variantService.insertVariant({ ...payload, SELLER_ID: sellerId }),
+          this.uploadVariantImage(imageFile).pipe(
+            switchMap((imageKey) =>
+              this.variantService.insertVariant({ ...payload, VARIANT_IMAGE: imageKey, SELLER_ID: sellerId }),
+            ),
+          ),
         ),
         tap((message) => {
           this.toast.showSuccess(message);
           this.dialog.set(null);
-          this.selectedImage.set(null);
+          this.setSelectedImage(null);
           if (this.page() === 1) this.retryLoad();
           else this.page.set(1);
         }),
@@ -562,7 +643,9 @@ export class ProductVariants {
     const price = Number(v.price);
     const stock = Number(v.stock);
     const imageFile = this.selectedImage();
-    const imageName = imageFile?.name.split(/[\\/]/).pop() ?? selected?.imagePath ?? '';
+    // CHANGED: a new image is uploaded to S3 (its key is sent); otherwise the saved VARIANT_IMAGE is kept as is.
+    // (A new image used to be sent as its local file name.)
+    const imageName = imageFile ? this.imageUpload.fileName(imageFile) : selected?.imagePath ?? '';
     const size = optionalVariantDimension(v.size);
     const color = optionalVariantDimension(v.color);
     const material = optionalVariantDimension(v.material);
@@ -612,12 +695,16 @@ export class ProductVariants {
     this.isSubmitting.set(true);
     this.sellerOnboarding.getSellerIdForCurrentUser(payload.SELLER_ID).pipe(
       switchMap((sellerId) =>
-        this.variantService.updateVariant({ ...payload, SELLER_ID: sellerId }),
+        (imageFile ? this.uploadVariantImage(imageFile) : of(payload.VARIANT_IMAGE)).pipe(
+          switchMap((imageKey) =>
+            this.variantService.updateVariant({ ...payload, VARIANT_IMAGE: imageKey, SELLER_ID: sellerId }),
+          ),
+        ),
       ),
       tap((message) => {
         this.toast.showSuccess(message);
         this.dialog.set(null);
-        this.selectedImage.set(null);
+        this.setSelectedImage(null);
         if (this.page() === 1) this.retryLoad();
         else this.page.set(1);
       }),

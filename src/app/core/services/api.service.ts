@@ -6,6 +6,11 @@ import { API_ENDPOINTS } from '../constants/api-endpoints';
 import { API_BASE_URL } from '../config/api.config';
 
 type QueryParams = Record<string, string | number | boolean>;
+/** `baseUrl`: send the request to another API base than API_BASE_URL (e.g. S3_API_BASE_URL). */
+// CHANGED (new)
+interface BaseUrlOption {
+  baseUrl?: string;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -75,8 +80,9 @@ export class ApiService {
   private readonly baseUrl = inject(API_BASE_URL);
   private statusOptionsRequest?: Observable<StatusOption[]>;
 
-  get<T>(path: string, params?: QueryParams): Observable<T> {
-    return this.http.get<T>(this.url(path), { params: new HttpParams({ fromObject: params }) });
+  // CHANGED: optional baseUrl (default API_BASE_URL, so every existing call is unchanged).
+  get<T>(path: string, params?: QueryParams, options: BaseUrlOption = {}): Observable<T> {
+    return this.http.get<T>(this.url(path, options.baseUrl), { params: new HttpParams({ fromObject: params }) });
   }
 
   getStatuses(): Observable<StatusOption[]> {
@@ -94,8 +100,10 @@ export class ApiService {
    * another origin (login and refresh use the HttpOnly refresh-token cookie).
    */
   // CHANGED: optional withCredentials (default off, so every other POST is unchanged).
-  post<T>(path: string, body: unknown, options: { withCredentials?: boolean } = {}): Observable<T> {
-    return this.http.post<T>(this.url(path), body, options);
+  // CHANGED: optional baseUrl (default API_BASE_URL).
+  post<T>(path: string, body: unknown, options: { withCredentials?: boolean } & BaseUrlOption = {}): Observable<T> {
+    const { baseUrl, ...httpOptions } = options;
+    return this.http.post<T>(this.url(path, baseUrl), body, httpOptions);
   }
 
   postText(path: string, body: unknown): Observable<string> {
@@ -116,8 +124,9 @@ export class ApiService {
     });
   }
 
-  delete<T>(path: string, body?: unknown): Observable<T> {
-    return this.http.delete<T>(this.url(path), body === undefined ? {} : { body });
+  // CHANGED: optional baseUrl (default API_BASE_URL).
+  delete<T>(path: string, body?: unknown, options: BaseUrlOption = {}): Observable<T> {
+    return this.http.delete<T>(this.url(path, options.baseUrl), body === undefined ? {} : { body });
   }
 
   /** DELETE with a JSON body for endpoints whose response is plain text or an unknown shape. */
@@ -129,7 +138,7 @@ export class ApiService {
     });
   }
 
-  private url(path: string): string {
-    return `${this.baseUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
+  private url(path: string, baseUrl = this.baseUrl): string {
+    return `${baseUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
   }
 }

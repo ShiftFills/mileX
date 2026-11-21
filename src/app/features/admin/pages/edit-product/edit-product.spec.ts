@@ -2,9 +2,15 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { of, Subject, throwError } from 'rxjs';
 import { ProductCatalogService, ProductDetails } from '@core/services/product-catalog.service';
+import { S3ImageService } from '@core/services/s3-image.service';
 import { ToastService } from '@core/services/toast.service';
 import { SellerOnboardingService } from '@features/seller/services/seller-onboarding.service';
 import { EditProduct } from './edit-product';
+
+// CHANGED (new): S3 product images.
+const SAVED_KEY = 'products/earbuds-1.png';
+const NEW_KEY = 'products/9b2e.png';
+const SIGNED_URL = 'https://bucket.s3.ap-south-1.amazonaws.com/products/earbuds-1.png?X-Amz-Signature=abc';
 
 interface EditProductHarness {
   valueFor(name: string): string;
@@ -24,8 +30,14 @@ interface EditProductHarness {
   productImages: { set(files: File[]): void };
   productVideo: { set(file: File | null): void };
   saveProduct(): void;
-  removeImage(image: { id: number }): void;
+  // CHANGED: one image, so no argument.
+  removeImage(): void;
   removeVideo(): void;
+  addProductImage(file: File): void;
+  savedImage(): { path: string; src: string | null; status: string } | null;
+  hasProductImage(): boolean;
+  imageError(): string;
+  saveStage(): string;
 }
 
 function inputEvent(value: string): Event {
@@ -84,8 +96,21 @@ describe('EditProduct', () => {
     getErrorMessage: ReturnType<typeof vi.fn>;
   };
   let toast: { showError: ReturnType<typeof vi.fn>; showSuccess: ReturnType<typeof vi.fn> };
+  let s3Images: {
+    imageUrl: ReturnType<typeof vi.fn>;
+    uploadImage: ReturnType<typeof vi.fn>;
+    uploadErrorMessage: ReturnType<typeof vi.fn>;
+  };
+  const revokeObjectURL = vi.fn();
 
   beforeEach(async () => {
+    Object.assign(URL, { createObjectURL: vi.fn((file: File) => `blob:${file.name}`), revokeObjectURL });
+    revokeObjectURL.mockClear();
+    s3Images = {
+      imageUrl: vi.fn(() => of(SIGNED_URL)),
+      uploadImage: vi.fn(() => of(NEW_KEY)),
+      uploadErrorMessage: vi.fn(() => 'The product image could not be uploaded. Bucket unavailable.'),
+    };
     toast = { showError: vi.fn(), showSuccess: vi.fn() };
     catalog = {
       loadCategories: vi.fn(() => of([
@@ -129,6 +154,7 @@ describe('EditProduct', () => {
         { provide: ProductCatalogService, useValue: catalog },
         { provide: SellerOnboardingService, useValue: { getSellerIdForCurrentUser: (id: number) => of(id) } },
         { provide: ToastService, useValue: toast },
+        { provide: S3ImageService, useValue: s3Images },
       ],
     }).compileComponents();
     vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
@@ -260,14 +286,28 @@ describe('EditProduct', () => {
     expect(component.isSubmitting()).toBe(false);
   });
 
-  it('uses newly selected image and video paths in the update payload', () => {
-    component.productImages.set([new File(['image'], 'replacement.png', { type: 'image/png' })]);
+  // CHANGED: a new image is uploaded to S3 and its key is sent (was "uploads/products/<local file name>").
+  it('uploads a newly selected image and sends its key with the new video path', () => {
+    const image = new File(['image'], 'replacement.png', { type: 'image/png' });
+    component.productImages.set([image]);
     component.productVideo.set(new File(['video'], 'replacement.mp4', { type: 'video/mp4' }));
     component.saveProduct();
 
+    // CHANGED: uploaded to the "products" folder under a generated unique file name.
+    expect(s3Images.uploadImage).toHaveBeenCalledWith(image, expect.stringMatching(/^[0-9a-f]{32}\.png$/), 'products');
     expect(catalog.updateProduct).toHaveBeenCalledWith(expect.objectContaining({
-      PRODUCT_IMAGE: 'uploads/products/replacement.png',
+      PRODUCT_IMAGE: NEW_KEY,
       PRODUCT_VIDEO: 'uploads/videos/replacement.mp4',
+    }));
+  });
+
+  it('keeps the saved image and uploads nothing when no new image is selected', () => {
+    component.saveProduct();
+
+    expect(s3Images.uploadImage).not.toHaveBeenCalled();
+    expect(s3Images.imageUrl).not.toHaveBeenCalled(); // a legacy path is not an S3 key
+    expect(catalog.updateProduct).toHaveBeenCalledWith(expect.objectContaining({
+      PRODUCT_IMAGE: 'uploads/products/earbuds.png',
     }));
   });
 
@@ -321,10 +361,110 @@ describe('EditProduct', () => {
   });
 
   it('requires at least one image but treats the video as optional', () => {
-    for (const image of [...component.gallery()]) component.removeImage(image);
+    component.removeImage();
     component.removeVideo();
     component.saveProduct();
     expect(component.hasVideo()).toBe(false);
     expect(component.saved()).toBe(false);
+    // CHANGED (new)
+    expect(catalog.updateProduct).not.toHaveBeenCalled();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Please upload a product image.');
+  });
+
+  // CHANGED (new): products whose PRODUCT_IMAGE is an S3 key.
+  describe('with an image stored in S3', () => {
+    const loadS3Product = async (productId = '7') => {
+      catalog.loadProductById.mockImplementation((id: string | number) =>
+        of({ ...productDetails(Number(id)), PRODUCT_IMAGE: SAVED_KEY }),
+      );
+      fixture.componentRef.setInput('id', productId);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+    };
+    const mainImage = () => fixture.nativeElement.querySelector('.gallery-main img') as HTMLImageElement | null;
+
+    it('shows the saved image from its signed URL', async () => {
+      await loadS3Product();
+
+      expect(s3Images.imageUrl).toHaveBeenCalledWith(SAVED_KEY);
+      expect(component.savedImage()).toEqual({ path: SAVED_KEY, src: SIGNED_URL, status: 'ready' });
+      expect(mainImage()?.getAttribute('src')).toBe(SIGNED_URL);
+      expect(fixture.nativeElement.querySelector('.video-actions__change')?.textContent).toContain('Change image');
+    });
+
+    it('shows a loading state until the URL arrives, and the key is still saved meanwhile', async () => {
+      s3Images.imageUrl.mockReturnValue(new Subject<string>());
+      await loadS3Product();
+
+      expect(fixture.nativeElement.querySelector('.gallery-main')?.textContent).toContain('Loading image…');
+      component.saveProduct();
+      expect(catalog.updateProduct).toHaveBeenCalledWith(expect.objectContaining({ PRODUCT_IMAGE: SAVED_KEY }));
+    });
+
+    it('explains when the saved image cannot be displayed and keeps it on update', async () => {
+      s3Images.imageUrl.mockReturnValue(throwError(() => new Error('Not found')));
+      await loadS3Product();
+
+      expect(component.savedImage()?.status).toBe('error');
+      expect(fixture.nativeElement.querySelector('.gallery-main')?.textContent)
+        .toContain('The saved image could not be displayed. It is kept unless you change it.');
+      component.saveProduct();
+      expect(s3Images.uploadImage).not.toHaveBeenCalled();
+      expect(catalog.updateProduct).toHaveBeenCalledWith(expect.objectContaining({ PRODUCT_IMAGE: SAVED_KEY }));
+    });
+
+    it('previews a new image in place of the saved one, and discarding it shows the saved image again', async () => {
+      await loadS3Product();
+      component.addProductImage(new File(['new'], 'new-look.jpg', { type: 'image/jpeg' }));
+      fixture.detectChanges();
+
+      expect(mainImage()?.getAttribute('src')).toBe('blob:new-look.jpg');
+      expect(fixture.nativeElement.querySelector('.gallery-caption')?.textContent)
+        .toContain('It is uploaded when you update the product.');
+      expect(s3Images.uploadImage).not.toHaveBeenCalled();
+
+      component.removeImage();
+      fixture.detectChanges();
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:new-look.jpg');
+      expect(mainImage()?.getAttribute('src')).toBe(SIGNED_URL);
+      expect(component.hasProductImage()).toBe(true);
+    });
+
+    it('replaces the saved image with the uploaded one', async () => {
+      await loadS3Product();
+      const image = new File(['new'], 'new-look.jpg', { type: 'image/jpeg' });
+      component.addProductImage(image);
+      component.saveProduct();
+
+      // CHANGED: the file name generated when the image was selected, in the "products" folder.
+      expect(s3Images.uploadImage).toHaveBeenCalledWith(image, expect.stringMatching(/^[0-9a-f]{32}\.jpg$/), 'products');
+      expect(catalog.updateProduct).toHaveBeenCalledWith(expect.objectContaining({ PRODUCT_ID: 7, PRODUCT_IMAGE: NEW_KEY }));
+      expect(TestBed.inject(Router).navigateByUrl).toHaveBeenCalledWith('/admin/products/all');
+    });
+
+    it('does not update the product when the new image fails to upload', async () => {
+      s3Images.uploadImage.mockReturnValue(throwError(() => new Error('Bucket unavailable')));
+      await loadS3Product();
+      component.addProductImage(new File(['new'], 'new-look.jpg', { type: 'image/jpeg' }));
+      component.saveProduct();
+      fixture.detectChanges();
+
+      expect(catalog.updateProduct).not.toHaveBeenCalled();
+      expect(component.imageError()).toBe('The product image could not be uploaded. Bucket unavailable.');
+      expect(toast.showError).toHaveBeenCalled();
+      expect(component.saveStage()).toBe('idle');
+      expect(TestBed.inject(Router).navigateByUrl).not.toHaveBeenCalled();
+    });
+
+    it('requires a new image after the saved one is removed', async () => {
+      await loadS3Product();
+      component.removeImage();
+      component.saveProduct();
+
+      expect(component.hasProductImage()).toBe(false);
+      expect(catalog.updateProduct).not.toHaveBeenCalled();
+    });
   });
 });

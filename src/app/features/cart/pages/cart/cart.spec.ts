@@ -268,6 +268,83 @@ describe('Cart', () => {
     return { customerFixture, customerRoot: customerFixture.nativeElement as HTMLElement };
   }
 
+  // CHANGED (new)
+  describe('product images', () => {
+    const KEY = 'products/866dea6fc30de9342300a6e901f8df6f.png';
+    const SIGNED = `https://milex.s3.amazonaws.com/${KEY}?X-Amz-Signature=first`;
+    const imageRequests = (): ReturnType<HttpTestingController['match']> =>
+      http.match((req) => req.url.includes('/s3/images/'));
+    const imageOf = (container: HTMLElement, name: string): Element | null =>
+      Array.from(container.querySelectorAll('.cart-item'))
+        .find((article) => article.querySelector('h2')?.textContent?.includes(name))
+        ?.querySelector('.cart-item__image') ?? null;
+
+    it('shows the signed S3 URL of PRODUCT_IMAGE in cart and saved rows, one request per key', async () => {
+      const { customerFixture, customerRoot } = await openCustomerCart([
+        cartRow({ PRODUCT_IMAGE: KEY }),
+        cartRow({ CART_ID: 71, PRODUCT_ID: 13, PRODUCT_NAME: 'Keyboard', SAVE_FOR_LATER: 1, PRODUCT_IMAGE: KEY }),
+      ]);
+
+      const requests = imageRequests();
+      expect(requests).toHaveLength(1);
+      expect(requests[0].request.method).toBe('GET');
+      expect(requests[0].request.url).toBe(`/s3-api/s3/images/${KEY}`);
+      expect(requests[0].request.headers.has('Authorization')).toBe(false);
+      // Loading: the image box without a broken "/products/..." URL.
+      expect(imageOf(customerRoot, 'Head Set')?.getAttribute('aria-label')).toBe('Loading image of Head Set');
+      expect(customerRoot.querySelector(`img[src="/${KEY}"]`)).toBeNull();
+
+      requests[0].flush({ success: true, imageKey: KEY, imageUrl: SIGNED, expiresIn: 3600 });
+      await customerFixture.whenStable();
+      customerFixture.detectChanges();
+
+      expect(imageOf(customerRoot, 'Head Set')?.getAttribute('src')).toBe(SIGNED);
+      expect(customerRoot.querySelector('.cart-saved .cart-item__image')?.getAttribute('src')).toBe(SIGNED);
+      customerFixture.destroy();
+    });
+
+    it('gets one fresh URL when the image fails to display, then shows the empty image box', async () => {
+      const { customerFixture, customerRoot } = await openCustomerCart([cartRow({ PRODUCT_IMAGE: KEY })]);
+      imageRequests()[0].flush({ success: true, imageKey: KEY, imageUrl: SIGNED, expiresIn: 3600 });
+      await customerFixture.whenStable();
+      customerFixture.detectChanges();
+
+      imageOf(customerRoot, 'Head Set')!.dispatchEvent(new Event('error'));
+      await customerFixture.whenStable();
+      customerFixture.detectChanges();
+      const refresh = imageRequests();
+      expect(refresh).toHaveLength(1);
+      const renewed = SIGNED.replace('first', 'second');
+      refresh[0].flush({ success: true, imageKey: KEY, imageUrl: renewed, expiresIn: 3600 });
+      await customerFixture.whenStable();
+      customerFixture.detectChanges();
+      expect(imageOf(customerRoot, 'Head Set')?.getAttribute('src')).toBe(renewed);
+
+      imageOf(customerRoot, 'Head Set')!.dispatchEvent(new Event('error'));
+      await customerFixture.whenStable();
+      customerFixture.detectChanges();
+      expect(imageRequests()).toHaveLength(0);
+      expect(imageOf(customerRoot, 'Head Set')?.tagName).toBe('SPAN');
+      expect(imageOf(customerRoot, 'Head Set')?.getAttribute('aria-label')).toBe('No image for Head Set');
+      customerFixture.destroy();
+    });
+
+    it('shows the empty image box when the S3 URL cannot be loaded or the row has no image', async () => {
+      const { customerFixture, customerRoot } = await openCustomerCart([
+        cartRow({ PRODUCT_IMAGE: KEY }),
+        cartRow({ CART_ID: 72, PRODUCT_ID: 14, PRODUCT_NAME: 'Ear Buds', PRODUCT_IMAGE: null }),
+      ]);
+      imageRequests()[0].flush({ message: 'Not found' }, { status: 404, statusText: 'Not Found' });
+      await customerFixture.whenStable();
+      customerFixture.detectChanges();
+
+      expect(imageOf(customerRoot, 'Head Set')?.getAttribute('aria-label')).toBe('No image for Head Set');
+      expect(imageOf(customerRoot, 'Ear Buds')?.getAttribute('aria-label')).toBe('No image for Ear Buds');
+      expect(customerRoot.querySelector('.cart-items img[src="/images/latest-gadgets.svg"]')).toBeNull();
+      customerFixture.destroy();
+    });
+  });
+
   describe('Save for later (customer cart)', () => {
     const saveButtonOf = (container: HTMLElement): HTMLButtonElement =>
       Array.from(container.querySelectorAll<HTMLButtonElement>('.cart-items .cart-item__actions button'))

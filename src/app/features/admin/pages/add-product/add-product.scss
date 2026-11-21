@@ -192,6 +192,65 @@ app-textarea {
   white-space: nowrap;
 }
 
+// CHANGED (new): selected-image preview, shown before the image is uploaded.
+.upload-zone--preview {
+  border-style: solid;
+  border-color: #eadca8;
+}
+
+.upload-zone__preview {
+  display: grid;
+  width: 100%;
+  max-width: 9rem;
+  aspect-ratio: 1;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+
+  img {
+    display: block;
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    transition: opacity var(--transition-fast);
+  }
+
+  &.is-uploading img {
+    opacity: 0.55;
+  }
+}
+
+.upload-zone__actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+.upload-zone__remove {
+  min-height: 1.25rem;
+  padding: 0.1rem 0.25rem;
+  border: 0;
+  background: transparent;
+  color: var(--color-danger);
+  font-size: 0.56rem;
+  text-decoration: underline;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+}
+
 .optional-label {
   color: var(--color-text-muted);
   font-weight: var(--weight-regular);
@@ -310,5 +369,11 @@ app-textarea {
 
   .upload-zone {
     min-height: 7rem;
+  }
+
+  // CHANGED (new): larger tap targets for the image actions on phones.
+  .upload-zone__remove {
+    min-height: 2.75rem;
+    padding-inline: var(--space-2);
   }
 }

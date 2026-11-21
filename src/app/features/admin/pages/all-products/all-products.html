@@ -101,7 +101,15 @@
         <app-checkbox [checked]="selectedIds().has(product.id)" [ariaLabel]="'Select ' + product.name" (checkedChange)="toggleSelected(product.id, $event)" />
       </ng-template>
       <ng-template #imageCell let-product>
-        <img class="product-thumbnail" [src]="product.image" [alt]="product.name" />
+        <!-- CHANGED: each product's own S3 image (signed URL); a neutral placeholder while it loads or when there is
+             no usable image, instead of the same stock photo on every such row. -->
+        @if (productImage(product); as src) {
+          <img class="product-thumbnail" [src]="src" [alt]="product.name" (error)="productImageFailed(product, src)" />
+        } @else {
+          <span class="product-thumbnail product-thumbnail--empty" [class.is-loading]="productImageLoading(product)" role="img" [attr.aria-label]="(productImageLoading(product) ? 'Loading image of ' : 'No image for ') + product.name">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="3" /><circle cx="9" cy="9" r="1.5" /><path d="m4.5 18 5-5 3 3 2-2 5 5" /></svg>
+          </span>
+        }
       </ng-template>
       <ng-template #statusCell let-product>
         <app-badge [tone]="statusTone(product.status)" size="compact">{{ product.status }}</app-badge>
@@ -209,12 +217,15 @@
         <ul class="variant-list" [attr.aria-label]="'Variants of ' + dialog.product.name">
           @for (variant of variantRows(); track variant.id) {
             <li class="variant-item">
+              <!-- CHANGED: the variant's own image (signed S3 URL / legacy path); the fallback is the product image as the
+                   table shows it (including S3 images). -->
+              @let variantSrc = variantImage(variant, dialog.product);
               <img
                 class="variant-item__image"
-                [src]="variant.image && !failedVariantImages().has(variant.id) ? variant.image : dialog.product.image"
+                [src]="variantSrc"
                 [alt]="variant.name"
                 loading="lazy"
-                (error)="variantImageFailed(variant.id)"
+                (error)="variantImageFailed(variant, variantSrc)"
               />
               <div class="variant-item__main">
                 <strong class="variant-item__name">{{ variant.name }}</strong>

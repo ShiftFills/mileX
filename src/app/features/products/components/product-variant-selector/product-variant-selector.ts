@@ -1,23 +1,39 @@
 import { CurrencyPipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, ElementRef, afterRenderEffect, computed, input, output, signal, viewChild } from '@angular/core';
 import { ProductVariant } from '@features/admin/services/product-variant.service';
+import { ProductImageSource } from '@core/services/product-image-display.service';
+import { isS3ImageKey } from '@core/services/s3-image.service';
 import { BadgeTone } from '@shared/components/badge/badge';
 
 /**
- * Storefront URL of a variant image. VARIANT_IMAGE is only a file name, so it is served from
+ * Storefront URL of a variant image. A legacy VARIANT_IMAGE is only a file name, so it is served from
  * /uploads/<file name> (the same rule the project uses for return images and seller documents).
- * Full URLs and absolute paths are kept as they are. Returns '' when the variant has no image.
+ * Full URLs and absolute paths are kept as they are. Returns '' when the variant has no image, and for an S3 image
+ * key ("variants/<file name>"), whose URL comes from the S3 API (see variantImageSource).
  */
 // CHANGED (new): storefront only; the shared variant reader keeps VARIANT_IMAGE as sent.
+// CHANGED: '' for an S3 key (it used to become a broken "/uploads/variants/..." URL).
 export function variantImageUrl(variant: Pick<ProductVariant, 'imagePath'>): string {
   const path = variant.imagePath.trim();
-  if (!path) return '';
+  if (!path || isS3ImageKey(path)) return '';
   if (/^(?:https?:|blob:|data:)/i.test(path) || path.startsWith('/')) return path;
   const uploadPath = path.startsWith('uploads/') ? path : `uploads/${path}`;
   return `/${uploadPath
     .split('/')
     .map((part) => encodeURIComponent(part))
     .join('/')}`;
+}
+
+/**
+ * A variant's image as ProductImageDisplayService reads it: its S3 key, or the legacy /uploads URL.
+ * Empty when the variant has no image.
+ */
+// CHANGED (new): used by the Product Variants page and the All Products Variants dialog.
+export function variantImageSource(variant: Pick<ProductVariant, 'imagePath'>): ProductImageSource {
+  const path = variant.imagePath.trim();
+  if (isS3ImageKey(path)) return { imageKey: path };
+  const url = variantImageUrl(variant);
+  return url ? { imageUrl: url } : {};
 }
 
 // CHANGED (new): variant display helpers shared by the selector and the selected-variant card.
@@ -136,6 +152,9 @@ export class ProductVariantSelector {
   /** Shown on a card whose variant has no image or whose image fails to load (the product image). */
   // CHANGED (new)
   readonly fallbackImage = input('');
+  /** Image URLs the page resolved, by variant ID (signed S3 URLs); used before the variant's own legacy URL. */
+  // CHANGED (new)
+  readonly imageUrls = input<ReadonlyMap<string, string>>(new Map());
   /** Emits the VARIANT_ID the customer chose. */
   readonly selectedChange = output<string>();
 
@@ -237,7 +256,9 @@ export class ProductVariantSelector {
     if (best) this.select(best);
   }
 
+  // CHANGED: a URL resolved by the page (signed S3 URL) comes first.
   private imageFor(variant: ProductVariant): string {
-    return (!this.brokenImages().has(variant.id) && variantImageUrl(variant)) || this.fallbackImage();
+    const own = this.imageUrls().get(variant.id) || variantImageUrl(variant);
+    return (!this.brokenImages().has(variant.id) && own) || this.fallbackImage();
   }
 }

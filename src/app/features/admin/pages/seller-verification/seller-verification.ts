@@ -13,6 +13,7 @@ import { Router } from '@angular/router';
 import {
   EMPTY, Observable, catchError, defer, distinctUntilChanged, filter, forkJoin, map, of, shareReplay, switchMap, tap,
 } from 'rxjs';
+import { S3ImageService } from '@core/services/s3-image.service';
 import { LoadingSpinner } from '@shared/components/loading-spinner/loading-spinner';
 import { Badge, BadgeTone } from '@shared/components/badge/badge';
 import { Button } from '@shared/components/button/button';
@@ -207,6 +208,10 @@ export class SellerVerification {
   private readonly router = inject(Router);
   private readonly toast = inject(ToastService);
   private readonly destroyRef = inject(DestroyRef);
+  // CHANGED (new): signed URLs of S3 documents opened in the preview, by key (null when the URL could not be
+  // loaded; no entry while loading). Kept apart from previewDocument, which a decision replaces.
+  private readonly s3Images = inject(S3ImageService);
+  private readonly documentUrls = signal<ReadonlyMap<string, string | null>>(new Map());
   protected readonly pageSize = PAGE_SIZE;
 
   private readonly summary = signal<SellerSummary | null>(null);
@@ -683,7 +688,10 @@ export class SellerVerification {
 
   /** Documents listed in the dialog: every required document, and optional ones only when submitted. */
   protected readonly visibleDocuments = computed(
-    () => this.activeSeller()?.documents.filter((document) => document.required !== false || !!document.url) ?? [],
+    // CHANGED: an S3 document (storageKey) counts as submitted too.
+    () => this.activeSeller()?.documents.filter(
+      (document) => document.required !== false || !!document.url || !!document.storageKey,
+    ) ?? [],
   );
 
   /** Overall Verification Status: Document Status, remarks and rejection reason only when the API sends them. */
@@ -901,8 +909,39 @@ export class SellerVerification {
     this.documentRemarksError.set('');
   }
 
+  /** The URL to show a document with: its ready URL, or the signed URL of its S3 key once loaded ('' until then). */
+  // CHANGED (new)
+  protected documentSrc(doc: SellerDocument): string {
+    return doc.url || (doc.storageKey ? this.documentUrls().get(doc.storageKey) ?? '' : '');
+  }
+
+  // CHANGED (new)
+  protected documentSrcFailed(doc: SellerDocument): boolean {
+    return !!doc.storageKey && !doc.url && this.documentUrls().get(doc.storageKey) === null;
+  }
+
+  /** Loads the signed URL of an S3 document (reused while valid; a failed or expired one is fetched again). */
+  // CHANGED (new)
+  private loadDocumentUrl(key: string): void {
+    const known = this.documentUrls();
+    if (known.get(key) && this.s3Images.hasFreshUrl(key)) return;
+    if (known.has(key)) {
+      this.documentUrls.update((urls) => {
+        const next = new Map(urls);
+        next.delete(key);
+        return next;
+      });
+    }
+    this.s3Images.imageUrl(key).pipe(
+      catchError(() => of(null)),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe((url) => this.documentUrls.update((urls) => new Map(urls).set(key, url)));
+  }
+
+  // CHANGED: an S3 document (storageKey) can be viewed too; its signed URL is loaded when it is opened.
   protected viewDocument(doc: SellerDocument): void {
-    if (doc.url) {
+    if (doc.storageKey && !doc.url) this.loadDocumentUrl(doc.storageKey);
+    if (doc.url || doc.storageKey) {
       this.documentRemarks.set('');
       this.documentRemarksError.set('');
       this.documentRejectionOpen.set(false);

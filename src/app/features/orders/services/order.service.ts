@@ -1,9 +1,11 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable, map, throwError } from 'rxjs';
+import { EMPTY, Observable, defer, expand, last, map, throwError } from 'rxjs';
 import { API_ENDPOINTS } from '@core/constants/api-endpoints';
 import { ApiService } from '@core/services/api.service';
 import {
+  CustomerOrderDetail,
+  CustomerOrderLine,
   CustomerOrdersPage,
   OrderSummary,
   PlaceOrderPayload,
@@ -485,7 +487,14 @@ function requiredOrderNumber(value: unknown, label: string, positive = true): nu
   return parsed;
 }
 
-function mapCustomerOrdersResponse(response: unknown, customerId: number): CustomerOrdersPage {
+/** A non-negative amount, or null when the API leaves it out or sends something that is not a number. */
+function optionalOrderAmount(value: unknown): number | null {
+  const parsed = readNumber(value);
+  return parsed !== null && parsed >= 0 ? parsed : null;
+}
+
+/** Checks the customer_orders/get envelope and returns its total_records and raw `data` rows. */
+function customerOrderRows(response: unknown): { totalRecords: number; rows: unknown[] } {
   if (!isRecord(response)) {
     throw new Error('The customer orders API returned an invalid response.');
   }
@@ -513,43 +522,81 @@ function mapCustomerOrdersResponse(response: unknown, customerId: number): Custo
   if (data !== null && !Array.isArray(data)) {
     throw new Error('The customer orders API returned an invalid order list.');
   }
+  return { totalRecords, rows: data ?? [] };
+}
 
-  const orders = (data ?? []).map((value: unknown): OrderSummary => {
-    if (!isRecord(value)) {
-      throw new Error('The customer orders API returned an invalid order.');
-    }
+/** One customer_orders/get row. Rejects rows for another customer and rows missing required fields. */
+function mapCustomerOrderLine(value: unknown, customerId: number): CustomerOrderLine {
+  if (!isRecord(value)) {
+    throw new Error('The customer orders API returned an invalid order.');
+  }
 
-    const orderId = requiredOrderNumber(value['ORDER_ID'], 'order ID');
-    const orderNumber = readText(value, 'ORDER_NUMBER');
-    const rowCustomerId = requiredOrderNumber(value['CUSTOMER_ID'], 'customer ID');
-    if (rowCustomerId !== customerId) {
-      throw new Error('The customer orders API returned an order for a different customer.');
-    }
-    const productId = requiredOrderNumber(value['PRODUCT_ID'], 'product ID');
-    const rawVariantId = value['PRODUCT_VARIANT_ID'];
-    const productVariantId =
-      rawVariantId === null || rawVariantId === undefined
-        ? null
-        : requiredOrderNumber(rawVariantId, 'product variant ID');
-    const quantity = requiredOrderNumber(value['QUANTITY'], 'quantity');
-    const orderDate = readText(value, 'ORDER_DATE');
-    const statusText = readText(value, 'STATUS');
-    if (!orderNumber || !orderDate || !statusText || !Number.isFinite(Date.parse(orderDate))) {
-      throw new Error('The customer orders API returned an order with incomplete details.');
-    }
+  const orderId = requiredOrderNumber(value['ORDER_ID'], 'order ID');
+  const orderNumber = readText(value, 'ORDER_NUMBER');
+  const rowCustomerId = requiredOrderNumber(value['CUSTOMER_ID'], 'customer ID');
+  if (rowCustomerId !== customerId) {
+    throw new Error('The customer orders API returned an order for a different customer.');
+  }
+  const productId = requiredOrderNumber(value['PRODUCT_ID'], 'product ID');
+  const rawVariantId = value['PRODUCT_VARIANT_ID'];
+  const productVariantId =
+    rawVariantId === null || rawVariantId === undefined
+      ? null
+      : requiredOrderNumber(rawVariantId, 'product variant ID');
+  const quantity = requiredOrderNumber(value['QUANTITY'], 'quantity');
+  const orderDate = readText(value, 'ORDER_DATE');
+  const statusText = readText(value, 'STATUS');
+  if (!orderNumber || !orderDate || !statusText || !Number.isFinite(Date.parse(orderDate))) {
+    throw new Error('The customer orders API returned an order with incomplete details.');
+  }
+  const paymentMethodId = readNumber(value['PAYMENT_METHOD']);
+  // Required, but in rupees and paise (e.g. "4128.82" after GST), so not limited to whole numbers.
+  const total = optionalOrderAmount(value['TOTAL_AMOUNT']);
+  if (total === null) {
+    throw new Error('The customer orders API returned an invalid total amount.');
+  }
 
+  return {
+    orderId,
+    orderNumber,
+    productId,
+    productVariantId,
+    quantity,
+    subtotal: optionalOrderAmount(value['SUBTOTAL']),
+    discount: optionalOrderAmount(value['DISCOUNT']),
+    tax: optionalOrderAmount(value['TAX']),
+    shippingCharges: optionalOrderAmount(value['SHIPPING_CHARGES']),
+    total,
+    paymentMethodId:
+      paymentMethodId !== null && Number.isSafeInteger(paymentMethodId) && paymentMethodId > 0
+        ? paymentMethodId
+        : null,
+    orderDate,
+    status: statusText,
+  };
+}
+
+function mapCustomerOrdersResponse(response: unknown, customerId: number): CustomerOrdersPage {
+  const { totalRecords, rows } = customerOrderRows(response);
+  const orders = rows.map((row): OrderSummary => {
+    const line = mapCustomerOrderLine(row, customerId);
     return {
-      id: orderNumber,
-      placedOn: orderDate,
-      total: requiredOrderNumber(value['TOTAL_AMOUNT'], 'total amount', false),
-      status: statusText,
-      items: [{ productId, productVariantId, quantity }],
-      orderId,
+      id: line.orderNumber,
+      placedOn: line.orderDate,
+      total: line.total,
+      status: line.status,
+      items: [{ productId: line.productId, productVariantId: line.productVariantId, quantity: line.quantity }],
+      orderId: line.orderId,
     };
   });
 
   return { orders, totalRecords };
 }
+
+/** Rows requested per customer_orders/get call while looking up one order. */
+const ORDER_LOOKUP_PAGE_SIZE = 50;
+/** Upper bound on the requests one order lookup makes. */
+const MAX_ORDER_LOOKUP_PAGES = 20;
 
 const PLACE_ORDER_SUCCESS_VALUES = ['SUCCESS', 'OK', '200', '201', 'TRUE', '1'];
 const PLACE_ORDER_FAILURE = /\b(?:failure|failed|error|could not|unable|invalid|not found)\b/i;
@@ -660,6 +707,56 @@ export class OrderService {
     return this.api
       .get<unknown>(API_ENDPOINTS.customerOrders.get, { LIMIT: limit, OFFSET: offset })
       .pipe(map((response) => mapCustomerOrdersResponse(response, customerId)));
+  }
+
+  /**
+   * Every customer_orders/get row of one order number, or null when the signed-in customer has no such
+   * order. The API has no order filter, so the customer's orders are paged with LIMIT/OFFSET until the
+   * order is found. One order's rows are stored together, so paging stops on the page where that order's
+   * rows end. It also stops at total_records, when a page brings no new rows (an API that ignores OFFSET),
+   * or after MAX_ORDER_LOOKUP_PAGES. OFFSET advances by the rows actually returned, so a server-side LIMIT
+   * cap cannot skip rows.
+   */
+  getCustomerOrderDetail(customerId: number, orderNumber: string): Observable<CustomerOrderDetail | null> {
+    if (!Number.isSafeInteger(customerId) || customerId <= 0) {
+      throw new RangeError('Customer ID must be a positive safe integer.');
+    }
+    const wanted = orderNumber.trim();
+    if (!wanted) {
+      throw new RangeError('Order number is required.');
+    }
+
+    return defer(() => {
+      const seenIds = new Set<number>();
+      const lines: CustomerOrderLine[] = [];
+      const loadPage = (pageIndex: number, offset: number) =>
+        this.api
+          .get<unknown>(API_ENDPOINTS.customerOrders.get, { LIMIT: ORDER_LOOKUP_PAGE_SIZE, OFFSET: offset })
+          .pipe(
+            map((response) => {
+              const { totalRecords, rows } = customerOrderRows(response);
+              const pageLines = rows.map((row) => mapCustomerOrderLine(row, customerId));
+              const added = pageLines.filter((line) => !seenIds.has(line.orderId));
+              for (const line of added) seenIds.add(line.orderId);
+              lines.push(...added.filter((line) => line.orderNumber === wanted));
+
+              const nextOffset = offset + pageLines.length;
+              const orderEnded = lines.length > 0 && pageLines.at(-1)?.orderNumber !== wanted;
+              const done =
+                orderEnded ||
+                !added.length ||
+                nextOffset >= totalRecords ||
+                pageIndex + 1 >= MAX_ORDER_LOOKUP_PAGES;
+              return { pageIndex, nextOffset, done };
+            }),
+          );
+
+      return loadPage(0, 0).pipe(
+        expand(({ pageIndex, nextOffset, done }) => (done ? EMPTY : loadPage(pageIndex + 1, nextOffset))),
+        last(),
+        map((): CustomerOrderDetail | null => (lines.length ? { orderNumber: wanted, lines: [...lines] } : null)),
+      );
+    });
   }
 
   getReturnReasons(): Observable<ReturnReasonOption[]> {
@@ -862,5 +959,21 @@ export class OrderService {
     return error instanceof Error && error.message ? error.message : PLACE_ORDER_DEFAULT_ERROR;
   }
 
-  // Order detail API calls will be added here.
+  /** A readable message for a failed customer_orders/get call. `subject` starts the fallback ("Orders"). */
+  customerOrdersErrorMessage(error: unknown, subject = 'Orders'): string {
+    if (error instanceof HttpErrorResponse) {
+      const body: unknown = error.error;
+      if (typeof body === 'string' && body.trim()) return body.trim();
+      if (isRecord(body)) {
+        const message = body['message'] ?? body['MESSAGE'];
+        if (typeof message === 'string' && message.trim()) return message.trim();
+      }
+      return error.status
+        ? `${subject} could not be loaded (HTTP ${error.status}).`
+        : `${subject} could not be loaded. Check your connection and try again.`;
+    }
+    return error instanceof Error && error.message
+      ? error.message
+      : `${subject} could not be loaded. Please try again.`;
+  }
 }

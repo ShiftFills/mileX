@@ -18,6 +18,12 @@ export interface Product {
   variantDetails?: string;
   /** Gallery images; falls back to `imageUrl` when omitted. */
   images?: string[];
+  // CHANGED (new): set only when products/get PRODUCT_IMAGE is an S3 key ("<folder>/<file name>"). Its URL comes
+  // from S3ImageService.imageUrl(); `imageUrl` above keeps its existing value.
+  imageKey?: string;
+  // CHANGED (new): PRODUCT_IMAGE when it is not an S3 key, e.g. a legacy "uploads/products/<file name>" path
+  // (shown through the existing /uploads route, never sent to the S3 API).
+  imagePath?: string;
   colors?: ProductColor[];
   sizes?: string[];
   /** Units left; surfaced as "Only N left" when low. */

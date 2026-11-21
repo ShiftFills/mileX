@@ -176,7 +176,12 @@
 
           @for (item of cart.items(); track item.product.id) {
             <div class="order-summary__item">
-              <img [src]="item.product.imageUrl" [alt]="item.product.name" />
+              <!-- CHANGED: the product's own image (signed S3 URL); an empty image box while it loads or when there is none. -->
+              @if (productImages.src(item.product); as src) {
+                <img [src]="src" [alt]="item.product.name" (error)="productImages.failed(item.product, src)" />
+              } @else {
+                <span role="img" [attr.aria-label]="(productImages.loading(item.product) ? 'Loading image of ' : 'No image for ') + item.product.name"></span>
+              }
               <div class="order-summary__info">
                 <p class="order-summary__name">{{ item.product.name }}</p>
                 @if (variantOf(item.product)) {
