@@ -157,7 +157,8 @@
         <app-product-card [product]="other" [wishlisted]="wishlist.has(other.id)" [showAddToCart]="true"
           [imageSrc]="productImages.src(other)" [imageLoading]="productImages.loading(other)"
           (imageError)="productImages.failed(other, $event)"
-          (wishlistToggle)="toggleWishlist($event)" (addToCart)="addRelatedToCart($event)" />
+          [pendingAction]="wishlist.isPending(other.id) ? 'wishlist' : null"
+          (wishlistToggle)="toggleRelatedWishlist(other)" (addToCart)="addRelatedToCart($event)" />
       </div>
       }
     </div>

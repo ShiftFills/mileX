@@ -570,6 +570,13 @@ h2 {
   height: 7.5rem;
 }
 
+// CHANGED (new): a delisted product: image and price greyed out (it is left out of the totals).
+.cart-item--delisted .cart-item__image,
+.cart-item--delisted .cart-item__price {
+  filter: grayscale(1);
+  opacity: 0.55;
+}
+
 @media (max-width: 575.98px) {
   .cart-item--saved .cart-item__image {
     width: 100%;

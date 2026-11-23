@@ -134,8 +134,9 @@ export class DeliveryAddressPage {
   protected readonly defaultingId = signal<string | null>(null);
 
   // ---- Order summary ----
+  // CHANGED: delisted products are left out, like cart.subtotal (checkout stays blocked until they are removed).
   protected readonly listTotal = computed(() =>
-    this.cart.items().reduce((sum, { product, quantity }) => sum + (product.originalPrice ?? product.price) * quantity, 0),
+    this.cart.purchasableItems().reduce((sum, { product, quantity }) => sum + (product.originalPrice ?? product.price) * quantity, 0),
   );
   protected readonly productDiscount = computed(() => this.listTotal() - this.cart.subtotal());
   protected readonly orderTotal = this.cart.subtotal;

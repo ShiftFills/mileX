@@ -1,7 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, inject, signal } from '@angular/core';
 import { Observable, ReplaySubject, catchError, map, shareReplay, tap, throwError } from 'rxjs';
-import { PaginatedResponse, Product } from '@shared/models';
+import { PaginatedResponse, Product, ProductVariantOption } from '@shared/models';
 import { API_ENDPOINTS } from '../constants/api-endpoints';
 import { ApiService } from './api.service';
 import { AuthService } from './auth.service';
@@ -21,6 +21,9 @@ export interface ProductLookupOption {
 
 // CHANGED (new): API STATUS values for the All Products status filter.
 export type ProductListingStatus = 'ACTIVE' | 'INACTIVE';
+/** STATUS sent by the storefront's products/get calls: inactive products are delisted. */
+// CHANGED (new)
+const ACTIVE_STATUS: ProductListingStatus = 'ACTIVE';
 
 /**
  * Product listing filters (Admin, Seller and the Home storefront). An omitted category or brand is
@@ -130,24 +133,81 @@ function productActiveStatus(value: unknown): boolean | undefined {
   }
 }
 
+/** A price as a product card shows it: the selling price, plus the struck MRP and its "% OFF" when MRP is higher. */
+// CHANGED (new)
+export interface ListingPrice {
+  price: number;
+  originalPrice?: number;
+  discountLabel?: string;
+}
+
+/** One entry of a products/get record's VARIANTS, with its listing prices. */
+// CHANGED (new)
+export interface VariantListingPrice extends ListingPrice {
+  variantId: string;
+}
+
+/**
+ * products/get?PRODUCT_ID=<id> as the wishlist needs it: the product whether it is active or not (`isActive`
+ * tells), and the listing prices of its VARIANTS (SELLING_PRICE, PRICE).
+ */
+// CHANGED (new)
+export interface ProductOffer {
+  product: Product;
+  variantPrices: readonly VariantListingPrice[];
+}
+
+/**
+ * The "N% OFF" badge of a price below its MRP: round((PRICE − SELLING_PRICE) ÷ PRICE × 100), written as
+ * round((1 − SELLING_PRICE ÷ PRICE) × 100), the formula the product listing has always used.
+ */
+// CHANGED: moved out of mapProduct (same formula) so the listing and the wishlist share it.
+function discountLabel(price: number, originalPrice: number): string {
+  return `${Math.round((1 - price / originalPrice) * 100)}% OFF`;
+}
+
+/**
+ * The product listing's prices of a products/get record (a product, or one of its VARIANTS): SELLING_PRICE (else
+ * PRICE) is the price; PRICE (MRP) is struck through with its "N% OFF" only when it is higher. Null without a price.
+ */
+// CHANGED (new): the rule mapProduct always applied, shared with the wishlist's variant prices.
+function listingPrice(record: Record<string, unknown>): ListingPrice | null {
+  const price = numericValue(record['SELLING_PRICE']) ?? numericValue(record['PRICE']);
+  if (price === undefined || price < 0) return null;
+  const mrp = numericValue(record['PRICE']);
+  return mrp !== undefined && mrp > price
+    ? { price, originalPrice: mrp, discountLabel: discountLabel(price, mrp) }
+    : { price };
+}
+
 function mapProduct(value: unknown): Product | null {
   if (!isRecord(value)) return null;
 
   const rawId = value['PRODUCT_ID'];
   const name = typeof value['PRODUCT_NAME'] === 'string' ? value['PRODUCT_NAME'].trim() : '';
-  const price = numericValue(value['SELLING_PRICE']) ?? numericValue(value['PRICE']);
+  // CHANGED: prices from listingPrice (same rule as before).
+  const pricing = listingPrice(value);
   if (
     (typeof rawId !== 'string' && typeof rawId !== 'number') ||
     !String(rawId).trim() ||
     !name ||
-    price === undefined ||
-    price < 0
+    pricing === null
   ) {
     return null;
   }
 
   const stock = numericValue(value['STOCK_QUANTITY']);
-  const originalPrice = numericValue(value['PRICE']);
+  // CHANGED (new): VARIANTS (ID, selling price, stock), so a wishlist heart has a VARIANT_ID to send.
+  const rawVariants = value['VARIANTS'] ?? value['variants'];
+  const variantOptions = Array.isArray(rawVariants)
+    ? rawVariants.flatMap((variant): ProductVariantOption[] => {
+        if (!isRecord(variant)) return [];
+        const id = productFieldText(variant['VARIANT_ID']).trim();
+        const price = listingPrice(variant)?.price;
+        const variantStock = numericValue(variant['STOCK_QUANTITY']);
+        return id && price !== undefined ? [{ id, price, inStock: variantStock !== undefined && variantStock > 0 }] : [];
+      })
+    : undefined;
   const maxOrderQuantity = numericValue(value['MAXIMUM_ORDER_QUANTITY']);
   const variantId = numericValue(value['VARIANT_ID']);
   const sellerId = numericValue(value['SELLER_ID']);
@@ -167,7 +227,6 @@ function mapProduct(value: unknown): Product | null {
   const images = typeof value['IMAGE_URL'] === 'string' && value['IMAGE_URL'].trim()
     ? [value['IMAGE_URL'].trim()]
     : undefined;
-  const hasDiscount = originalPrice !== undefined && originalPrice > price;
   // CHANGED (new): optional display names; absent from the response today, so nothing changes until the API sends them.
   const categoryName = productFieldText(value['CATEGORY_NAME']).trim();
   const subCategoryName = productFieldText(value['SUB_CATEGORY_NAME']).trim();
@@ -182,7 +241,7 @@ function mapProduct(value: unknown): Product | null {
       typeof value['PRODUCT_DESCRIPTION'] === 'string' && value['PRODUCT_DESCRIPTION'].trim()
         ? value['PRODUCT_DESCRIPTION'].trim()
         : 'Product description is not available.',
-    price,
+    price: pricing.price,
     currency: 'INR',
     imageUrl: images?.[0] ?? PRODUCT_FALLBACK_IMAGE,
     ...(typeof value['PRODUCT_CODE_SKU'] === 'string'
@@ -202,10 +261,13 @@ function mapProduct(value: unknown): Product | null {
       ? { maxOrderQuantity }
       : {}),
     ...(variantId !== undefined ? { variantId } : {}),
+    ...(variantOptions ? { variantOptions } : {}),
     ...(sellerId !== undefined && sellerId > 0 ? { sellerId } : {}),
     ...(taxRate !== undefined ? { taxRate } : {}),
     ...(discount !== undefined ? { discount } : {}),
-    ...(hasDiscount ? { originalPrice, discountLabel: `${Math.round((1 - price / originalPrice) * 100)}% OFF` } : {}),
+    ...(pricing.originalPrice !== undefined
+      ? { originalPrice: pricing.originalPrice, discountLabel: pricing.discountLabel }
+      : {}),
     ...(categoryName ? { categoryName } : {}),
     ...(subCategoryName ? { subCategoryName } : {}),
     ...(brandName ? { brandName } : {}),
@@ -276,7 +338,47 @@ function mapProductDetailsResponse(response: unknown, requestedId: number): Prod
 
 // CHANGED: accepts `status: "SUCCESS"` OR `success: true` (it used to require a text `status`),
 // which fixed "The products API returned an invalid response." on the Home page.
+// CHANGED: the envelope checks are in productRecords (unchanged), shared with mapProductOfferResponse.
 function mapProductsResponse(response: unknown): Product[] {
+  const activeEntries = productRecords(response).filter((entry) => {
+    if (!isRecord(entry)) return true;
+    return productActiveStatus(entry['IS_ACTIVE']) !== false;
+  });
+  const products = activeEntries.map(mapProduct);
+  if (products.some((product) => product === null)) {
+    throw new Error('The products API returned a product with missing or invalid required fields.');
+  }
+
+  return products.filter((product): product is Product => product !== null);
+}
+
+/**
+ * The requested product of products/get?PRODUCT_ID=<id>, active or not, with the listing prices of its VARIANTS
+ * (entries without a VARIANT_ID or a price are left out). Null when the API returns no row for that ID.
+ */
+// CHANGED (new)
+function mapProductOfferResponse(response: unknown, requestedId: number): ProductOffer | null {
+  const record = productRecords(response).find((row) => isRecord(row) && Number(row['PRODUCT_ID']) === requestedId);
+  if (!isRecord(record)) return null;
+  const product = mapProduct(record);
+  if (!product) {
+    throw new Error('The products API returned a product with missing or invalid required fields.');
+  }
+  const variants = record['VARIANTS'] ?? record['variants'];
+  return {
+    product,
+    variantPrices: (Array.isArray(variants) ? variants : []).flatMap((variant): VariantListingPrice[] => {
+      if (!isRecord(variant)) return [];
+      const variantId = productFieldText(variant['VARIANT_ID']).trim();
+      const pricing = listingPrice(variant);
+      return variantId && pricing ? [{ variantId, ...pricing }] : [];
+    }),
+  };
+}
+
+/** Checks the products/get envelope (`status` / `success`) and returns its `data` rows. */
+// CHANGED: moved out of mapProductsResponse (same checks and messages).
+function productRecords(response: unknown): unknown[] {
   if (!isRecord(response)) {
     throw new Error('The products API returned an invalid response.');
   }
@@ -307,17 +409,7 @@ function mapProductsResponse(response: unknown): Product[] {
 
   const data = response['data'] ?? response['DATA'];
   if (!Array.isArray(data)) throw new Error('The products API returned an invalid product list.');
-
-  const activeEntries = data.filter((entry) => {
-    if (!isRecord(entry)) return true;
-    return productActiveStatus(entry['IS_ACTIVE']) !== false;
-  });
-  const products = activeEntries.map(mapProduct);
-  if (products.some((product) => product === null)) {
-    throw new Error('The products API returned a product with missing or invalid required fields.');
-  }
-
-  return products.filter((product): product is Product => product !== null);
+  return data;
 }
 
 function isProductInsertFailureMessage(message: string): boolean {
@@ -703,13 +795,18 @@ export class ProductCatalogService {
   readonly error = this._error.asReadonly();
   readonly productsLoaded$ = this.productsLoaded.asObservable();
 
+  /**
+   * The storefront catalog (cart, checkout, wishlist, "You may also like"): `products/get?STATUS=ACTIVE`, active
+   * products only. Inactive rows are also dropped here, should the API send any.
+   */
+  // CHANGED: sends STATUS=ACTIVE (inactive products are delisted). Only storefront pages call load().
   load(): void {
     if (this._status() === 'loading' || this._status() === 'success') return;
 
     this._status.set('loading');
     this._error.set(null);
     this.api
-      .get<unknown>(API_ENDPOINTS.products.get)
+      .get<unknown>(API_ENDPOINTS.products.get, { STATUS: ACTIVE_STATUS })
       .pipe(map(mapProductsResponse))
       .subscribe({
         next: (products) => {
@@ -761,20 +858,37 @@ export class ProductCatalogService {
   }
 
   /**
-   * One storefront product for the Product View: `products/get?PRODUCT_ID=<id>`, mapped like the catalog.
-   * The API returns a row per product variant, all carrying the product's own fields, so the first row is the
-   * product. Null when the API has no active product with that ID (inactive rows are dropped, as in the catalog).
+   * One storefront product for the Product View: `products/get?PRODUCT_ID=<id>&STATUS=ACTIVE`, mapped like the
+   * catalog. The API returns a row per product variant, all carrying the product's own fields, so the first row is
+   * the product. Null when the API has no active product with that ID (inactive rows are dropped, as in the catalog).
    * (loadProductById is the Edit Product form's version: raw text fields, and inactive products included.)
    */
   // CHANGED (new): the Product View used to find its product in the full catalog (load()), but products/get
   // without parameters returns only the backend's first page (or fails), so most products were "not found".
+  // CHANGED: sends STATUS=ACTIVE (inactive products are delisted).
   loadProduct(productId: string | number): Observable<Product | null> {
     const id = Number(productId);
     if (!String(productId).trim() || !Number.isSafeInteger(id) || id <= 0) {
       return throwError(() => new RangeError('Product ID must be a positive safe integer.'));
     }
-    return this.api.get<unknown>(API_ENDPOINTS.products.get, { PRODUCT_ID: id }).pipe(
+    return this.api.get<unknown>(API_ENDPOINTS.products.get, { PRODUCT_ID: id, STATUS: ACTIVE_STATUS }).pipe(
       map((response) => mapProductsResponse(response).find((product) => product.id === String(id)) ?? null),
+    );
+  }
+
+  /**
+   * One product for the wishlist: `products/get?PRODUCT_ID=<id>` like loadProduct, but an inactive product is
+   * returned too (with `isActive: false`), so a saved item can still show its name, image and prices. Comes with
+   * the listing prices of its VARIANTS. Null when the API returns no row for that ID.
+   */
+  // CHANGED (new)
+  loadProductOffer(productId: string | number): Observable<ProductOffer | null> {
+    const id = Number(productId);
+    if (!String(productId).trim() || !Number.isSafeInteger(id) || id <= 0) {
+      return throwError(() => new RangeError('Product ID must be a positive safe integer.'));
+    }
+    return this.api.get<unknown>(API_ENDPOINTS.products.get, { PRODUCT_ID: id }).pipe(
+      map((response) => mapProductOfferResponse(response, id)),
     );
   }
 
@@ -820,12 +934,15 @@ export class ProductCatalogService {
   /**
    * Loads one page of products. When `categoryId` is given, the backend filters by CATEGORY_ID
    * (server-side), so pagination metadata describes that category only. Omit it (or pass
-   * null/empty) for "All categories".
+   * null/empty) for "All categories". `status` is sent as STATUS (the storefront listing sends ACTIVE);
+   * omitted, every status is returned (the Admin Product Variants page).
    */
+  // CHANGED: optional `status` (default: none sent, so the Admin call is unchanged).
   loadPage(
     page: number,
     pageSize: number,
     categoryId?: string | number | null,
+    status?: ProductListingStatus,
   ): Observable<PaginatedResponse<Product>> {
     const pagingError = invalidPaging(page, pageSize);
     if (pagingError) return throwError(() => pagingError);
@@ -840,6 +957,7 @@ export class ProductCatalogService {
       PRODUCT_ID: -1,
       // CHANGED: server-side category filtering. CATEGORY_ID is sent only when a category is selected.
       ...(category !== undefined ? { CATEGORY_ID: category } : {}),
+      ...(status !== undefined ? { STATUS: status } : {}),
     }, page, pageSize);
   }
 

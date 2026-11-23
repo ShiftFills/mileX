@@ -118,6 +118,17 @@
     }
   }
 
+  // CHANGED (new): optional detail lines (brand, variant, quantity), one line each.
+  &__details &__detail {
+    overflow: hidden;
+    margin-bottom: 0.2rem;
+    color: var(--color-text-muted);
+    font-size: var(--text-xs);
+    line-height: var(--leading-tight);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   &__simple-price {
     display: block;
     margin: 0 0 0.45rem;
@@ -131,6 +142,13 @@
     ::ng-deep .btn {
       width: 100%;
     }
+  }
+
+  // CHANGED (new): a product that can no longer be bought: image and the whole price row (badge too) greyed out.
+  &--unavailable &__image,
+  &--unavailable &__price {
+    filter: grayscale(1);
+    opacity: 0.55;
   }
 
   // Equal-height rows (e.g. "You may also like"): two-line name slot, fixed rating row, button pinned to bottom.

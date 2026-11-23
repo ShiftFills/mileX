@@ -1,6 +1,35 @@
 <article appCard class="product-card" [class.product-card--aligned]="showAddToCart()"
-  [class.product-card--wishlist]="variant() === 'wishlist'">
-  <a class="product-card__link" [routerLink]="[routes.products, product().id]">
+  [class.product-card--wishlist]="variant() === 'wishlist'" [class.product-card--unavailable]="unavailable()">
+  <!-- CHANGED: an unavailable (delisted) product has no link to its page. -->
+  @if (unavailable()) {
+  <div class="product-card__link"><ng-container [ngTemplateOutlet]="cardBody" /></div>
+  } @else {
+  <a class="product-card__link" [routerLink]="[routes.products, product().id]"><ng-container [ngTemplateOutlet]="cardBody" /></a>
+  }
+  <app-button class="product-card__wishlist" variant="icon" size="small" [class.is-active]="wishlisted()"
+    [class.product-card__wishlist--framed]="variant() === 'wishlist'"
+    [ariaLabel]="wishlisted() ? 'Remove from wishlist' : 'Add to wishlist'" [ariaPressed]="wishlisted()"
+    [loading]="pendingAction() === 'wishlist'" [disabled]="buttonsDisabled()"
+    (clicked)="toggleWishlist($event)">
+    @if (variant() === 'wishlist') {
+    <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+      <path d="M8 13.5S2.5 10 2.5 6A3 3 0 0 1 8 4.7 3 3 0 0 1 13.5 6c0 4-5.5 7.5-5.5 7.5Z" fill="none"
+        stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" />
+    </svg>
+    } @else {
+    {{ wishlisted() ? '♥' : '♡' }}
+    }
+  </app-button>
+  @if (showAddToCart()) {
+  <!-- CHANGED: optional label and in-flight state (defaults: "Add to Cart", idle). -->
+  <app-button class="product-card__add" variant="accent" [size]="variant() === 'wishlist' ? 'normal' : 'small'"
+    [disabled]="!product().inStock || buttonsDisabled()" [loading]="pendingAction() === 'add'"
+    (clicked)="onAddToCart()">{{ addToCartLabel() }}</app-button>
+  }
+</article>
+
+<!-- The image and details, inside the link (or, for an unavailable product, a plain block). -->
+<ng-template #cardBody>
     <!-- CHANGED: shows `imageSrc` when the screen sets it (a placeholder for null); otherwise product().imageUrl. -->
     <div class="product-card__image">
       @if (image(); as src) {
@@ -15,10 +44,19 @@
     <div class="product-card__details">
       @if (product().originalPrice || showAddToCart()) {
       <h2>{{ product().name }}</h2>
+      <!-- CHANGED (new): optional detail lines (none unless the screen sets `details`). -->
+      @for (line of details(); track $index) {
+      <p class="product-card__detail">{{ line }}</p>
+      }
       <p class="product-card__price">
         <strong>{{ product().price | currency: 'INR' : 'symbol' : '1.0-0' }}</strong>
+        <!-- CHANGED: rendered only with a value (an empty badge showed as a small pill in the wishlist design). -->
+        @if (product().originalPrice) {
         <del>{{ product().originalPrice | currency: 'INR' : 'symbol' : '1.0-0' }}</del>
+        }
+        @if (product().discountLabel) {
         <span>{{ product().discountLabel }}</span>
+        }
       </p>
       <p class="product-card__rating">
         @if (product().rating) { <span aria-hidden="true">★</span> {{ product().rating }} <small>({{
@@ -29,22 +67,4 @@
       <p>{{ product().name }}</p>
       }
     </div>
-  </a>
-  <app-button class="product-card__wishlist" variant="icon" size="small" [class.is-active]="wishlisted()"
-    [class.product-card__wishlist--framed]="variant() === 'wishlist'"
-    [ariaLabel]="wishlisted() ? 'Remove from wishlist' : 'Add to wishlist'" [ariaPressed]="wishlisted()"
-    (clicked)="toggleWishlist($event)">
-    @if (variant() === 'wishlist') {
-    <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
-      <path d="M8 13.5S2.5 10 2.5 6A3 3 0 0 1 8 4.7 3 3 0 0 1 13.5 6c0 4-5.5 7.5-5.5 7.5Z" fill="none"
-        stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" />
-    </svg>
-    } @else {
-    {{ wishlisted() ? '♥' : '♡' }}
-    }
-  </app-button>
-  @if (showAddToCart()) {
-  <app-button class="product-card__add" variant="accent" [size]="variant() === 'wishlist' ? 'normal' : 'small'"
-    [disabled]="!product().inStock" (clicked)="onAddToCart()">Add to Cart</app-button>
-  }
-</article>
+</ng-template>

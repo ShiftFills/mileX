@@ -85,24 +85,25 @@ export class Cart {
   );
 
   // ---- Order summary ----
+  // CHANGED: every total below counts the purchasable rows only (delisted products are left out).
   /** List price (before product discounts) of everything in the cart. */
   protected readonly listTotal = computed(() =>
-    this.cart.items().reduce((sum, { product, quantity }) => sum + (product.originalPrice ?? product.price) * quantity, 0),
+    this.cart.purchasableItems().reduce((sum, { product, quantity }) => sum + (product.originalPrice ?? product.price) * quantity, 0),
   );
   protected readonly productDiscount = computed(() =>
-    this.cart.items().reduce((sum, item) => {
+    this.cart.purchasableItems().reduce((sum, item) => {
       if (item.apiDetails) return sum + this.scaledAmount(item.apiDetails.productDiscount, item);
       return sum + Math.max(0, (item.product.originalPrice ?? item.product.price) - item.product.price) * item.quantity;
     }, 0),
   );
   protected readonly cartDiscount = computed(() =>
-    this.cart.items().reduce(
+    this.cart.purchasableItems().reduce(
       (sum, item) => sum + (item.apiDetails ? this.scaledAmount(item.apiDetails.cartDiscount, item) : 0),
       0,
     ),
   );
   protected readonly taxTotal = computed(() =>
-    this.cart.items().reduce(
+    this.cart.purchasableItems().reduce(
       (sum, item) => sum + (item.apiDetails ? this.scaledAmount(item.apiDetails.tax, item) : 0),
       0,
     ),
@@ -118,7 +119,7 @@ export class Cart {
     return 'discount' in result ? result : null;
   });
   protected readonly orderTotal = computed(() => {
-    const apiTotal = this.cart.items().reduce(
+    const apiTotal = this.cart.purchasableItems().reduce(
       (sum, item) =>
         sum +
         (item.apiDetails
@@ -167,6 +168,12 @@ export class Cart {
     };
   }
 
+  /** The product was delisted (inactive): shown as no longer available and left out of the totals. */
+  // CHANGED (new)
+  protected isDelisted(item: CartItem): boolean {
+    return item.product.isActive === false;
+  }
+
   protected stockNote(item: CartItem): string {
     const left = item.product.stockLeft;
     return left !== undefined && left <= LOW_STOCK_LIMIT ? `In stock (Only ${left} left)` : 'In stock';
@@ -183,7 +190,8 @@ export class Cart {
   }
 
   protected setQuantity(item: CartItem, quantity: number): void {
-    if (this.isBusy(item)) return;
+    // CHANGED: a delisted row's quantity cannot change (it can only be removed).
+    if (this.isBusy(item) || this.isDelisted(item)) return;
     if (quantity < 1 || quantity > this.maxQuantity(item)) return;
     this.cart.setQuantity(item.product.id, quantity, item.apiDetails?.cartId);
   }
@@ -212,7 +220,8 @@ export class Cart {
     if (this.pendingCartActions().has(cartId)) return;
 
     this.setPending(cartId, 'save');
-    this.shoppingCart.saveForLater(cartId).pipe(
+    // CHANGED: with the row's variant (VARIANT_ID; null without one).
+    this.shoppingCart.saveForLater(cartId, item.apiDetails?.variant?.id).pipe(
       finalize(() => this.setPending(cartId, null)),
       takeUntilDestroyed(this.destroyRef),
     ).subscribe({

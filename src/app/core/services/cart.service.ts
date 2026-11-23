@@ -23,11 +23,30 @@ export class CartService {
   // CHANGED: a signal (was a boolean) so `badgeCount` updates when the saved rows are restored.
   private readonly localItemsLoaded = signal(false);
 
+  /** Product IDs products/get reports as inactive (delisted). Their cart rows are marked (see markDelisted). */
+  // CHANGED (new)
+  private readonly delistedProductIds = signal<ReadonlySet<string>>(new Set());
+  /** Product IDs whose status was asked for this session (or is being asked for). */
+  // CHANGED (new)
+  private readonly checkedProductIds = new Set<string>();
+
   /** Active cart rows only. Rows saved for later live in `savedItems` and never reach totals. */
   readonly items = this._items.asReadonly();
   /** Cart rows the backend reports as SAVE_FOR_LATER = 1, plus rows saved during this session. */
   readonly savedItems = this._savedItems.asReadonly();
+  /** Every unit in the cart, delisted ones included until they are removed (the header badge). */
   readonly count = computed(() => this._items().reduce((sum, item) => sum + item.quantity, 0));
+  /**
+   * The rows that can be ordered: all but delisted products (`product.isActive === false`), which are left out of
+   * every total. A delisted row is also out of stock, so `hasUnavailableItems` blocks checkout until it is removed.
+   */
+  // CHANGED (new)
+  readonly purchasableItems = computed(() => this._items().filter((item) => item.product.isActive !== false));
+  // CHANGED (new)
+  readonly purchasableCount = computed(() => this.purchasableItems().reduce((sum, item) => sum + item.quantity, 0));
+  /** True while the cart holds a delisted product. */
+  // CHANGED (new)
+  readonly hasDelistedItems = computed(() => this._items().some((item) => item.product.isActive === false));
   /**
    * The header cart badge: `count`, plus (until a page loads the catalog and restores the saved rows)
    * the saved rows not already in the cart, counted from storage the same way the restore merges them.
@@ -44,10 +63,12 @@ export class CartService {
   readonly hasUnavailableItems = computed(() =>
     this._items().some((item) => !item.product.inStock),
   );
+  // CHANGED: delisted products are left out (purchasableItems).
   readonly subtotal = computed(() =>
-    this._items().reduce((sum, item) => sum + item.product.price * item.quantity, 0),
+    this.purchasableItems().reduce((sum, item) => sum + item.product.price * item.quantity, 0),
   );
-  readonly shippingCost = computed(() => this.shippingFor(this.subtotal(), this.count()));
+  // CHANGED: counts the purchasable units only.
+  readonly shippingCost = computed(() => this.shippingFor(this.subtotal(), this.purchasableCount()));
   readonly total = computed(() => this.subtotal() + this.shippingCost());
 
   
@@ -126,16 +147,19 @@ export class CartService {
     );
   }
 
-  mergeFetchedItems(items: CartItem[]): void {
+  // CHANGED: rows of products already known to be delisted are marked at once; the others are looked up.
+  mergeFetchedItems(fetched: CartItem[]): void {
+    const items = this.markDelisted(fetched);
     const activeItems = items.filter((item) => !item.apiDetails?.saveForLater);
     this._savedItems.set(this.uniqueByCartId(items.filter((item) => item.apiDetails?.saveForLater)));
     this.fetchedItems = activeItems;
     const localItems = this._items().filter((item) => !item.apiDetails);
     if (!this.localItemsLoaded()) {
       this._items.set(activeItems);
-      return;
+    } else {
+      this.save(this.mergeFetchedAndLocalItems(activeItems, localItems));
     }
-    this.save(this.mergeFetchedAndLocalItems(activeItems, localItems));
+    this.checkProductStatuses(activeItems);
   }
 
   /**
@@ -154,6 +178,48 @@ export class CartService {
 
   clear(): void {
     this.save([]);
+  }
+
+  /** Call after a saved-for-later row was deleted through the API (e.g. a wishlist heart was unticked). */
+  // CHANGED (new)
+  dropSavedItem(cartId: string): void {
+    this._savedItems.update((saved) => saved.filter((item) => item.apiDetails?.cartId !== cartId));
+  }
+
+  /**
+   * shopping_cart/get does not say whether a product is still listed, so each product of the customer's cart is
+   * looked up once per session (products/get?PRODUCT_ID=<id>, which also returns inactive products). A product
+   * reported inactive marks its rows as delisted. A failed lookup leaves the rows as they are and is asked again on
+   * the next cart load.
+   */
+  // CHANGED (new)
+  private checkProductStatuses(items: readonly CartItem[]): void {
+    const productIds = [
+      ...new Set(items.filter((item) => item.apiDetails !== undefined).map((item) => item.product.id)),
+    ].filter((id) => !this.checkedProductIds.has(id));
+    for (const id of productIds) {
+      this.checkedProductIds.add(id);
+      this.catalog.loadProductOffer(id).subscribe({
+        next: (offer) => {
+          if (offer?.product.isActive !== false) return;
+          this.delistedProductIds.update((ids) => new Set(ids).add(id));
+          this.save(this.markDelisted(this._items()));
+        },
+        error: () => this.checkedProductIds.delete(id),
+      });
+    }
+  }
+
+  /** Delisted products' rows: `isActive: false` and out of stock, so totals skip them and checkout is blocked. */
+  // CHANGED (new)
+  private markDelisted(items: CartItem[]): CartItem[] {
+    const delisted = this.delistedProductIds();
+    if (!delisted.size) return items;
+    return items.map((item) =>
+      delisted.has(item.product.id) && item.product.isActive !== false
+        ? { ...item, product: { ...item.product, isActive: false, inStock: false } }
+        : item,
+    );
   }
 
   private save(items: CartItem[]): void {

@@ -162,7 +162,7 @@ describe('OrderList', () => {
       data: [{ PRODUCT_ID: 1, PRODUCT_NAME: 'Lenovo IdeaPad Slim 5', PRODUCT_IMAGE: key }],
     });
 
-    const request = http.expectOne(`/s3-api/s3/images/${key}`);
+    const request = http.expectOne(`/api/s3/images/${key}`);
     expect(request.request.headers.has('Authorization')).toBe(false);
     expect(root.querySelector(`.my-order__items img[src="/${key}"]`)).toBeNull();
     expect(root.querySelector('.my-order__items [role="img"]')?.getAttribute('aria-label'))

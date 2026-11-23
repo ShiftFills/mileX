@@ -1,8 +1,9 @@
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { AuthService } from '@core/services/auth.service';
+import { WishlistService } from '@core/services/wishlist.service';
 import { ProductDetail } from './product-detail';
 
 interface ProductDetailHarness {
@@ -76,8 +77,9 @@ const PRODUCT_ROWS: Record<string, unknown>[] = [
 ];
 
 // CHANGED (new): the viewed product's own request.
+// CHANGED: the Product View asks for active products only (STATUS=ACTIVE).
 function productUrl(productId: number): string {
-  return `/api/products/get?PRODUCT_ID=${productId}`;
+  return `/api/products/get?PRODUCT_ID=${productId}&STATUS=ACTIVE`;
 }
 
 describe('ProductDetail', () => {
@@ -172,7 +174,7 @@ describe('ProductDetail', () => {
     const SIGNED = (key: string, version = 1) =>
       `https://bucket.s3.ap-south-1.amazonaws.com/${key}?X-Amz-Signature=sig${version}`;
     const flushImage = (key: string, version = 1) => {
-      http.expectOne(`/s3-api/s3/images/${key}`).flush({
+      http.expectOne(`/api/s3/images/${key}`).flush({
         success: true, folderName: key.split('/')[0], fileName: key.split('/')[1], imageKey: key,
         imageUrl: SIGNED(key, version), expiresIn: 3600,
       });
@@ -232,13 +234,13 @@ describe('ProductDetail', () => {
       (fixture.nativeElement.querySelector('app-product-gallery .gallery__main img') as HTMLImageElement)
         .dispatchEvent(new Event('error'));
       fixture.detectChanges();
-      http.expectNone((request) => request.url.includes('/s3-api/'));
+      http.expectNone((request) => request.url.includes('/s3/images/'));
       expect(galleryPlaceholder()?.getAttribute('aria-label')).toBe('No image for iPhone 16 Pro');
     });
 
     it('shows the placeholder when the image API fails', () => {
       openS3Product();
-      http.expectOne('/s3-api/s3/images/products/9210.png').flush('Server error', { status: 500, statusText: 'Server Error' });
+      http.expectOne('/api/s3/images/products/9210.png').flush('Server error', { status: 500, statusText: 'Server Error' });
       fixture.detectChanges();
 
       expect(galleryPlaceholder()?.getAttribute('aria-label')).toBe('No image for iPhone 16 Pro');
@@ -290,16 +292,48 @@ describe('ProductDetail', () => {
     expect(component.deliveryMessage()?.ok).toBe(true);
   });
 
-  it('turns the gallery heart red and back when toggling the wishlist', () => {
+  // CHANGED: the heart goes through the wishlist API; a signed-out visitor is sent to Login first.
+  it('sends a signed-out visitor to Login from the gallery heart', () => {
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
     const heart = (): HTMLElement => fixture.nativeElement.querySelector('app-product-gallery .gallery__wish');
-    expect(heart().classList.contains('is-active')).toBe(false);
 
     component.toggleWishlist();
+    fixture.detectChanges();
+
+    expect(navigate).toHaveBeenCalledWith(['/auth/login'], expect.objectContaining({ queryParams: expect.any(Object) }));
+    expect(heart().classList.contains('is-active')).toBe(false);
+  });
+
+  it('turns the gallery heart red after wishlist/save_for_later and back after the saved row is removed', () => {
+    TestBed.inject(AuthService).setSession(
+      { id: '3', email: '', firstName: 'pooja123', lastName: '', userType: 'CUSTOMER' },
+      tokenWithClaims({ USER_ID: 3, CUSTOMER_ID: 4 }),
+    );
+    const heart = (): HTMLElement => fixture.nativeElement.querySelector('app-product-gallery .gallery__wish');
+    // Product 3 (no variants) is in the customer's cart as CART_ID 81 (read once by the hearts).
+    TestBed.inject(WishlistService).sync();
+    http.expectOne('/api/shopping_cart/get?CUSTOMER_ID=4').flush({
+      success: true,
+      data: [{ CART_ID: 81, PRODUCT_ID: 3, SELLER_ID: 24, CART_QUANTITY: 1, UNIT_PRICE: '75000.00', CUSTOMER_ID: 4, SAVE_FOR_LATER: 0, PRODUCT_NAME: 'Samsung Galaxy S25' }],
+    });
+    http.expectOne('/api/products/get?PRODUCT_ID=3').flush({ status: 'SUCCESS', data: [PRODUCT_ROWS[0]] });
+    fixture.detectChanges();
+    expect(heart().classList.contains('is-active')).toBe(false);
+
+    // wishlist/save_for_later with that row's CART_ID and its VARIANT_ID (null: no variant); no cart insert.
+    component.toggleWishlist();
+    http.expectNone('/api/shopping_cart/insert');
+    const save = http.expectOne('/api/wishlist/save_for_later');
+    expect(save.request.body).toEqual({ CART_ID: 81, VARIANT_ID: null });
+    save.flush('Saved for later');
     fixture.detectChanges();
     expect(heart().classList.contains('is-active')).toBe(true);
     expect(heart().textContent).toContain('♥');
 
     component.toggleWishlist();
+    const remove = http.expectOne('/api/shopping_cart/delete');
+    expect(remove.request.body).toEqual({ CART_ID: 81, PRODUCT_ID: 3, SELLER_ID: 24, CUSTOMER_ID: 4 });
+    remove.flush('Cart item deleted successfully');
     fixture.detectChanges();
     expect(heart().classList.contains('is-active')).toBe(false);
     expect(heart().textContent).toContain('♡');

@@ -145,11 +145,16 @@ describe('Checkout card editing', () => {
         cartDiscount: 0, productDiscount: 0, tax: 0, totalAmount: 100, saveForLater: false,
       },
     }]);
+    // CHANGED: the cart looks up whether the product is still listed.
+    http.expectOne('/api/products/get?PRODUCT_ID=16').flush({
+      status: true,
+      data: [{ PRODUCT_ID: 16, PRODUCT_NAME: 'Lenovo IdeaPad Slim 5', SELLING_PRICE: '100.00', IS_ACTIVE: 'ACTIVE' }],
+    });
     await fixture.whenStable();
     fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
 
-    const request = http.expectOne(`/s3-api/s3/images/${key}`);
+    const request = http.expectOne(`/api/s3/images/${key}`);
     expect(root.querySelector('.checkout-product [role="img"]')?.getAttribute('aria-label'))
       .toBe('Loading image of Lenovo IdeaPad Slim 5');
     request.flush({ success: true, imageKey: key, imageUrl: signed, expiresIn: 3600 });

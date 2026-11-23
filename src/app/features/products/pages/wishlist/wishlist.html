@@ -1,43 +1,120 @@
 <div class="store-container wishlist">
   <app-page-heading heading="My Wishlist" subtitle="Your saved items, always in one place." />
 
-  <app-filter
-    class="wishlist__filter"
-    ariaLabel="Filter wishlist by category"
-    [options]="filterOptions()"
-    [value]="activeCategory()"
-    (valueChange)="selectCategory($event)"
-  />
+  @if (isCustomer()) {
+    <!-- CHANGED (new): a customer's wishlist is their saved-for-later cart rows (move_to_cart/get), shown with each row's
+         product and variant from the product APIs. -->
+    <section class="wishlist__section" aria-label="Saved for later">
+      @if (savedStatus() === 'loading' || savedStatus() === 'idle') {
+        <div class="wishlist__state" role="status"><app-loading-spinner /> Loading your wishlist…</div>
+      } @else if (savedStatus() === 'error') {
+        <app-alert tone="danger" role="alert">
+          {{ savedError() }}
+          <button type="button" class="wishlist__retry" (click)="retrySaved()">{{ needsSignIn() ? 'Sign in again' : 'Try again' }}</button>
+        </app-alert>
+      } @else if (savedItems().length) {
+        <div appCard class="wishlist__products">
+          <div class="wishlist__grid">
+            @for (item of savedItems(); track item.row.cartId) {
+              <app-product-card
+                variant="wishlist"
+                [product]="item.product"
+                [wishlisted]="true"
+                [showAddToCart]="true"
+                addToCartLabel="Move to Cart"
+                [details]="item.details"
+                [unavailable]="item.unavailable"
+                [pendingAction]="cardAction(item)"
+                [actionsDisabled]="busy()"
+                [imageSrc]="productImages.src(item.product)"
+                [imageLoading]="productImages.loading(item.product)"
+                (imageError)="productImages.failed(item.product, $event)"
+                (wishlistToggle)="removeSaved(item)"
+                (addToCart)="moveToCart(item)"
+              />
+            }
+          </div>
+        </div>
 
-  @if (catalog.status() === 'loading' || catalog.status() === 'idle') {
-    <div class="wishlist__state" role="status"><app-loading-spinner /> Loading your wishlist…</div>
-  } @else if (catalog.status() === 'error') {
-    <app-alert tone="danger" role="alert">
-      {{ catalog.error() }}
-      <button type="button" class="wishlist__retry" (click)="retryLoad()">Try again</button>
-    </app-alert>
-  } @else if (wishlist.products().length) {
-    <p class="visually-hidden" role="status" aria-live="polite">{{ notice() }}</p>
-
-    <section appCard class="wishlist__products" aria-label="Saved products">
-      <div class="wishlist__grid">
-        @for (product of products(); track product.id) {
-          <app-product-card
-            variant="wishlist"
-            [product]="product"
-            [wishlisted]="true"
-            [showAddToCart]="true"
-            (wishlistToggle)="remove($event)"
-            (addToCart)="addToCart(product)"
+        @if (showPagination()) {
+          <app-pagination
+            class="wishlist__pagination"
+            ariaLabel="Wishlist pages"
+            itemLabel="items"
+            [page]="page()"
+            [pageSize]="pageSize"
+            [total]="total()"
+            [hasNext]="hasNext()"
+            (pageChange)="changePage($event)"
           />
         }
-      </div>
+      } @else {
+        <div appCard class="wishlist__empty">
+          <h2>Your wishlist is empty</h2>
+          <p>Use “Save for later” in your cart to keep items here.</p>
+          <a class="btn btn--accent btn-sm" [routerLink]="routes.products">Browse products</a>
+        </div>
+      }
     </section>
+
+    <!-- CHANGED (new): products saved with the heart icon are kept on this device only (there is no API for them). -->
+    @if (wishlist.products().length) {
+      <section class="wishlist__section" aria-labelledby="wishlist-device-title">
+        <h2 id="wishlist-device-title" class="wishlist__section-title">Saved on this device</h2>
+        <app-filter
+          class="wishlist__filter"
+          ariaLabel="Filter saved products by category"
+          [options]="filterOptions()"
+          [value]="activeCategory()"
+          (valueChange)="selectCategory($event)"
+        />
+        <ng-container [ngTemplateOutlet]="deviceProducts" />
+      </section>
+    }
   } @else {
-    <section appCard class="wishlist__empty">
-      <h2>Your wishlist is empty</h2>
-      <p>Save products with the heart icon and find them here later.</p>
-      <a class="btn btn--accent btn-sm" [routerLink]="routes.products">Browse products</a>
-    </section>
+    <app-filter
+      class="wishlist__filter"
+      ariaLabel="Filter wishlist by category"
+      [options]="filterOptions()"
+      [value]="activeCategory()"
+      (valueChange)="selectCategory($event)"
+    />
+
+    @if (catalog.status() === 'loading' || catalog.status() === 'idle') {
+      <div class="wishlist__state" role="status"><app-loading-spinner /> Loading your wishlist…</div>
+    } @else if (catalog.status() === 'error') {
+      <app-alert tone="danger" role="alert">
+        {{ catalog.error() }}
+        <button type="button" class="wishlist__retry" (click)="retryLoad()">Try again</button>
+      </app-alert>
+    } @else if (wishlist.products().length) {
+      <ng-container [ngTemplateOutlet]="deviceProducts" />
+    } @else {
+      <section appCard class="wishlist__empty">
+        <h2>Your wishlist is empty</h2>
+        <p>Save products with the heart icon and find them here later.</p>
+        <a class="btn btn--accent btn-sm" [routerLink]="routes.products">Browse products</a>
+      </section>
+    }
   }
 </div>
+
+<!-- Products saved with the heart icon (device wishlist). -->
+<ng-template #deviceProducts>
+  <p class="visually-hidden" role="status" aria-live="polite">{{ notice() }}</p>
+
+  <section appCard class="wishlist__products" aria-label="Saved products">
+    <div class="wishlist__grid">
+      @for (product of products(); track product.id) {
+        <app-product-card
+          variant="wishlist"
+          [product]="product"
+          [wishlisted]="true"
+          [showAddToCart]="true"
+          (wishlistToggle)="remove($event)"
+          (addToCart)="addToCart(product)"
+        />
+      }
+    </div>
+  </section>
+</ng-template>

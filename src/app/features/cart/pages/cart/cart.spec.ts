@@ -71,6 +71,20 @@ describe('Cart', () => {
   let http: HttpTestingController;
 
   const text = (): string => root.textContent?.replace(/\s+/g, ' ') ?? '';
+  /**
+   * Answers the product-status lookups CartService sends for API cart rows (products/get?PRODUCT_ID=<id>);
+   * products in `inactive` come back IS_ACTIVE "INACTIVE" (delisted).
+   */
+  // CHANGED (new)
+  const answerStatusLookups = (inactive: readonly number[] = []): void => {
+    for (const request of http.match((req) => req.url.endsWith('/products/get') && req.params.has('PRODUCT_ID'))) {
+      const id = Number(request.request.params.get('PRODUCT_ID'));
+      request.flush({
+        status: true,
+        data: [{ PRODUCT_ID: id, PRODUCT_NAME: 'Product', SELLING_PRICE: '1.00', IS_ACTIVE: inactive.includes(id) ? 'INACTIVE' : 'ACTIVE' }],
+      });
+    }
+  };
   /** Whitespace-free text, for label/value pairs that sit in separate elements (<dt>/<dd>). */
   const compact = (): string => root.textContent?.replace(/\s+/g, '') ?? '';
   const click = async (el: Element | null | undefined): Promise<void> => {
@@ -168,6 +182,7 @@ describe('Cart', () => {
         },
       ],
     });
+    answerStatusLookups();
 
     await customerFixture.whenStable();
     customerFixture.detectChanges();
@@ -251,7 +266,8 @@ describe('Cart', () => {
     });
   });
 
-  async function openCustomerCart(rows: Record<string, unknown>[]): Promise<{
+  // CHANGED: answers the product-status lookups too; products in `inactive` are delisted.
+  async function openCustomerCart(rows: Record<string, unknown>[], inactive: readonly number[] = []): Promise<{
     customerFixture: ComponentFixture<Cart>;
     customerRoot: HTMLElement;
   }> {
@@ -263,6 +279,7 @@ describe('Cart', () => {
       message: 'Shopping cart details fetched successfully',
       data: rows,
     });
+    answerStatusLookups(inactive);
     await customerFixture.whenStable();
     customerFixture.detectChanges();
     return { customerFixture, customerRoot: customerFixture.nativeElement as HTMLElement };
@@ -288,7 +305,7 @@ describe('Cart', () => {
       const requests = imageRequests();
       expect(requests).toHaveLength(1);
       expect(requests[0].request.method).toBe('GET');
-      expect(requests[0].request.url).toBe(`/s3-api/s3/images/${KEY}`);
+      expect(requests[0].request.url).toBe(`/api/s3/images/${KEY}`);
       expect(requests[0].request.headers.has('Authorization')).toBe(false);
       // Loading: the image box without a broken "/products/..." URL.
       expect(imageOf(customerRoot, 'Head Set')?.getAttribute('aria-label')).toBe('Loading image of Head Set');
@@ -376,7 +393,8 @@ describe('Cart', () => {
 
       const request = http.expectOne((req) => req.url.endsWith('/wishlist/save_for_later'));
       expect(request.request.method).toBe('PUT');
-      expect(request.request.body).toEqual({ CART_ID: 70 });
+      // CHANGED: with the row's VARIANT_ID (null: this row has no variant).
+      expect(request.request.body).toEqual({ CART_ID: 70, VARIANT_ID: null });
       expect(button.disabled).toBe(true);
       expect(button.getAttribute('aria-busy')).toBe('true');
 
@@ -420,7 +438,7 @@ describe('Cart', () => {
 
       const request = http.expectOne('/api/wishlist/save_for_later');
       expect(request.request.method).toBe('PUT');
-      expect(request.request.body).toEqual({ CART_ID: 5 });
+      expect(request.request.body).toEqual({ CART_ID: 5, VARIANT_ID: null });
       request.flush('SUCCESS');
       await customerFixture.whenStable();
 
@@ -473,6 +491,42 @@ describe('Cart', () => {
       expect(TestBed.inject(ToastService).current()).toEqual({ type: 'error', message: 'Already saved' });
       customerFixture.destroy();
     });
+  });
+
+  // CHANGED (new): a product that was delisted (IS_ACTIVE "INACTIVE") after it was added to the cart.
+  it('shows a delisted product as no longer available, leaves it out of the totals and blocks checkout until removed', async () => {
+    const { customerFixture, customerRoot } = await openCustomerCart([
+      cartRow(),
+      cartRow({ CART_ID: 72, PRODUCT_ID: 14, PRODUCT_NAME: 'Ear Buds', UNIT_PRICE: '450.00', TOTAL_AMOUNT: '450.00', CART_QUANTITY: 1, PRODUCT_IMAGE: null, PRODUCT_VARIANT_ID: 21, VARIANT_ID: 21 }),
+    ], [14]);
+    const rowOf = (name: string): HTMLElement =>
+      Array.from(customerRoot.querySelectorAll<HTMLElement>('.cart-items .cart-item'))
+        .find((article) => article.querySelector('h2')?.textContent?.includes(name))!;
+    const compactText = (): string => customerRoot.textContent?.replace(/\s+/g, '') ?? '';
+    const checkout = (): HTMLButtonElement => customerRoot.querySelector('.cart-checkout-action button')!;
+
+    const earBuds = rowOf('Ear Buds');
+    expect(earBuds.classList).toContain('cart-item--delisted');
+    expect(earBuds.textContent).toContain('No longer available');
+    expect(earBuds.textContent).toContain('Not included in your order total');
+    expect(Array.from(earBuds.querySelectorAll<HTMLButtonElement>('.quantity-control button')).every((button) => button.disabled)).toBe(true);
+    expect(customerRoot.querySelector('.cart-items app-alert')?.textContent).toContain('One or more items are no longer available.');
+    // Totals: the local item (₹749) and the Head Set row (2 × ₹600); the ₹450 Ear Buds are left out.
+    expect(cart.subtotal()).toBe(749 + 1200);
+    expect(compactText()).toContain('Price(3items)');
+    expect(checkout().disabled).toBe(true);
+
+    Array.from(earBuds.querySelectorAll<HTMLButtonElement>('.cart-item__actions button'))
+      .find((button) => button.textContent?.includes('Remove'))!.click();
+    customerFixture.detectChanges();
+    http.expectOne((req) => req.url.endsWith('/shopping_cart/delete')).flush('SUCCESS');
+    await customerFixture.whenStable();
+    customerFixture.detectChanges();
+
+    expect(rowOf('Ear Buds')).toBeUndefined();
+    expect(cart.hasDelistedItems()).toBe(false);
+    expect(checkout().disabled).toBe(false);
+    customerFixture.destroy();
   });
 
   it('shows the shopping cart API error and retry state', async () => {

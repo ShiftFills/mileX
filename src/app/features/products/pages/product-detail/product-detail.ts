@@ -199,6 +199,8 @@ export class ProductDetail {
   constructor() {
     // The full catalog is still used for "You may also like" and to restore the saved cart.
     this.productService.load();
+    // CHANGED (new): a signed-in customer's saved items fill their hearts (one shopping_cart/get per session).
+    this.wishlist.sync();
     // The same component instance is reused when navigating between products (e.g. "You may also like").
     effect(() => {
       this.id();
@@ -355,8 +357,17 @@ export class ProductDetail {
     this.productService.load();
   }
 
-  protected toggleWishlist(id = this.product()?.id): void {
-    if (id) this.wishlist.toggle(id);
+  /** The gallery heart: the viewed product's cart row for the selected variant (null: the row without a variant). */
+  // CHANGED: the wishlist API (wishlist/save_for_later with that row's CART_ID and VARIANT_ID).
+  protected toggleWishlist(): void {
+    const item = this.product();
+    if (item) this.wishlist.toggleProduct(item, this.selectedVariantId());
+  }
+
+  /** A "You may also like" card's heart: that product's cart row. */
+  // CHANGED (new): split from toggleWishlist, which only handles the viewed product now.
+  protected toggleRelatedWishlist(item: Product): void {
+    this.wishlist.toggleProduct(item);
   }
 
   /** A gallery image failed to display: its S3 URL gets one fresh URL (it may have expired), then it is dropped. */

@@ -85,6 +85,8 @@ export class HomeShowcases {
 
   constructor() {
     this.loadProducts();
+    // CHANGED (new): a signed-in customer's saved items fill their hearts (one shopping_cart/get per session).
+    this.wishlist.sync();
 
     // CHANGED: each shelf sends the Home products request (HOME_PRODUCT_FILTERS) with its own CATEGORY_ID
     // instead of loadPage(1, 8, categoryId); empty categories are skipped.
@@ -129,8 +131,10 @@ export class HomeShowcases {
       });
   }
 
-  protected toggleWishlist(productId: string): void {
-    this.wishlist.toggle(productId);
+  // CHANGED: takes the product. The wishlist API saves its cart row (wishlist/save_for_later with that row's CART_ID
+  // and VARIANT_ID); a signed-out visitor is sent to Login first.
+  protected toggleWishlist(product: Product): void {
+    this.wishlist.toggleProduct(product);
   }
 
   protected retryLoad(): void {

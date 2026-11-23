@@ -999,7 +999,7 @@ describe('AllProducts', () => {
     }
 
     function flushImages(keys: string[], version = 1): void {
-      for (const key of keys) http.expectOne(`/s3-api/s3/images/${key}`).flush(signedResponse(key, version));
+      for (const key of keys) http.expectOne(`/api/s3/images/${key}`).flush(signedResponse(key, version));
       fixture.detectChanges();
     }
 
@@ -1082,7 +1082,7 @@ describe('AllProducts', () => {
 
     it('shows the placeholder when the image API fails and keeps the listing usable', () => {
       loadS3Page();
-      http.expectOne(`/s3-api/s3/images/${GALAXY_KEY}`).flush('Server error', { status: 500, statusText: 'Server Error' });
+      http.expectOne(`/api/s3/images/${GALAXY_KEY}`).flush('Server error', { status: 500, statusText: 'Server Error' });
       flushImages([LENOVO_KEY]);
 
       expect(component.loadStatus()).toBe('success');

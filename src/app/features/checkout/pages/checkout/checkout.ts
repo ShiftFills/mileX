@@ -116,8 +116,9 @@ export class Checkout {
     return item.product.variantDetails?.split('·')[0]?.trim() || '—';
   }
 
+  // CHANGED: delisted products are left out, like cart.subtotal (checkout stays blocked until they are removed).
   protected discountTotal(): number {
-    return this.cart.items().reduce((total, item) => total + this.discountFor(item), 0);
+    return this.cart.purchasableItems().reduce((total, item) => total + this.discountFor(item), 0);
   }
 
   protected beginEdit(card: EditableCard): void {

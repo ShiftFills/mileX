@@ -803,4 +803,75 @@ describe('ProductCatalogService', () => {
     expect(catalog.error()).toContain('missing or invalid required fields');
     expect(catalog.products()).toEqual([]);
   });
+
+  // CHANGED (new): inactive products are delisted: storefront calls send STATUS=ACTIVE, Admin calls do not.
+  describe('STATUS=ACTIVE on storefront requests', () => {
+    const empty = { status: 'SUCCESS', data: [] };
+
+    it('asks for active products only in the catalog, the Product View and the Products listing page', () => {
+      catalog.load();
+      http.expectOne('/api/products/get?STATUS=ACTIVE').flush(empty);
+
+      catalog.loadProduct(16).subscribe();
+      http.expectOne('/api/products/get?PRODUCT_ID=16&STATUS=ACTIVE').flush(empty);
+
+      catalog.loadPage(2, 12, 3, 'ACTIVE').subscribe();
+      http.expectOne('/api/products/get?PRODUCT_ID=-1&CATEGORY_ID=3&STATUS=ACTIVE&LIMIT=12&OFFSET=12').flush(empty);
+    });
+
+    it('keeps every status for the Admin page request and for the wishlist\'s product lookup', () => {
+      catalog.loadPage(1, 12).subscribe();
+      http.expectOne('/api/products/get?PRODUCT_ID=-1&LIMIT=12&OFFSET=0').flush(empty);
+
+      // The wishlist and the cart need inactive products too, to show them as no longer available.
+      catalog.loadProductOffer(3).subscribe();
+      http.expectOne('/api/products/get?PRODUCT_ID=3').flush(empty);
+    });
+  });
+
+  // CHANGED (new): the wishlist's product lookup (the response shape of products/get?PRODUCT_ID=3).
+  describe('loadProductOffer', () => {
+    const DELL = {
+      PRODUCT_ID: 3, PRODUCT_NAME: 'Dell Inspiron 15', BRAND_ID: 4, PRODUCT_IMAGE: 'uploads/products/dell_inspiron15.png',
+      SELLING_PRICE: '55000.00', PRICE: '60000.00', DISCOUNT: '5000.00', STOCK_QUANTITY: 30, SELLER_ID: 1,
+      IS_ACTIVE: 'INACTIVE',
+      VARIANTS: [
+        { VARIANT_ID: 3, SELLING_PRICE: '55000.00', PRICE: '60000.00', DISCOUNT: '5000.00', STOCK_QUANTITY: 30 },
+        { VARIANT_ID: 9, SELLING_PRICE: '52000.00', PRICE: '52000.00', DISCOUNT: '0.00', STOCK_QUANTITY: 30 },
+        { VARIANT_ID: null, SELLING_PRICE: '1.00' },
+      ],
+    };
+
+    it('returns an inactive product too, with the listing prices of the product and of its VARIANTS', () => {
+      let offer: unknown;
+      catalog.loadProductOffer(3).subscribe((result) => (offer = result));
+      http.expectOne('/api/products/get?PRODUCT_ID=3').flush({ status: true, data: [DELL] });
+
+      expect(offer).toMatchObject({
+        product: {
+          id: '3', name: 'Dell Inspiron 15', isActive: false,
+          // The same prices and badge the product listing shows: round((60000 − 55000) ÷ 60000 × 100) = 8.
+          price: 55000, originalPrice: 60000, discountLabel: '8% OFF',
+        },
+        variantPrices: [
+          { variantId: '3', price: 55000, originalPrice: 60000, discountLabel: '8% OFF' },
+          // PRICE not above SELLING_PRICE: the selling price only.
+          { variantId: '9', price: 52000 },
+        ],
+      });
+      expect((offer as { variantPrices: unknown[] }).variantPrices).toHaveLength(2);
+    });
+
+    it('returns null when the API has no row for the product, unlike an error response', () => {
+      let offer: unknown = 'not set';
+      catalog.loadProductOffer(3).subscribe((result) => (offer = result));
+      http.expectOne('/api/products/get?PRODUCT_ID=3').flush({ status: true, data: [] });
+      expect(offer).toBeNull();
+
+      let error: unknown;
+      catalog.loadProductOffer(3).subscribe({ error: (caught: unknown) => (error = caught) });
+      http.expectOne('/api/products/get?PRODUCT_ID=3').flush({ status: false, message: 'Product lookup failed' });
+      expect(error).toEqual(new Error('Product lookup failed'));
+    });
+  });
 });

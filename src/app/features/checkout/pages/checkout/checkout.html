@@ -23,7 +23,8 @@
     </section>
   } @else {
     @if (cart.hasUnavailableItems()) {
-      <app-alert tone="warning" role="alert">Remove out-of-stock items from your cart before placing the order.</app-alert>
+      <!-- CHANGED: also covers products that are no longer available (delisted). -->
+      <app-alert tone="warning" role="alert">Remove out-of-stock or unavailable items from your cart before placing the order.</app-alert>
     }
     <header class="checkout-heading">
       <a class="checkout-back" [routerLink]="routes.cart" aria-label="Back to shopping cart"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5M5 8h9" /></svg></a>

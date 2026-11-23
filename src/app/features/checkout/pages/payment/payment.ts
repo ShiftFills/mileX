@@ -165,16 +165,20 @@ export class PaymentPage {
   protected readonly hasUnavailableItems = computed(() =>
     this.lines().some((line) => !line.product.inStock),
   );
+  /** The rows the totals count: delisted products are left out (and block the order, as out-of-stock rows). */
+  // CHANGED (new)
+  private readonly purchasableLines = computed(() => this.lines().filter((line) => line.product.isActive !== false));
+  // CHANGED: listTotal, subtotal and shippingCharges count purchasableLines.
   protected readonly listTotal = computed(() =>
-    this.lines().reduce((sum, { product, quantity }) => sum + (product.originalPrice ?? product.price) * quantity, 0),
+    this.purchasableLines().reduce((sum, { product, quantity }) => sum + (product.originalPrice ?? product.price) * quantity, 0),
   );
   protected readonly subtotal = computed(() =>
-    this.lines().reduce((sum, { product, quantity }) => sum + product.price * quantity, 0),
+    this.purchasableLines().reduce((sum, { product, quantity }) => sum + product.price * quantity, 0),
   );
   protected readonly productDiscount = computed(() => this.listTotal() - this.subtotal());
   /** SHIPPING_CHARGES: the cart's own shipping rule applied to these rows. */
   protected readonly shippingCharges = computed(() =>
-    this.cart.shippingFor(this.subtotal(), this.lines().reduce((sum, line) => sum + line.quantity, 0)),
+    this.cart.shippingFor(this.subtotal(), this.purchasableLines().reduce((sum, line) => sum + line.quantity, 0)),
   );
   protected readonly orderTotal = computed(() => this.subtotal() + this.shippingCharges());
   protected readonly qualifiesForFreeShipping = computed(() => this.subtotal() > FREE_SHIPPING_THRESHOLD);

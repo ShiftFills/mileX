@@ -106,6 +106,8 @@ export class ProductList {
 
   constructor() {
     this.loadCategories();
+    // CHANGED (new): a signed-in customer's saved items fill their hearts (one shopping_cart/get per session).
+    this.wishlist.sync();
     toObservable(this.pageRequest)
       .pipe(
         distinctUntilChanged(
@@ -127,7 +129,8 @@ export class ProductList {
         }),
         switchMap(({ page, category }) =>
           // CHANGED: the selected category is now passed to the API (server-side filtering and pagination).
-          this.productService.loadPage(page, PAGE_SIZE, category || null).pipe(
+          // CHANGED: STATUS=ACTIVE, as on the Home page: inactive products are delisted.
+          this.productService.loadPage(page, PAGE_SIZE, category || null, 'ACTIVE').pipe(
             tap((pageData) => {
               if (pageData.total !== undefined) this.knownTotal.set(pageData.total);
               if (
@@ -178,8 +181,9 @@ export class ProductList {
     });
   }
 
-  protected toggleWishlist(productId: string): void {
-    this.wishlist.toggle(productId);
+  // CHANGED: takes the product (the wishlist API with its cart row's CART_ID and VARIANT_ID; signed out: Login).
+  protected toggleWishlist(product: Product): void {
+    this.wishlist.toggleProduct(product);
   }
 
   protected updateSort(event: Event): void {

@@ -102,7 +102,18 @@ export const API_ENDPOINTS = {
     delete: 'shopping_cart/delete',
   },
   wishlist: {
+    /** PUT `{ CART_ID }` saves a cart row for later. */
     saveForLater: 'wishlist/save_for_later',
+  },
+  // CHANGED (new): the Wishlist screen (replaces wishlist/get).
+  moveToCart: {
+    /**
+     * GET `?CATEGORY_ID=-1&PRODUCT_ID=-1&LIMIT=…&OFFSET=…` (-1: all categories / products): the signed-in customer's
+     * saved-for-later cart rows. It only reads.
+     */
+    get: 'move_to_cart/get',
+    /** PUT `{ CART_ID }`: moves one saved-for-later row back to the cart (Move to Cart). */
+    update: 'move_to_cart/update',
   },
   // CHANGED (new): product image storage on AWS S3.
   s3Images: {

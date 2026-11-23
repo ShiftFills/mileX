@@ -3,6 +3,8 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { API_BASE_URL } from '@core/config/api.config';
+import { AuthService } from '@core/services/auth.service';
+import { ToastService } from '@core/services/toast.service';
 import { HomeShowcases } from './home-showcases';
 
 // CHANGED (new): the Home page products come from this products/get request.
@@ -120,6 +122,79 @@ describe('HomeShowcases', () => {
     expect(texts('.category-shelf__item strong')).toEqual(['Steel Kettle']);
   });
 
+  // CHANGED (new): a signed-in customer's hearts use wishlist/save_for_later with the product's cart row.
+  it('fills a customer\'s saved hearts and saves a product\'s cart row with its CART_ID and VARIANT_ID', () => {
+    const toast = TestBed.inject(ToastService);
+    // The Home page request (cached, so the customer's Home below reuses it).
+    http.expectOne(HOME_PRODUCTS_URL).flush({
+      status: 'SUCCESS',
+      data: [
+        {
+          PRODUCT_ID: 18, PRODUCT_NAME: 'tissuee', SELLING_PRICE: '70.00', PRICE: '80.00', STOCK_QUANTITY: 3, SELLER_ID: 52,
+          IS_ACTIVE: 'ACTIVE', VARIANTS: [{ VARIANT_ID: 28, SELLING_PRICE: '70.00', PRICE: '80.00', STOCK_QUANTITY: 3 }],
+        },
+        { PRODUCT_ID: 17, PRODUCT_NAME: 'Wireless Mosue', SELLING_PRICE: '2000.00', STOCK_QUANTITY: 67, SELLER_ID: 1, IS_ACTIVE: 'ACTIVE' },
+        {
+          PRODUCT_ID: 19, PRODUCT_NAME: 'Ear Buds', SELLING_PRICE: '3000.00', STOCK_QUANTITY: 67, SELLER_ID: 55, IS_ACTIVE: 'ACTIVE',
+          VARIANTS: [{ VARIANT_ID: 30, SELLING_PRICE: '3000.00', PRICE: '4000.00', STOCK_QUANTITY: 5 }],
+        },
+      ],
+    });
+    TestBed.inject(AuthService).setSession(
+      { id: '3', email: '', firstName: 'pooja123', lastName: '', userType: 'CUSTOMER' },
+      `header.${btoa(JSON.stringify({ USER_ID: 3, CUSTOMER_ID: 1 })).replace(/=/g, '')}.signature`,
+    );
+    const customerFixture = TestBed.createComponent(HomeShowcases);
+    customerFixture.detectChanges();
+    const heartOf = (name: string): HTMLElement =>
+      Array.from(customerFixture.nativeElement.querySelectorAll(`${BEST_DEALS} app-product-card`) as NodeListOf<HTMLElement>)
+        .find((card) => card.textContent?.includes(name))!
+        .querySelector('app-button.product-card__wishlist') as HTMLElement;
+
+    // The customer's cart is read once (shopping_cart/get): the saved Wireless Mosue fills its heart; tissuee is
+    // in the cart (CART_ID 59, variant 28).
+    http.expectOne('/api/shopping_cart/get?CUSTOMER_ID=1').flush({
+      success: true,
+      data: [
+        { CART_ID: 40, PRODUCT_ID: 17, SELLER_ID: 1, CART_QUANTITY: 1, UNIT_PRICE: '2000.00', CUSTOMER_ID: 1, SAVE_FOR_LATER: 1, PRODUCT_NAME: 'Wireless Mosue' },
+        { CART_ID: 59, PRODUCT_ID: 18, SELLER_ID: 52, CART_QUANTITY: 1, UNIT_PRICE: '70.00', CUSTOMER_ID: 1, SAVE_FOR_LATER: 0, PRODUCT_NAME: 'tissuee', VARIANT_ID: 28 },
+      ],
+    });
+    http.expectOne('/api/products/get?PRODUCT_ID=18').flush({ status: true, data: [] });
+    customerFixture.detectChanges();
+    expect(heartOf('Wireless Mosue').classList).toContain('is-active');
+    expect(heartOf('tissuee').classList).not.toContain('is-active');
+
+    // tissuee: wishlist/save_for_later with its cart row's CART_ID and VARIANT_ID.
+    heartOf('tissuee').querySelector('button')!.click();
+    customerFixture.detectChanges();
+    expect(heartOf('tissuee').querySelector('button')!.disabled).toBe(true);
+    const save = http.expectOne('/api/wishlist/save_for_later');
+    expect(save.request.body).toEqual({ CART_ID: 59, VARIANT_ID: 28 });
+    save.flush('Saved for later');
+    customerFixture.detectChanges();
+
+    expect(heartOf('tissuee').classList).toContain('is-active');
+    // The same product's heart in Recommended Items is filled too.
+    const recommendedHearts = customerFixture.nativeElement.querySelectorAll(`${RECOMMENDED} app-button.product-card__wishlist.is-active`);
+    expect(recommendedHearts).toHaveLength(2);
+
+    // Ear Buds has no cart row: the same PUT, with CART_ID null and its VARIANT_ID; the backend's answer is shown.
+    heartOf('Ear Buds').querySelector('button')!.click();
+    customerFixture.detectChanges();
+    const saveEarBuds = http.expectOne('/api/wishlist/save_for_later');
+    expect(saveEarBuds.request.method).toBe('PUT');
+    expect(saveEarBuds.request.body).toEqual({ CART_ID: null, VARIANT_ID: 30 });
+    saveEarBuds.flush({ status: false, message: 'CART_ID is required' }, { status: 400, statusText: 'Bad Request' });
+    customerFixture.detectChanges();
+    expect(toast.current()?.message).toBe('CART_ID is required');
+    expect(heartOf('Ear Buds').classList).not.toContain('is-active');
+
+    // The heart never calls the shopping cart insert.
+    http.expectNone('/api/shopping_cart/insert');
+    customerFixture.destroy();
+  });
+
   it('shows the empty state when the API returns no products', () => {
     http.expectOne(HOME_PRODUCTS_URL).flush({ status: 'SUCCESS', data: [] });
     fixture.detectChanges();
@@ -161,7 +236,7 @@ describe('HomeShowcases', () => {
     }
 
     function flushImages(keys: string[], version = 1): void {
-      for (const key of keys) http.expectOne(`/s3-api/s3/images/${key}`).flush(signedResponse(key, version));
+      for (const key of keys) http.expectOne(`/api/s3/images/${key}`).flush(signedResponse(key, version));
       fixture.detectChanges();
     }
 
@@ -238,7 +313,7 @@ describe('HomeShowcases', () => {
 
     it('shows the placeholder when the image API fails', () => {
       loadHome();
-      http.expectOne(`/s3-api/s3/images/${PHONE_KEY}`).flush('Server error', { status: 500, statusText: 'Server Error' });
+      http.expectOne(`/api/s3/images/${PHONE_KEY}`).flush('Server error', { status: 500, statusText: 'Server Error' });
       flushImages([TV_KEY]);
 
       expect(cardImages(BEST_DEALS).slice(0, 2)).toEqual(['no image', SIGNED(TV_KEY)]);

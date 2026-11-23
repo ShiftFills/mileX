@@ -12,7 +12,8 @@
     </app-alert>
   } @else if (cart.items().length) {
     @if (cart.hasUnavailableItems()) {
-      <app-alert tone="warning" role="alert">Remove out-of-stock items from your cart before continuing.</app-alert>
+      <!-- CHANGED: also covers products that are no longer available (delisted). -->
+      <app-alert tone="warning" role="alert">Remove out-of-stock or unavailable items from your cart before continuing.</app-alert>
     }
     <div class="row g-2">
       <div class="col-12 col-lg-8">

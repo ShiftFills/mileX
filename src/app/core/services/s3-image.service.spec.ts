@@ -316,7 +316,7 @@ describe('S3ImageService', () => {
 
       service.imageUrl('products/a1.png').subscribe({ error: () => undefined });
       http.expectOne('http://s3.test/api/s3/images/products/a1.png').flush(
-        '<!DOCTYPE html><pre>Cannot GET /s3-api/s3/images/products/a1.png</pre>', { status: 404, statusText: 'Not Found' },
+        '<!DOCTYPE html><pre>Cannot GET /api/s3/images/products/a1.png</pre>', { status: 404, statusText: 'Not Found' },
       );
       service.imageUrl('products/b2.png').subscribe({ error: () => undefined });
       http.expectOne('http://s3.test/api/s3/images/products/b2.png').error(new ProgressEvent('error'), { status: 0 });
@@ -339,5 +339,54 @@ describe('S3ImageService', () => {
 
     http.expectNone(() => true);
     expect((error as Error).message).toBe('The product image is not stored in S3.');
+  });
+});
+
+// CHANGED (new): in development the S3 API base is the main API base ("/api"), so the upload is "/api/s3/upload".
+describe('S3ImageService on the main API base', () => {
+  let service: S3ImageService;
+  let http: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(withInterceptors([authInterceptor])),
+        provideHttpClientTesting(),
+        { provide: API_BASE_URL, useValue: '/api' },
+        { provide: S3_API_BASE_URL, useValue: '/api' },
+        { provide: AuthService, useValue: { token: () => 'access-token' } },
+      ],
+    });
+    service = TestBed.inject(S3ImageService);
+    http = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => http.verify());
+
+  it('posts the multipart upload to /api/s3/upload without the access token; normal APIs keep it', () => {
+    const file = new File(['png-bytes'], 'a.png', { type: 'image/png' });
+    service.uploadImage(file, 'a1.png', PRODUCT_IMAGE_FOLDER).subscribe();
+    service.imageUrl('products/a1.png').subscribe();
+    TestBed.inject(ApiService).get('products/get', { PRODUCT_ID: -1 }).subscribe();
+
+    const upload = http.expectOne('/api/s3/upload');
+    expect(upload.request.method).toBe('POST');
+    const body = upload.request.body as FormData;
+    expect(body).toBeInstanceOf(FormData);
+    expect((body.get('image') as File).name).toBe('a1.png');
+    expect(body.get('fileName')).toBe('a1.png');
+    expect(body.get('folderName')).toBe('products');
+    // The browser sets the multipart Content-Type (with its boundary) itself.
+    expect(upload.request.headers.has('Content-Type')).toBe(false);
+    expect(upload.request.headers.has('Authorization')).toBe(false);
+
+    const image = http.expectOne('/api/s3/images/products/a1.png');
+    expect(image.request.headers.has('Authorization')).toBe(false);
+    const products = http.expectOne((request) => request.url === '/api/products/get');
+    expect(products.request.headers.get('Authorization')).toBe('Bearer access-token');
+
+    upload.flush(uploadResponse('products/a1.png'));
+    image.flush(imageResponse('products/a1.png'));
+    products.flush({ status: true, data: [] });
   });
 });

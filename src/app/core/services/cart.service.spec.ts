@@ -33,6 +33,14 @@ describe('CartService', () => {
     http.expectOne((request) => request.url.endsWith('/products/get')).flush(PRODUCTS_RESPONSE);
   }
 
+  /** Answers the product-status lookup CartService sends for an API cart row's product (CHANGED (new)). */
+  function answerStatus(productId: number, isActive: 'ACTIVE' | 'INACTIVE' = 'ACTIVE'): void {
+    http.expectOne(`/api/products/get?PRODUCT_ID=${productId}`).flush({
+      status: true,
+      data: [{ PRODUCT_ID: productId, PRODUCT_NAME: 'Product', SELLING_PRICE: '749.00', IS_ACTIVE: isActive }],
+    });
+  }
+
   beforeEach(() => {
     localStorage.removeItem(STORAGE_KEYS.cart);
     TestBed.configureTestingModule({
@@ -188,10 +196,63 @@ describe('CartService', () => {
     };
 
     cart.mergeFetchedItems([fetchedItem]);
+    answerStatus(4);
 
     expect(cart.items()).toEqual([fetchedItem]);
     expect(cart.count()).toBe(2);
     expect(cart.subtotal()).toBe(1200);
+  });
+
+  // CHANGED (new): an inactive (delisted) product already in the cart.
+  describe('delisted products', () => {
+    function apiRow(productId: string, cartId: string, quantity: number) {
+      const product = productById(catalog, productId);
+      return {
+        product,
+        quantity,
+        apiDetails: {
+          cartId, sellerId: 12, customerId: 3, originalQuantity: quantity, unitPrice: product.price,
+          cartDiscount: 0, productDiscount: 0, tax: 0, totalAmount: product.price * quantity, saveForLater: false,
+        },
+      };
+    }
+
+    it('marks an inactive product\'s row, leaves it out of the totals and blocks checkout until it is removed', () => {
+      cart.mergeFetchedItems([apiRow('4', '70', 2), apiRow('5', '71', 1)]);
+      expect(cart.subtotal()).toBe(749 * 2 + 799);
+      answerStatus(4);
+      answerStatus(5, 'INACTIVE');
+
+      const delisted = cart.items().find((item) => item.product.id === '5');
+      expect(delisted?.product).toMatchObject({ isActive: false, inStock: false });
+      expect(cart.hasDelistedItems()).toBe(true);
+      expect(cart.hasUnavailableItems()).toBe(true);
+      expect(cart.purchasableItems().map((item) => item.product.id)).toEqual(['4']);
+      expect(cart.purchasableCount()).toBe(2);
+      expect(cart.subtotal()).toBe(749 * 2);
+      expect(cart.total()).toBe(749 * 2 + cart.shippingCost());
+      // The header badge still counts the row until it is removed.
+      expect(cart.count()).toBe(3);
+
+      // The status is remembered: a later cart load marks the row at once, without asking again.
+      cart.mergeFetchedItems([apiRow('4', '70', 2), apiRow('5', '71', 1)]);
+      http.expectNone((request) => request.params.has('PRODUCT_ID'));
+      expect(cart.hasDelistedItems()).toBe(true);
+
+      cart.remove('5', '71');
+      expect(cart.hasDelistedItems()).toBe(false);
+      expect(cart.hasUnavailableItems()).toBe(false);
+    });
+
+    it('keeps a row whose status lookup failed, and asks again on the next cart load', () => {
+      cart.mergeFetchedItems([apiRow('4', '70', 1)]);
+      http.expectOne('/api/products/get?PRODUCT_ID=4').flush('Server error', { status: 500, statusText: 'Server Error' });
+      expect(cart.hasDelistedItems()).toBe(false);
+      expect(cart.subtotal()).toBe(749);
+
+      cart.mergeFetchedItems([apiRow('4', '70', 1)]);
+      answerStatus(4);
+    });
   });
 
   it('updates and removes an API cart row by CART_ID when product IDs are shared', () => {
@@ -230,6 +291,8 @@ describe('CartService', () => {
         },
       },
     ]);
+    // One status lookup for the product both rows share.
+    answerStatus(4);
 
     cart.setQuantity(product.id, 3, '71');
     expect(cart.items().map((item) => item.quantity)).toEqual([2, 3]);

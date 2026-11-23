@@ -22,7 +22,8 @@
           [imageSrc]="productImages.src(product)"
           [imageLoading]="productImages.loading(product)"
           (imageError)="productImages.failed(product, $event)"
-          (wishlistToggle)="toggleWishlist($event)"
+          [pendingAction]="wishlist.isPending(product.id) ? 'wishlist' : null"
+          (wishlistToggle)="toggleWishlist(product)"
         />
       }
     </div>
@@ -74,7 +75,8 @@
           [imageSrc]="productImages.src(product)"
           [imageLoading]="productImages.loading(product)"
           (imageError)="productImages.failed(product, $event)"
-          (wishlistToggle)="toggleWishlist($event)"
+          [pendingAction]="wishlist.isPending(product.id) ? 'wishlist' : null"
+          (wishlistToggle)="toggleWishlist(product)"
         />
       }
     </div>

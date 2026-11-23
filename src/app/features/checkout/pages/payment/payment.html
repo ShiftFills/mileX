@@ -29,7 +29,8 @@
     <app-alert tone="danger" role="alert">{{ cartSyncError() }}</app-alert>
   } @else if (lines().length) {
     @if (hasUnavailableItems()) {
-      <app-alert tone="warning" role="alert">Remove out-of-stock items from your cart before placing the order.</app-alert>
+      <!-- CHANGED: also covers products that are no longer available (delisted). -->
+      <app-alert tone="warning" role="alert">Remove out-of-stock or unavailable items from your cart before placing the order.</app-alert>
     }
     <div class="row pay-layout">
       <div class="col-12 col-lg-7">

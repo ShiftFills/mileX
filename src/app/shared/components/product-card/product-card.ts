@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
-import { CurrencyPipe } from '@angular/common';
+import { CurrencyPipe, NgTemplateOutlet } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { APP_ROUTES } from '@core/constants/app-routes';
 import { Product } from '@shared/models';
@@ -8,7 +8,7 @@ import { Card } from '../card/card';
 
 @Component({
   selector: 'app-product-card',
-  imports: [Button, Card, CurrencyPipe, RouterLink],
+  imports: [Button, Card, CurrencyPipe, NgTemplateOutlet, RouterLink],
   templateUrl: './product-card.html',
   styleUrl: './product-card.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -32,6 +32,19 @@ export class ProductCard {
   readonly imageLoading = input(false);
   /** The image (its URL) could not be displayed. */
   readonly imageError = output<string>();
+  // CHANGED (new): opt-in inputs for the wishlist's saved items; their defaults leave every other screen unchanged.
+  /** Extra lines under the name (e.g. brand, variant and quantity). */
+  readonly details = input<readonly string[]>([]);
+  /** Text of the Add to Cart button (e.g. "Move to Cart"). */
+  readonly addToCartLabel = input('Add to Cart');
+  /** The card's request in flight: that button shows a spinner and both buttons are disabled. */
+  readonly pendingAction = input<'wishlist' | 'add' | null>(null);
+  /** Disables both buttons without a spinner (e.g. while another card's request is in flight). */
+  readonly actionsDisabled = input(false);
+  /** The product can no longer be bought (e.g. delisted): image and price greyed out, no link to its page. */
+  readonly unavailable = input(false);
+
+  protected readonly buttonsDisabled = computed(() => this.actionsDisabled() || this.pendingAction() !== null);
 
   protected readonly image = computed(() => {
     const src = this.imageSrc();

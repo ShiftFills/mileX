@@ -80,7 +80,8 @@
         <app-product-card
           [product]="product"
           [wishlisted]="wishlist.has(product.id)"
-          (wishlistToggle)="toggleWishlist($event)"
+          [pendingAction]="wishlist.isPending(product.id) ? 'wishlist' : null"
+          (wishlistToggle)="toggleWishlist(product)"
         />
       }
     </div>

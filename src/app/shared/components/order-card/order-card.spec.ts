@@ -109,7 +109,7 @@ describe('OrderCard', () => {
 
     it('shows the signed URL of an S3 key, with an empty image box while it loads', async () => {
       await render(S3_ORDER);
-      const request = http.expectOne(`/s3-api/s3/images/${KEY}`);
+      const request = http.expectOne(`/api/s3/images/${KEY}`);
       expect(request.request.method).toBe('GET');
       expect(itemImage(0)?.getAttribute('aria-label')).toBe('Loading image of Lenovo IdeaPad Slim 5');
       expect(root.querySelector(`img[src="/${KEY}"]`)).toBeNull();
@@ -123,26 +123,26 @@ describe('OrderCard', () => {
 
     it('gets one fresh URL when the image fails to display, then shows the empty image box', async () => {
       await render(S3_ORDER);
-      http.expectOne(`/s3-api/s3/images/${KEY}`).flush({ success: true, imageKey: KEY, imageUrl: SIGNED, expiresIn: 3600 });
+      http.expectOne(`/api/s3/images/${KEY}`).flush({ success: true, imageKey: KEY, imageUrl: SIGNED, expiresIn: 3600 });
       await fixture.whenStable();
 
       itemImage(0)!.dispatchEvent(new Event('error'));
       await fixture.whenStable();
       const renewed = SIGNED.replace('first', 'second');
-      http.expectOne(`/s3-api/s3/images/${KEY}`).flush({ success: true, imageKey: KEY, imageUrl: renewed, expiresIn: 3600 });
+      http.expectOne(`/api/s3/images/${KEY}`).flush({ success: true, imageKey: KEY, imageUrl: renewed, expiresIn: 3600 });
       await fixture.whenStable();
       expect(itemImage(0)?.getAttribute('src')).toBe(renewed);
 
       itemImage(0)!.dispatchEvent(new Event('error'));
       await fixture.whenStable();
-      http.expectNone(`/s3-api/s3/images/${KEY}`);
+      http.expectNone(`/api/s3/images/${KEY}`);
       expect(itemImage(0)?.tagName).toBe('SPAN');
       expect(itemImage(0)?.getAttribute('aria-label')).toBe('No image for Lenovo IdeaPad Slim 5');
     });
 
     it('shows the empty image box when the signed URL cannot be loaded', async () => {
       await render(S3_ORDER);
-      http.expectOne(`/s3-api/s3/images/${KEY}`).flush({ message: 'Not found' }, { status: 404, statusText: 'Not Found' });
+      http.expectOne(`/api/s3/images/${KEY}`).flush({ message: 'Not found' }, { status: 404, statusText: 'Not Found' });
       await fixture.whenStable();
       expect(itemImage(0)?.getAttribute('aria-label')).toBe('No image for Lenovo IdeaPad Slim 5');
     });

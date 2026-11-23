@@ -196,7 +196,7 @@ export class S3ImageService {
   /**
    * Explains once, in the console, an image URL request that never reached the S3 API, since the screens then
    * only show their "no image" placeholder: a dev server without the S3 proxy route (it answers "Cannot GET
-   * /s3-api/..."; `ng serve` reads proxy.conf.json only when it starts), or a blocked request (status 0: network
+   * /api/s3/..."; `ng serve` reads proxy.conf.json only when it starts), or a blocked request (status 0: network
    * error, or CORS when the S3 API is called directly and does not allow this origin). A missing image or any
    * other API answer is not reported.
    */

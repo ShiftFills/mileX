@@ -128,16 +128,16 @@ describe('OrderDetail', () => {
     it("shows the ordered variant's S3 image, else the product's, as signed URLs", async () => {
       await renderOrder(rows(), { products: { 1: 'products/866dea6fc30de9342300a6e901f8df6f.png', 2: PRODUCT_KEY }, variant: VARIANT_KEY });
 
-      const requests = http.match((request) => request.url.startsWith('/s3-api/s3/images/'));
+      const requests = http.match((request) => request.url.startsWith('/api/s3/images/'));
       expect(requests.map((request) => request.request.url).sort())
-        .toEqual([`/s3-api/s3/images/${PRODUCT_KEY}`, `/s3-api/s3/images/${VARIANT_KEY}`]);
+        .toEqual([`/api/s3/images/${PRODUCT_KEY}`, `/api/s3/images/${VARIANT_KEY}`]);
       const items = root.querySelectorAll('.od-item');
       expect(items[0].querySelector('img')).toBeNull();
       expect(items[0].querySelector('.od-item__thumb')?.getAttribute('aria-busy')).toBe('true');
       expect(root.querySelector('img[src^="/products/"], img[src^="/images/"]')).toBeNull();
 
       for (const request of requests) {
-        const key = request.request.url.replace('/s3-api/s3/images/', '');
+        const key = request.request.url.replace('/api/s3/images/', '');
         request.flush({ success: true, imageKey: key, imageUrl: signed(key), expiresIn: 3600 });
       }
       await settle();
@@ -147,7 +147,7 @@ describe('OrderDetail', () => {
 
     it('shows the bag icon when the signed URL cannot be loaded', async () => {
       await renderOrder(rows(), { products: { 1: null, 2: PRODUCT_KEY } });
-      http.expectOne(`/s3-api/s3/images/${PRODUCT_KEY}`).flush({ message: 'Not found' }, { status: 404, statusText: 'Not Found' });
+      http.expectOne(`/api/s3/images/${PRODUCT_KEY}`).flush({ message: 'Not found' }, { status: 404, statusText: 'Not Found' });
       await settle();
 
       const thumb = root.querySelectorAll('.od-item')[1].querySelector('.od-item__thumb');

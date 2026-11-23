@@ -32,6 +32,8 @@ export interface Product {
   maxOrderQuantity?: number;
   /** Variant ID from VARIANT_ID in the products API response. */
   variantId?: number;
+  // CHANGED (new): the VARIANTS products/get sends with a product (absent when it sends none).
+  variantOptions?: ProductVariantOption[];
   /** Seller who owns the product (SELLER_ID from products/get). Needed by shopping_cart/insert. */
   sellerId?: number;
   /** Tax rate from products/get (TAX_RATE), as returned by the API. */
@@ -45,6 +47,14 @@ export interface Product {
   categoryName?: string;
   subCategoryName?: string;
   brandName?: string;
+}
+
+/** One entry of a products/get record's VARIANTS: its VARIANT_ID, selling price and whether it is in stock. */
+// CHANGED (new)
+export interface ProductVariantOption {
+  id: string;
+  price: number;
+  inStock: boolean;
 }
 
 export interface ProductColor {
