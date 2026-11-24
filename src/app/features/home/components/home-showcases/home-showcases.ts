@@ -13,7 +13,6 @@ import { ProductImageDisplayService } from '@core/services/product-image-display
 import { Alert } from '@shared/components/alert/alert';
 import { LoadingSpinner } from '@shared/components/loading-spinner/loading-spinner';
 import { Product } from '@shared/models';
-import { WishlistService } from '@core/services/wishlist.service';
 
 /**
  * Home page products: active products of every category, brand and seller, i.e.
@@ -60,7 +59,7 @@ interface CategoryShelf {
 export class HomeShowcases {
   protected readonly routes = APP_ROUTES;
   readonly categories = input<readonly ProductLookupOption[]>([]);
-  protected readonly wishlist = inject(WishlistService);
+  // CHANGED: no wishlist heart on the Home page cards, so WishlistService is no longer used here.
   // CHANGED (new): the image of each product card and shelf item (signed S3 URL from its PRODUCT_IMAGE).
   protected readonly productImages = inject(ProductImageDisplayService);
   private readonly productService = inject(ProductCatalogService);
@@ -85,8 +84,7 @@ export class HomeShowcases {
 
   constructor() {
     this.loadProducts();
-    // CHANGED (new): a signed-in customer's saved items fill their hearts (one shopping_cart/get per session).
-    this.wishlist.sync();
+    // CHANGED: the wishlist sync (shopping_cart/get for the hearts) is removed with the Home page hearts.
 
     // CHANGED: each shelf sends the Home products request (HOME_PRODUCT_FILTERS) with its own CATEGORY_ID
     // instead of loadPage(1, 8, categoryId); empty categories are skipped.
@@ -129,12 +127,6 @@ export class HomeShowcases {
         // CHANGED (new): one URL request per distinct image key (keys already loaded make none).
         this.productImages.show(shelves.flatMap((shelf) => shelf.products));
       });
-  }
-
-  // CHANGED: takes the product. The wishlist API saves its cart row (wishlist/save_for_later with that row's CART_ID
-  // and VARIANT_ID); a signed-out visitor is sent to Login first.
-  protected toggleWishlist(product: Product): void {
-    this.wishlist.toggleProduct(product);
   }
 
   protected retryLoad(): void {

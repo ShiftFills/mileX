@@ -3,7 +3,9 @@
   <section appCard class="product-detail__layout">
     <!-- Gallery -->
     <!-- CHANGED: the product's and selected variant's own images (signed S3 URLs), with loading and error handling. -->
+    <!-- CHANGED: the heart is off while the variants load (it saves the selected variant) and while its request runs. -->
     <app-product-gallery [images]="images()" [name]="item.name" [wishlisted]="wishlist.has(item.id)"
+      [wishlistDisabled]="wishlistBlocked()"
       [loading]="imagesLoading()" (imageError)="galleryImageFailed($event)" (wishlistToggle)="toggleWishlist()" />
 
     <!-- Buy box -->
@@ -17,7 +19,7 @@
       <p class="product-detail__price">
         <strong>{{ price() | currency: 'INR' : 'symbol' : '1.0-0' }}</strong>
         @if (item.originalPrice && !selectedVariant()) { <del>{{ item.originalPrice | currency: 'INR' : 'symbol' : '1.0-0' }}</del> }
-        @if (discountPercent()) { <app-badge tone="success">{{ discountPercent() }}% OFF</app-badge> }
+        @if (discountLabel(); as label) { <app-badge tone="success">{{ label }}</app-badge> }
       </p>
       <p class="product-detail__tax">Inclusive of all taxes <span aria-hidden="true">|</span> Free Shipping on orders
         above ₹999</p>

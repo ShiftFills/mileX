@@ -90,11 +90,9 @@ export class Cart {
   protected readonly listTotal = computed(() =>
     this.cart.purchasableItems().reduce((sum, { product, quantity }) => sum + (product.originalPrice ?? product.price) * quantity, 0),
   );
+  // CHANGED: every row's product discount is MRP − price (see lineProductDiscount), as on checkout.
   protected readonly productDiscount = computed(() =>
-    this.cart.purchasableItems().reduce((sum, item) => {
-      if (item.apiDetails) return sum + this.scaledAmount(item.apiDetails.productDiscount, item);
-      return sum + Math.max(0, (item.product.originalPrice ?? item.product.price) - item.product.price) * item.quantity;
-    }, 0),
+    this.cart.purchasableItems().reduce((sum, item) => sum + this.lineProductDiscount(item), 0),
   );
   protected readonly cartDiscount = computed(() =>
     this.cart.purchasableItems().reduce(
@@ -257,10 +255,14 @@ export class Cart {
     });
   }
 
+  /**
+   * The row's saving against MRP: (MRP − price) × quantity, the struck-through price minus the price shown on the
+   * row. The cart API's PRODUCT_DISCOUNT is not used: it is the product's DISCOUNT column, which is 0.00 on most
+   * discounted products and is a per-unit amount, not a line total.
+   */
+  // CHANGED: API rows use the same rule as local rows and the checkout pages (was PRODUCT_DISCOUNT for API rows).
   protected lineProductDiscount(item: CartItem): number {
-    return item.apiDetails
-      ? this.scaledAmount(item.apiDetails.productDiscount, item)
-      : Math.max(0, (item.product.originalPrice ?? item.product.price) - item.product.price) * item.quantity;
+    return Math.max(0, (item.product.originalPrice ?? item.product.price) - item.product.price) * item.quantity;
   }
 
   protected lineCartDiscount(item: CartItem): number {

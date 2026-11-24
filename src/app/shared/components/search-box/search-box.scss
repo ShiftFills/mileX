@@ -38,6 +38,25 @@ form {
   height: 1.15rem;
 }
 
+// Page toolbars (Products, Offers): a bordered field with the Search button joined to its right edge.
+:host(.toolbar-search) form {
+  overflow: hidden;
+  gap: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+:host(.toolbar-search) form:focus-within {
+  border-color: var(--color-focus-ring);
+  box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--color-focus-ring) 25%, transparent);
+}
+
+:host(.toolbar-search) app-button {
+  width: 6rem;
+  font-size: 0.9rem;
+}
+
 @media (max-width: 991.98px) {
   :host(.store-header__search) form {
     height: 2.4rem;

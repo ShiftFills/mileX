@@ -75,6 +75,16 @@ select {
   font-size: 0.58rem;
 }
 
+// Page toolbar filters (Products, Offers): as tall as the search box beside them; an "All ..." option is a real
+// choice, not a placeholder.
+:host(.toolbar-filter) select {
+  height: 2.5rem;
+}
+
+:host(.toolbar-filter) select.form-select--placeholder:not(:disabled) {
+  color: var(--color-text);
+}
+
 :host(.chart-filter) select {
   border-color: #eef1f6;
   border-radius: 0.4rem;

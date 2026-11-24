@@ -115,6 +115,14 @@ export const API_ENDPOINTS = {
     /** PUT `{ CART_ID }`: moves one saved-for-later row back to the cart (Move to Cart). */
     update: 'move_to_cart/update',
   },
+  // CHANGED (new): the customer Offers & Discounts page. Requires an access token.
+  offerDiscount: {
+    /**
+     * GET `?OFFER_ID=…&LIMIT=…&OFFSET=…`: one row per offer and applicable product, so an offer for several products
+     * comes back as several rows with the same OFFER_ID. OFFER_ID=-1 asks for every offer (as in the other listings).
+     */
+    get: 'offer_discount/get',
+  },
   // CHANGED (new): product image storage on AWS S3.
   s3Images: {
     /** POST multipart/form-data with the file in the `image` field. */

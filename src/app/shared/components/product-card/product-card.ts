@@ -17,6 +17,9 @@ export class ProductCard {
   protected readonly routes = APP_ROUTES;
   readonly product = input.required<Product>();
   readonly wishlisted = input(false);
+  /** Shows the wishlist heart (default); false hides it, e.g. on the Home page. */
+  // CHANGED (new): opt-out, so every screen that does not set it keeps its heart.
+  readonly showWishlist = input(true);
   readonly showAddToCart = input(false);
   /** `wishlist`: framed photo, rating above price, full-width Add to Cart (wishlist page design). */
   readonly variant = input<'default' | 'wishlist'>('default');

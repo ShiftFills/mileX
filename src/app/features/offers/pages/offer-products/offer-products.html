@@ -1,0 +1,124 @@
+<!-- CHANGED (new): one offer's products as product cards (like the Home page), opened from its offer card's arrow. -->
+<div class="store-container offer-products">
+  <a class="offer-products__back" [routerLink]="routes.offers"><span aria-hidden="true">←</span> Offers &amp; Discounts</a>
+
+  @if (!isCustomer()) {
+    <section class="offer-products__state" aria-labelledby="offer-products-signin-title">
+      @if (isSignedIn()) {
+        <h1 id="offer-products-signin-title">Offers are for customer accounts</h1>
+        <p>Sign in with a customer account to see the offers and coupon codes available to you.</p>
+      } @else {
+        <h1 id="offer-products-signin-title">Sign in to see this offer</h1>
+        <p>Offers and coupon codes are available to signed-in customers.</p>
+        <a class="btn btn--accent btn-sm" [routerLink]="routes.login" [queryParams]="{ returnUrl: routes.offers + '/' + id() }">Sign in</a>
+      }
+    </section>
+  } @else if (status() === 'loading') {
+    <div class="offer-products__state" role="status"><app-loading-spinner /> Loading offer…</div>
+  } @else if (status() === 'error') {
+    <app-alert class="offer-products__alert" tone="danger" role="alert">
+      {{ error() }}
+      <button type="button" class="offer-products__retry" (click)="retry()">Try again</button>
+    </app-alert>
+  } @else if (offer(); as item) {
+    <section class="offer-products__summary" aria-labelledby="offer-products-title">
+      <div class="offer-products__title">
+        <h1 id="offer-products-title">{{ item.title }}</h1>
+        <app-badge [tone]="statusTone()">{{ item.status }}</app-badge>
+      </div>
+      <p class="offer-products__terms">
+        <span>
+          @if (percentage()) {
+            {{ item.discountValue | number: '1.0-2' }}% off
+            @if (item.maxDiscount !== null) { up to {{ item.maxDiscount | currency: 'INR' : 'symbol' : '1.0-0' }} }
+          } @else {
+            {{ item.discountValue | currency: 'INR' : 'symbol' : '1.0-0' }} off
+          }
+        </span>
+        @if (item.minOrderAmount > 0) {
+          <span>Min. order {{ item.minOrderAmount | currency: 'INR' : 'symbol' : '1.0-0' }}</span>
+        }
+        @if (item.startDate || item.endDate) {
+          <span>
+            {{ (item.startDate | date: 'dd MMM y') || '—' }} – {{ (item.endDate | date: 'dd MMM y') || '—' }}
+          </span>
+        }
+        <span>{{ typeLabel() }}</span>
+      </p>
+      @if (item.code) {
+        <span class="offer-products__code">
+          <span class="offer-products__code-text">{{ item.code }}</span>
+          <button type="button" class="offer-products__copy" [attr.aria-label]="'Copy code ' + item.code" (click)="copyCode(item.code)">
+            @if (copied()) {
+              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7" /></svg>
+            } @else {
+              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path d="M10.5 5.5v-1a1.5 1.5 0 0 0-1.5-1.5H4.5A1.5 1.5 0 0 0 3 4.5V9a1.5 1.5 0 0 0 1.5 1.5h1" /></svg>
+            }
+          </button>
+          <span class="visually-hidden" role="status">{{ copied() ? 'Code copied' : '' }}</span>
+        </span>
+      }
+    </section>
+
+    <section class="product-section" aria-labelledby="offer-products-heading">
+      <div class="product-section__heading">
+        <h2 id="offer-products-heading">Products in this offer</h2>
+        @if (productCount()) {
+          <span>{{ productCount() }} {{ productCount() === 1 ? 'product' : 'products' }}</span>
+        }
+      </div>
+
+      @if (!productCount()) {
+        <p class="offer-products__state">No products are linked to this offer.</p>
+      } @else if (productsLoading()) {
+        <div class="offer-products__state" role="status"><app-loading-spinner /> Loading products…</div>
+      } @else {
+        @if (products().length) {
+          <div class="product-grid">
+            @for (product of products(); track product.id) {
+              <app-product-card
+                [product]="product"
+                [wishlisted]="wishlist.has(product.id)"
+                [imageSrc]="productImages.src(product)"
+                [imageLoading]="productImages.loading(product)"
+                (imageError)="productImages.failed(product, $event)"
+                [pendingAction]="wishlist.isPending(product.id) ? 'wishlist' : null"
+                (wishlistToggle)="toggleWishlist(product)"
+              />
+            }
+          </div>
+        }
+        @if (failedCount()) {
+          <app-alert class="offer-products__alert" tone="danger" role="alert">
+            {{ failedCount() === 1 ? '1 product' : failedCount() + ' products' }} could not be loaded.
+            <button type="button" class="offer-products__retry" (click)="retryProducts()">Try again</button>
+          </app-alert>
+        }
+        @if (unavailableCount()) {
+          <p class="offer-products__note">
+            {{ unavailableCount() === 1 ? '1 product' : unavailableCount() + ' products' }} in this offer
+            {{ unavailableCount() === 1 ? 'is' : 'are' }} not available right now.
+          </p>
+        }
+      }
+
+      @if (productCount() > pageSize) {
+        <app-pagination
+          class="offer-products__pagination"
+          ariaLabel="Product pages"
+          itemLabel="products"
+          [page]="currentPage()"
+          [pageSize]="pageSize"
+          [total]="productCount()"
+          (pageChange)="setPage($event)"
+        />
+      }
+    </section>
+  } @else {
+    <section class="offer-products__state" aria-labelledby="offer-products-missing-title">
+      <h1 id="offer-products-missing-title">Offer not found</h1>
+      <p>This offer is no longer available.</p>
+      <a class="btn btn-sm" [routerLink]="routes.offers">See all offers</a>
+    </section>
+  }
+</div>

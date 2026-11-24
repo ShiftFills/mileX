@@ -30,10 +30,10 @@
     flex-wrap: wrap;
     margin-bottom: 1rem;
 
+    // The search fills the row; the filters keep a fixed width beside it (no uneven gaps between them).
     app-search-box {
       display: flex;
       flex: 1 1 20rem;
-      max-width: 34rem;
     }
 
     app-input,
@@ -43,6 +43,7 @@
 
     label {
       display: grid;
+      flex: 0 0 13rem;
       gap: 0.3rem;
       color: var(--color-text-muted);
       font-size: 0.8rem;
@@ -91,6 +92,10 @@
 @media (max-width: 991.98px) {
   .catalog__grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .catalog__tools > label {
+    flex: 1 1 11rem;
   }
 }
 

@@ -17,14 +17,19 @@ function rowVariantId(item: CartItem): string | null {
 }
 
 /**
- * The VARIANT_ID a heart sends for a product that is not in the cart, when the screen has no variant picker (Home,
- * Products listing, related products): the Product View's default, i.e. the first variant in stock, else the first
- * one; null for a product without variants.
+ * The VARIANT_ID a heart sends for a product that is not in the cart, when no variant was chosen (Home, Products
+ * listing, related products, an offer's products; Product View without a variant list): the Product View's default,
+ * i.e. the first of its VARIANTS in stock, else the first one (so its only variant when it has one); else the
+ * VARIANT_ID of the product's own products/get row (the variant Add to Cart sends); null for a product without one.
  */
 // CHANGED (new)
+// CHANGED: falls back to the product row's VARIANT_ID (it sent null when products/get had no VARIANTS list).
 function defaultVariantId(product: Product): string | null {
   const options = product.variantOptions ?? [];
-  return (options.find((option) => option.inStock) ?? options[0])?.id ?? null;
+  const option = options.find((candidate) => candidate.inStock) ?? options[0];
+  if (option) return option.id;
+  const rowVariant = product.variantId;
+  return rowVariant !== undefined && Number.isSafeInteger(rowVariant) && rowVariant > 0 ? String(rowVariant) : null;
 }
 
 /** A cart row as the shopping_cart/delete call of a wishlist row needs it (its own IDs). */
@@ -51,9 +56,9 @@ function asWishlistRow(item: CartItem): WishlistRow | null {
  * The wishlist hearts.
  * - The hearts (`toggleProduct`) always use the server wishlist: a customer's cart rows saved for later
  *   (shopping_cart/get rows with SAVE_FOR_LATER = 1, kept in CartService). A heart saves with PUT
- *   wishlist/save_for_later `{ CART_ID, VARIANT_ID }`, both from the product's row in the customer's cart (CART_ID
- *   null for a product that has none); the heart never calls shopping_cart/insert. A signed-out visitor is sent to
- *   Login first.
+ *   wishlist/save_for_later `{ CART_ID, VARIANT_ID }`: the CART_ID of the product's row in the customer's cart (null
+ *   for a product that has none) and the variant. The heart never calls shopping_cart/insert. A signed-out visitor is
+ *   sent to Login first.
  * - Product IDs saved on this device earlier (`products`, `toggle`) are still shown, and can be removed, on the
  *   Wishlist screen; a signed-out visitor's hearts still show them filled.
  */
@@ -129,13 +134,15 @@ export class WishlistService {
    * A heart was tapped; it always goes through the API, as Add to Cart does. Signed out: Login, then back to this
    * page. Signed in but not as a customer: an error. Customers:
    * - Filled heart: removes the product's saved row (DELETE shopping_cart/delete, the Wishlist screen's Remove).
-   * - Empty heart: PUT wishlist/save_for_later `{ CART_ID, VARIANT_ID }`. With the product's row in the cart (for
-   *   `variantId` when the screen has a selected variant): that row's CART_ID and VARIANT_ID. Without one there is no
-   *   CART_ID, so CART_ID is null and VARIANT_ID is the product's (`variantId`, else its default variant).
-   * The heart never calls shopping_cart/insert. It changes only after the API succeeded; a toast reports the result.
+   * - Empty heart: PUT wishlist/save_for_later `{ CART_ID, VARIANT_ID }`, nothing else (no shopping_cart/insert):
+   *   - CART_ID: the product's row in the customer's cart (shopping_cart/get) for that variant, else its row without
+   *     a variant; null when the product is not in the cart.
+   *   - VARIANT_ID: `variantId` (the screen's selected variant), else the cart row's, else the product's default.
+   * It changes only after the API succeeded; a toast reports the result.
    */
   // CHANGED (new)
-  // CHANGED: a product without a cart row also gets PUT wishlist/save_for_later (CART_ID null, its VARIANT_ID).
+  // CHANGED: only PUT wishlist/save_for_later (the shopping_cart/insert before it is removed); VARIANT_ID is always the
+  // selected variant.
   toggleProduct(product: Product, variantId?: string | null): void {
     if (!this.auth.isAuthenticated()) {
       void this.router.navigate([APP_ROUTES.login], { queryParams: { returnUrl: this.router.url } });
@@ -157,8 +164,8 @@ export class WishlistService {
     const request = saved
       ? this.removeSaved(product, saved)
       : inCart
-        ? this.save(product, inCart)
-        : this.saveWithoutCartRow(product, variantId === undefined ? defaultVariantId(product) : variantId, customerId);
+        ? this.save(product, inCart, variantId)
+        : this.saveWithoutCartRow(product, variantId ?? defaultVariantId(product), customerId);
     this.setPending(product.id, true);
     request.pipe(finalize(() => this.setPending(product.id, false))).subscribe({
       next: (message) => this.toast.showSuccess(message),
@@ -168,20 +175,25 @@ export class WishlistService {
 
   /**
    * The product's row among these cart rows (API rows only, they have a CART_ID): the one for `variantId` when it is
-   * given (null: the row without a variant), else the first row of the product.
+   * given, else its row without a variant (null: only that one); without `variantId`, the first row of the product.
+   * A row of another variant is never used.
    */
+  // CHANGED: falls back to the product's row without a variant (its CART_ID is sent with the selected VARIANT_ID).
   private rowFor(items: readonly CartItem[], productId: string, variantId: string | null | undefined): CartItem | undefined {
     const rows = items.filter((item) => item.apiDetails && item.product.id === productId);
-    return variantId === undefined ? rows[0] : rows.find((item) => rowVariantId(item) === variantId);
+    if (variantId === undefined) return rows[0];
+    return rows.find((item) => rowVariantId(item) === variantId) ?? rows.find((item) => rowVariantId(item) === null);
   }
 
   /**
-   * Saves the product's cart row: PUT wishlist/save_for_later with its CART_ID and VARIANT_ID (null without a
-   * variant). The row moves from the cart to the wishlist, as Save for later does on the Cart page.
+   * Saves the product's cart row: PUT wishlist/save_for_later with its CART_ID and VARIANT_ID (`variantId`, the
+   * screen's selected variant, else the row's own; null without a variant). The row moves from the cart to the
+   * wishlist, as Save for later does on the Cart page.
    */
-  private save(product: Product, row: CartItem): Observable<string> {
+  // CHANGED: optional `variantId` (the selected variant).
+  private save(product: Product, row: CartItem, variantId?: string | null): Observable<string> {
     const cartId = row.apiDetails?.cartId ?? '';
-    return this.shoppingCart.saveForLater(cartId, rowVariantId(row)).pipe(
+    return this.shoppingCart.saveForLater(cartId, variantId ?? rowVariantId(row)).pipe(
       map(() => {
         this.cart.moveToSavedForLater(cartId);
         return `${product.name} was saved to your wishlist.`;
@@ -190,24 +202,24 @@ export class WishlistService {
   }
 
   /**
-   * A product with no cart row: PUT wishlist/save_for_later with CART_ID null and the product's VARIANT_ID. The cart is
-   * then read again (shopping_cart/get), and the heart fills only when the backend now has the product saved; a
-   * backend that refuses the request reports its own message.
+   * A product with no row in the customer's cart: PUT wishlist/save_for_later with CART_ID null (there is none to
+   * send; none is invented and no cart row is created) and its VARIANT_ID. The cart is then read again
+   * (shopping_cart/get), and the heart fills only when the backend now has the product saved; a backend that refuses
+   * the request reports its own message.
    */
-  // CHANGED (new)
+  // CHANGED: restored; it replaces the shopping_cart/insert + save flow (no insert from the heart).
   private saveWithoutCartRow(product: Product, variantId: string | null, customerId: number): Observable<string> {
     return this.shoppingCart.saveForLater(null, variantId).pipe(
       switchMap(() => this.shoppingCart.getCart(customerId)),
       map((items) => {
         this.cart.mergeFetchedItems(items);
         if (!this.has(product.id)) {
-          throw new Error(`${product.name} was not saved: the wishlist API did not create a saved item without a CART_ID.`);
+          throw new Error(`${product.name} was not saved: it is not in your cart, so there is no CART_ID to save.`);
         }
         return `${product.name} was saved to your wishlist.`;
       }),
     );
   }
-
 
   /** Removes a saved row (DELETE shopping_cart/delete with its own IDs). */
   private removeSaved(product: Product, saved: CartItem): Observable<string> {

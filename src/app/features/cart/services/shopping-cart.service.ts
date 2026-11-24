@@ -71,7 +71,9 @@ function imageUrl(value: unknown): string {
 }
 
 function optionalVariant(record: Record<string, unknown>): CartVariantDetails | undefined {
-  const id = text(record['VARIANT_ID']);
+  // CHANGED: also PRODUCT_VARIANT_ID, the column shopping_cart/insert writes (shopping_cart/get sends both keys), so a
+  // row whose VARIANT_ID is empty still has its variant (the wishlist heart finds the row it inserted by it).
+  const id = text(record['VARIANT_ID']) ?? text(record['PRODUCT_VARIANT_ID']);
   const name = text(record['VARIANT_NAME']);
   const sku = text(record['VARIANT_SKU']);
   const barcode = text(record['BARCODE']);
@@ -163,6 +165,8 @@ function mapCartItem(value: unknown): CartItem {
     originalQuantity: quantity,
     unitPrice,
     cartDiscount: amount(value['CART_DISCOUNT'], 'cart discount', true),
+    // The product's DISCOUNT column (a per-unit amount, often 0.00 even below MRP): kept as returned, but the cart
+    // shows MRP − UNIT_PRICE instead (Cart.lineProductDiscount).
     productDiscount: amount(value['PRODUCT_DISCOUNT'], 'product discount', true),
     tax: amount(value['TAX'], 'tax', true),
     totalAmount,

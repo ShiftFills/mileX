@@ -14,58 +14,170 @@
     <p class="offers__tagline" aria-hidden="true">More Shopping<br />More Savings</p>
   </section>
 
-  <section class="offers__list" aria-label="Available offers">
-    @for (offer of offers; track offer.id) {
-      <article class="offer" [attr.data-theme]="offer.theme">
-        <div class="offer__promo">
-          <h2 [class.offer__code--festive20]="offer.code === 'FESTIVE20'">{{ offer.code }}</h2>
-          <p class="offer__save">Save Up To {{ offer.maxDiscount | currency: 'INR' : 'symbol' : '1.0-0' }}</p>
-          <p class="offer__tagline">{{ offer.tagline }}</p>
-          <img [src]="offer.image" alt="" />
-        </div>
+  <!-- CHANGED: offers from offer_discount/get for signed-in customers (it used to show demo offers to everyone). -->
+  @if (!isCustomer()) {
+    <section class="offers__state" aria-labelledby="offers-signin-title">
+      @if (isSignedIn()) {
+        <h2 id="offers-signin-title">Offers are for customer accounts</h2>
+        <p>Sign in with a customer account to see the offers and coupon codes available to you.</p>
+      } @else {
+        <h2 id="offers-signin-title">Sign in to see your offers</h2>
+        <p>Offers and coupon codes are available to signed-in customers.</p>
+        <a class="btn btn--accent btn-sm" [routerLink]="routes.login" [queryParams]="{ returnUrl: routes.offers }">Sign in</a>
+      }
+    </section>
+  } @else if (status() === 'loading' || status() === 'idle') {
+    <div class="offers__state" role="status"><app-loading-spinner /> Loading offers…</div>
+  } @else if (status() === 'error') {
+    <app-alert class="offers__alert" tone="danger" role="alert">
+      {{ error() }}
+      <button type="button" class="offers__retry" (click)="retry()">Try again</button>
+    </app-alert>
+  } @else if (!offerCount()) {
+    <section class="offers__state" aria-labelledby="offers-empty-title">
+      <h2 id="offers-empty-title">No offers right now</h2>
+      <p>Check back soon for new deals and coupon codes.</p>
+    </section>
+  } @else {
+    <div class="offers__tools">
+      <app-search-box
+        class="toolbar-search"
+        name="q"
+        inputId="offers-search"
+        ariaLabel="Search offers"
+        placeholder="Search offers, codes, products or categories..."
+        buttonSize="normal"
+        [value]="search()"
+        (changed)="setSearch($event)"
+        (submitted)="setSearch($event)"
+      />
+      <label>
+        Offer type
+        <app-select class="toolbar-filter" [value]="typeFilter()" (valueChange)="setType($event)">
+          <option value="">All types</option>
+          @for (type of typeOptions(); track type.value) {
+            <option [value]="type.value">{{ type.label }}</option>
+          }
+        </app-select>
+      </label>
+      <label>
+        Status
+        <app-select class="toolbar-filter" [value]="statusFilter()" (valueChange)="setStatus($event)">
+          <option value="">All statuses</option>
+          @for (option of statusOptions; track option) {
+            <option [value]="option">{{ option }}</option>
+          }
+        </app-select>
+      </label>
+      <label>
+        Sort by
+        <app-select class="toolbar-filter" [value]="sortBy()" (valueChange)="setSort($event)">
+          @for (option of sortOptions; track option.value) {
+            <option [value]="option.value">{{ option.label }}</option>
+          }
+        </app-select>
+      </label>
+    </div>
 
-        <div class="offer__body">
-          <header class="offer__head">
-            <h3>{{ offer.title }}</h3>
-            <span class="offer__code">
-              <span class="offer__code-text" [class.offer__code-text--festive20]="offer.code === 'FESTIVE20'">{{ offer.code }}</span>
-              <button
-                type="button"
-                class="offer__copy"
-                [attr.aria-label]="'Copy code ' + offer.code"
-                (click)="copyCode(offer)"
-              >
-                @if (copiedId() === offer.id) {
-                  <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7" /></svg>
+    @if (!cards().length) {
+      <section class="offers__state" aria-labelledby="offers-no-match-title">
+        <h2 id="offers-no-match-title">No matching offers</h2>
+        <p>Try a different search, offer type or status.</p>
+        @if (hasFilters()) {
+          <button type="button" class="btn btn-sm" (click)="clearFilters()">Clear filters</button>
+        }
+      </section>
+    } @else {
+      <section class="offers__list" aria-label="Available offers">
+        @for (card of cards(); track card.offer.id) {
+          <article class="offer" [attr.data-theme]="card.theme">
+            <div class="offer__promo">
+              <h2>{{ card.offer.code || card.offer.title }}</h2>
+              <p class="offer__save">
+                @if (card.percentage && card.offer.maxDiscount !== null) {
+                  Save Up To {{ card.offer.maxDiscount | currency: 'INR' : 'symbol' : '1.0-0' }}
+                } @else if (card.percentage) {
+                  Save {{ card.offer.discountValue | number: '1.0-2' }}%
                 } @else {
-                  <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path d="M10.5 5.5v-1a1.5 1.5 0 0 0-1.5-1.5H4.5A1.5 1.5 0 0 0 3 4.5V9a1.5 1.5 0 0 0 1.5 1.5h1" /></svg>
+                  Save {{ card.offer.discountValue | currency: 'INR' : 'symbol' : '1.0-0' }}
                 }
-              </button>
-              <span class="visually-hidden" role="status">{{ copiedId() === offer.id ? 'Code copied' : '' }}</span>
-            </span>
-            <app-badge class="offer__status" [tone]="statusTone(offer.status)">{{ offer.status }}</app-badge>
-            <a
-              class="offer__go"
-              [routerLink]="routes.products"
-              [queryParams]="{ category: offer.categorySlug }"
-              [attr.aria-label]="'Shop ' + offer.title"
-            >
-              <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>
-            </a>
-          </header>
+              </p>
+              @if (card.tagline) {
+                <p class="offer__tagline">{{ card.tagline }}</p>
+              }
+              <img src="/images/offer-headphones.svg" alt="" />
+            </div>
 
-          <dl class="offer__details row row-cols-2 row-cols-md-4 gx-2 gy-2 mb-0">
-            <div class="col"><dt>Offer Type</dt><dd>{{ offer.offerType }}</dd></div>
-            <div class="col"><dt>Discount Value</dt><dd>{{ offer.discountValue | currency: 'INR' : 'symbol' : '1.0-0' }}</dd></div>
-            <div class="col"><dt>Min. Order Amount</dt><dd>{{ offer.minOrderAmount | currency: 'INR' : 'symbol' : '1.0-0' }}</dd></div>
-            <div class="col"><dt>Max. Discount</dt><dd>{{ offer.maxDiscount | currency: 'INR' : 'symbol' : '1.0-0' }}</dd></div>
-            <div class="col"><dt>Start Date</dt><dd>{{ offer.startDate | date: 'dd MMM y' }}</dd></div>
-            <div class="col"><dt>End Date</dt><dd>{{ offer.endDate | date: 'dd MMM y' }}</dd></div>
-            <div class="col"><dt>Applicable Products</dt><dd>{{ offer.products.join(', ') }}</dd></div>
-            <div class="col"><dt>Applicable Categories</dt><dd>{{ offer.categories.join(', ') }}</dd></div>
-          </dl>
-        </div>
-      </article>
+            <div class="offer__body">
+              <header class="offer__head">
+                <h3>{{ card.offer.title }}</h3>
+                @if (card.offer.code) {
+                  <span class="offer__code">
+                    <span class="offer__code-text">{{ card.offer.code }}</span>
+                    <button
+                      type="button"
+                      class="offer__copy"
+                      [attr.aria-label]="'Copy code ' + card.offer.code"
+                      (click)="copyCode(card.offer)"
+                    >
+                      @if (copiedId() === card.offer.id) {
+                        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7" /></svg>
+                      } @else {
+                        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path d="M10.5 5.5v-1a1.5 1.5 0 0 0-1.5-1.5H4.5A1.5 1.5 0 0 0 3 4.5V9a1.5 1.5 0 0 0 1.5 1.5h1" /></svg>
+                      }
+                    </button>
+                    <span class="visually-hidden" role="status">{{ copiedId() === card.offer.id ? 'Code copied' : '' }}</span>
+                  </span>
+                }
+                <app-badge class="offer__status" [tone]="statusTone(card.offer.status)">{{ card.offer.status }}</app-badge>
+                <!-- CHANGED: the arrow opens this offer's products as product cards (/offers/<OFFER_ID>). -->
+                <a
+                  class="offer__go"
+                  [routerLink]="[routes.offers, card.offer.id]"
+                  [attr.aria-label]="'View products of ' + card.offer.title"
+                >
+                  <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>
+                </a>
+              </header>
+
+              <dl class="offer__details row row-cols-2 row-cols-md-4 gx-2 gy-2 mb-0">
+                <div class="col"><dt>Offer Type</dt><dd>{{ card.typeLabel }}</dd></div>
+                <div class="col">
+                  <dt>Discount Value</dt>
+                  <dd>
+                    @if (card.percentage) {
+                      {{ card.offer.discountValue | number: '1.0-2' }}%
+                    } @else {
+                      {{ card.offer.discountValue | currency: 'INR' : 'symbol' : '1.0-0' }}
+                    }
+                  </dd>
+                </div>
+                <div class="col"><dt>Min. Order Amount</dt><dd>{{ card.offer.minOrderAmount | currency: 'INR' : 'symbol' : '1.0-0' }}</dd></div>
+                <div class="col">
+                  <dt>Max. Discount</dt>
+                  <dd>{{ card.offer.maxDiscount === null ? '—' : (card.offer.maxDiscount | currency: 'INR' : 'symbol' : '1.0-0') }}</dd>
+                </div>
+                <div class="col"><dt>Start Date</dt><dd>{{ (card.offer.startDate | date: 'dd MMM y') || '—' }}</dd></div>
+                <div class="col"><dt>End Date</dt><dd>{{ (card.offer.endDate | date: 'dd MMM y') || '—' }}</dd></div>
+                <div class="col"><dt>Applicable Products</dt><dd>{{ card.productSummary || '—' }}</dd></div>
+                <div class="col"><dt>Applicable Categories</dt><dd>{{ card.categories || '—' }}</dd></div>
+              </dl>
+            </div>
+          </article>
+        }
+      </section>
+
+      @if (matchCount() > pageSize) {
+        <app-pagination
+          class="offers__pagination"
+          ariaLabel="Offer pages"
+          itemLabel="offers"
+          [page]="currentPage()"
+          [pageSize]="pageSize"
+          [total]="matchCount()"
+          (pageChange)="setPage($event)"
+        />
+      }
     }
-  </section>
+  }
 </div>

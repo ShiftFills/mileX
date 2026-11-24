@@ -4,7 +4,6 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { API_BASE_URL } from '@core/config/api.config';
 import { AuthService } from '@core/services/auth.service';
-import { ToastService } from '@core/services/toast.service';
 import { HomeShowcases } from './home-showcases';
 
 // CHANGED (new): the Home page products come from this products/get request.
@@ -66,16 +65,46 @@ describe('HomeShowcases', () => {
     request.flush({
       status: 'SUCCESS',
       data: [
-        { PRODUCT_ID: 3, PRODUCT_NAME: 'Galaxy S25', PRICE: '80000.00', SELLING_PRICE: '75000.00', STOCK_QUANTITY: 5, IS_ACTIVE: 1 },
-        { PRODUCT_ID: 4, PRODUCT_NAME: 'Wireless Mouse', SELLING_PRICE: '749.00', STOCK_QUANTITY: 9, IS_ACTIVE: 1 },
+        { PRODUCT_ID: 3, PRODUCT_NAME: 'Galaxy S25', PRICE: '80000.00', SELLING_PRICE: '75000.00', DISCOUNT: '5000.00', STOCK_QUANTITY: 5, IS_ACTIVE: 1 },
+        { PRODUCT_ID: 4, PRODUCT_NAME: 'Wireless Mouse', PRICE: '749.00', SELLING_PRICE: '749.00', DISCOUNT: '0.00', STOCK_QUANTITY: 9, IS_ACTIVE: 1 },
+        { PRODUCT_ID: 6, PRODUCT_NAME: 'Headphones', PRICE: '4000.00', SELLING_PRICE: '3000.00', DISCOUNT: '1000.00', STOCK_QUANTITY: 2, IS_ACTIVE: 1 },
         { PRODUCT_ID: 5, PRODUCT_NAME: 'Retired item', SELLING_PRICE: '10.00', STOCK_QUANTITY: 1, IS_ACTIVE: 0 },
       ],
     });
     fixture.detectChanges();
 
-    expect(productNames(BEST_DEALS)).toEqual(['Galaxy S25', 'Wireless Mouse']);
-    expect(productNames(RECOMMENDED)).toEqual(['Wireless Mouse', 'Galaxy S25']);
+    expect(productNames(BEST_DEALS)).toEqual(['Galaxy S25', 'Wireless Mouse', 'Headphones']);
+    expect(productNames(RECOMMENDED)).toEqual(['Wireless Mouse', 'Headphones', 'Galaxy S25']);
     expect(text(BEST_DEALS)).toContain('6% OFF');
+    expect(text(BEST_DEALS)).toContain('25% OFF');
+    const cards = Array.from(fixture.nativeElement.querySelectorAll(`${BEST_DEALS} app-product-card`)) as HTMLElement[];
+    expect(cards[0].querySelector('strong')?.textContent?.trim()).toContain('₹75,000');
+    expect(cards[0].querySelector('del')?.textContent?.trim()).toContain('₹80,000');
+    expect(cards[1].querySelector('.product-card__price span')).toBeNull();
+    expect(cards[1].querySelector('del')).toBeNull();
+    expect(cards[2].querySelector('.product-card__price span')?.textContent?.trim()).toBe('25% OFF');
+  });
+
+  // The badge comes from PRICE (MRP) and SELLING_PRICE; DISCOUNT is 0.00 on live products, so it is not used.
+  it('computes each badge from PRICE and SELLING_PRICE and never shows a 0% OFF badge', () => {
+    http.expectOne(HOME_PRODUCTS_URL).flush({
+      status: true,
+      data: [
+        { PRODUCT_ID: 18, PRODUCT_NAME: 'tissuee', PRICE: '80.00', SELLING_PRICE: '70.00', DISCOUNT: '0.00', STOCK_QUANTITY: 3 },
+        { PRODUCT_ID: 22, PRODUCT_NAME: 'OnePlus Nord CE 4', PRICE: '4999.00', SELLING_PRICE: '340.00', DISCOUNT: '0.00', STOCK_QUANTITY: 3 },
+        { PRODUCT_ID: 30, PRODUCT_NAME: 'Tiny Markdown', PRICE: '1000.00', SELLING_PRICE: '999.00', DISCOUNT: '0.00', STOCK_QUANTITY: 3 },
+      ],
+    });
+    fixture.detectChanges();
+
+    const cards = Array.from(fixture.nativeElement.querySelectorAll(`${BEST_DEALS} app-product-card`)) as HTMLElement[];
+    const badge = (card: HTMLElement) => card.querySelector('.product-card__price span')?.textContent?.trim() ?? null;
+    // 12.5% rounds to 13%; 93.2% to 93%.
+    expect(badge(cards[0])).toBe('13% OFF');
+    expect(badge(cards[1])).toBe('93% OFF');
+    // 0.1% would round to "0% OFF": no badge and no struck MRP.
+    expect(badge(cards[2])).toBeNull();
+    expect(cards[2].querySelector('del')).toBeNull();
   });
 
   it('shows the API error and retries the same request', () => {
@@ -122,22 +151,14 @@ describe('HomeShowcases', () => {
     expect(texts('.category-shelf__item strong')).toEqual(['Steel Kettle']);
   });
 
-  // CHANGED (new): a signed-in customer's hearts use wishlist/save_for_later with the product's cart row.
-  it('fills a customer\'s saved hearts and saves a product\'s cart row with its CART_ID and VARIANT_ID', () => {
-    const toast = TestBed.inject(ToastService);
+  // CHANGED: the Home page cards have no wishlist heart, so a customer's Home reads no cart rows for it.
+  it('shows no wishlist heart on the product cards, and makes no wishlist or cart calls for a customer', () => {
     // The Home page request (cached, so the customer's Home below reuses it).
     http.expectOne(HOME_PRODUCTS_URL).flush({
       status: 'SUCCESS',
       data: [
-        {
-          PRODUCT_ID: 18, PRODUCT_NAME: 'tissuee', SELLING_PRICE: '70.00', PRICE: '80.00', STOCK_QUANTITY: 3, SELLER_ID: 52,
-          IS_ACTIVE: 'ACTIVE', VARIANTS: [{ VARIANT_ID: 28, SELLING_PRICE: '70.00', PRICE: '80.00', STOCK_QUANTITY: 3 }],
-        },
-        { PRODUCT_ID: 17, PRODUCT_NAME: 'Wireless Mosue', SELLING_PRICE: '2000.00', STOCK_QUANTITY: 67, SELLER_ID: 1, IS_ACTIVE: 'ACTIVE' },
-        {
-          PRODUCT_ID: 19, PRODUCT_NAME: 'Ear Buds', SELLING_PRICE: '3000.00', STOCK_QUANTITY: 67, SELLER_ID: 55, IS_ACTIVE: 'ACTIVE',
-          VARIANTS: [{ VARIANT_ID: 30, SELLING_PRICE: '3000.00', PRICE: '4000.00', STOCK_QUANTITY: 5 }],
-        },
+        { PRODUCT_ID: 18, PRODUCT_NAME: 'tissuee', SELLING_PRICE: '70.00', PRICE: '80.00', STOCK_QUANTITY: 3, IS_ACTIVE: 'ACTIVE' },
+        { PRODUCT_ID: 17, PRODUCT_NAME: 'Wireless Mosue', SELLING_PRICE: '2000.00', STOCK_QUANTITY: 67, IS_ACTIVE: 'ACTIVE' },
       ],
     });
     TestBed.inject(AuthService).setSession(
@@ -146,52 +167,13 @@ describe('HomeShowcases', () => {
     );
     const customerFixture = TestBed.createComponent(HomeShowcases);
     customerFixture.detectChanges();
-    const heartOf = (name: string): HTMLElement =>
-      Array.from(customerFixture.nativeElement.querySelectorAll(`${BEST_DEALS} app-product-card`) as NodeListOf<HTMLElement>)
-        .find((card) => card.textContent?.includes(name))!
-        .querySelector('app-button.product-card__wishlist') as HTMLElement;
 
-    // The customer's cart is read once (shopping_cart/get): the saved Wireless Mosue fills its heart; tissuee is
-    // in the cart (CART_ID 59, variant 28).
-    http.expectOne('/api/shopping_cart/get?CUSTOMER_ID=1').flush({
-      success: true,
-      data: [
-        { CART_ID: 40, PRODUCT_ID: 17, SELLER_ID: 1, CART_QUANTITY: 1, UNIT_PRICE: '2000.00', CUSTOMER_ID: 1, SAVE_FOR_LATER: 1, PRODUCT_NAME: 'Wireless Mosue' },
-        { CART_ID: 59, PRODUCT_ID: 18, SELLER_ID: 52, CART_QUANTITY: 1, UNIT_PRICE: '70.00', CUSTOMER_ID: 1, SAVE_FOR_LATER: 0, PRODUCT_NAME: 'tissuee', VARIANT_ID: 28 },
-      ],
-    });
-    http.expectOne('/api/products/get?PRODUCT_ID=18').flush({ status: true, data: [] });
-    customerFixture.detectChanges();
-    expect(heartOf('Wireless Mosue').classList).toContain('is-active');
-    expect(heartOf('tissuee').classList).not.toContain('is-active');
-
-    // tissuee: wishlist/save_for_later with its cart row's CART_ID and VARIANT_ID.
-    heartOf('tissuee').querySelector('button')!.click();
-    customerFixture.detectChanges();
-    expect(heartOf('tissuee').querySelector('button')!.disabled).toBe(true);
-    const save = http.expectOne('/api/wishlist/save_for_later');
-    expect(save.request.body).toEqual({ CART_ID: 59, VARIANT_ID: 28 });
-    save.flush('Saved for later');
-    customerFixture.detectChanges();
-
-    expect(heartOf('tissuee').classList).toContain('is-active');
-    // The same product's heart in Recommended Items is filled too.
-    const recommendedHearts = customerFixture.nativeElement.querySelectorAll(`${RECOMMENDED} app-button.product-card__wishlist.is-active`);
-    expect(recommendedHearts).toHaveLength(2);
-
-    // Ear Buds has no cart row: the same PUT, with CART_ID null and its VARIANT_ID; the backend's answer is shown.
-    heartOf('Ear Buds').querySelector('button')!.click();
-    customerFixture.detectChanges();
-    const saveEarBuds = http.expectOne('/api/wishlist/save_for_later');
-    expect(saveEarBuds.request.method).toBe('PUT');
-    expect(saveEarBuds.request.body).toEqual({ CART_ID: null, VARIANT_ID: 30 });
-    saveEarBuds.flush({ status: false, message: 'CART_ID is required' }, { status: 400, statusText: 'Bad Request' });
-    customerFixture.detectChanges();
-    expect(toast.current()?.message).toBe('CART_ID is required');
-    expect(heartOf('Ear Buds').classList).not.toContain('is-active');
-
-    // The heart never calls the shopping cart insert.
-    http.expectNone('/api/shopping_cart/insert');
+    for (const section of [BEST_DEALS, RECOMMENDED]) {
+      expect(customerFixture.nativeElement.querySelectorAll(`${section} app-product-card`)).toHaveLength(2);
+      expect(customerFixture.nativeElement.querySelector(`${section} .product-card__wishlist`)).toBeNull();
+      expect(customerFixture.nativeElement.querySelector(`${section} [aria-label="Add to wishlist"]`)).toBeNull();
+    }
+    http.expectNone((request) => request.url.includes('/shopping_cart/') || request.url.includes('/wishlist/'));
     customerFixture.destroy();
   });
 

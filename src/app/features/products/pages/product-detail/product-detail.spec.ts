@@ -12,7 +12,7 @@ interface ProductDetailHarness {
   addedToCart(): boolean;
   selectedSize(): string | null;
   deliveryMessage(): { ok: boolean; text: string } | null;
-  discountPercent(): number;
+  discountLabel(): string;
   related(): { id: string }[];
   addToCart(): void;
   selectSize(size: string): void;
@@ -249,7 +249,8 @@ describe('ProductDetail', () => {
 
   it('renders the product with price, discount and four related products', () => {
     expect(fixture.nativeElement.textContent).toContain('Samsung Galaxy S25');
-    expect(component.discountPercent()).toBe(6);
+    // The same "N% OFF" the listing cards show: PRICE 80000, SELLING_PRICE 75000 -> 6% OFF.
+    expect(component.discountLabel()).toBe('6% OFF');
     expect(component.related().length).toBe(4);
     expect(component.related().some((item) => item.id === '3')).toBe(false);
   });
@@ -520,6 +521,87 @@ describe('ProductDetail', () => {
       component.addToCart();
       expect(http.expectOne('/api/shopping_cart/insert').request.body).toMatchObject({
         PRODUCT_ID: 5, SELLER_ID: 26, PRODUCT_VARIANT_ID: 33, UNIT_PRICE: 850,
+      });
+    });
+
+    // CHANGED (new): the gallery heart sends PUT wishlist/save_for_later { CART_ID, VARIANT_ID } only (no cart insert),
+    // with the variant chosen on this page (it could send VARIANT_ID null).
+    describe('gallery heart', () => {
+      const heartButton = (): HTMLButtonElement =>
+        fixture.nativeElement.querySelector('app-product-gallery .gallery__wish button');
+      const CART_URL = '/api/shopping_cart/get?CUSTOMER_ID=4';
+
+      /** Reads the customer's cart (shopping_cart/get) with these rows of product 5. */
+      function syncCart(rows: Record<string, unknown>[]): void {
+        TestBed.inject(WishlistService).sync();
+        http.expectOne(CART_URL).flush({
+          success: true,
+          data: rows.map((row) => ({
+            PRODUCT_ID: 5, SELLER_ID: 44, CART_QUANTITY: 1, UNIT_PRICE: '899.00', CUSTOMER_ID: 4, SAVE_FOR_LATER: 0,
+            PRODUCT_NAME: 'Wireless Mouse', ...row,
+          })),
+        });
+        // The cart's product-status lookup (once per product).
+        for (const lookup of http.match('/api/products/get?PRODUCT_ID=5')) lookup.flush({ status: true, data: [PRODUCT_ROWS[2]] });
+      }
+
+      /** Taps the heart and returns the PUT wishlist/save_for_later body; no other cart call is made first. */
+      function tapHeart(): unknown {
+        component.toggleWishlist();
+        http.expectNone('/api/shopping_cart/insert');
+        const save = http.expectOne('/api/wishlist/save_for_later');
+        expect(save.request.method).toBe('PUT');
+        const body = save.request.body as { CART_ID: number | null };
+        save.flush('Saved for later');
+        // Sent without a CART_ID: the cart is read again to see whether it was saved (here it was not).
+        if (body.CART_ID === null) http.expectOne(CART_URL).flush({ success: true, data: [] });
+        fixture.detectChanges();
+        return body;
+      }
+
+      beforeEach(() => {
+        TestBed.inject(AuthService).setSession(
+          { id: '3', email: '', firstName: 'customer', lastName: '', userType: 'CUSTOMER' },
+          tokenWithClaims({ USER_ID: 3, CUSTOMER_ID: 4 }),
+        );
+      });
+
+      it('sends the CART_ID of the selected variant\'s cart row with its VARIANT_ID', () => {
+        openProduct5();
+        syncCart([{ CART_ID: 59, VARIANT_ID: 32 }]);
+        // Brown (32), the first in stock, is in the cart as CART_ID 59.
+        expect(tapHeart()).toEqual({ CART_ID: 59, VARIANT_ID: 32 });
+      });
+
+      it('sends the variant the customer picks; CART_ID null when that variant is not in the cart', () => {
+        openProduct5();
+        syncCart([{ CART_ID: 59, VARIANT_ID: 32 }]);
+        cards()[2].click();
+        fixture.detectChanges();
+        // Grey (33) is not in the cart (the row of Brown is not used for it).
+        expect(tapHeart()).toEqual({ CART_ID: null, VARIANT_ID: 33 });
+      });
+
+      it('sends the only variant of a product that has one, even when it is out of stock', () => {
+        openProduct5({ status: 'SUCCESS', data: [PRODUCT_5_VARIANTS[0]] });
+        syncCart([]);
+        expect(tapHeart()).toEqual({ CART_ID: null, VARIANT_ID: 31 });
+      });
+
+      it('is off while the variants load, and uses the product\'s own VARIANT_ID when they cannot be loaded', () => {
+        fixture.componentRef.setInput('id', '5');
+        fixture.detectChanges();
+        flushProduct(5);
+        syncCart([]);
+        expect(heartButton().disabled).toBe(true);
+        component.toggleWishlist();
+        http.expectNone('/api/wishlist/save_for_later');
+
+        http.expectOne(variantUrl(5)).flush({ status: 'FAILURE', message: 'Variants are unavailable' });
+        fixture.detectChanges();
+        expect(heartButton().disabled).toBe(false);
+        // Product 5's products/get row: VARIANT_ID 16 (the variant Add to Cart sends too).
+        expect(tapHeart()).toEqual({ CART_ID: null, VARIANT_ID: 16 });
       });
     });
 

@@ -127,6 +127,15 @@ export class ProductDetail {
   protected readonly cartBlocked = computed(
     () => !this.inStock() || this.adding() || this.variantStatus() === 'loading',
   );
+  /**
+   * The gallery heart is off while the variants load (no variant is selected yet, so it would save none) and while
+   * its own request runs.
+   */
+  // CHANGED (new)
+  protected readonly wishlistBlocked = computed(() => {
+    const item = this.product();
+    return this.variantStatus() === 'loading' || (!!item && this.wishlist.isPending(item.id));
+  });
   protected readonly productNames = computed<ProductInfoNames>(() => {
     const item = this.product();
     return {
@@ -181,12 +190,11 @@ export class ProductDetail {
     return Math.max(1, Math.min(this.stockLeft() ?? 10, item?.maxOrderQuantity ?? 10));
   });
   // CHANGED: no struck-through price or "% OFF" while a variant is selected (the variant API has no MRP).
-  protected readonly discountPercent = computed(() => {
-    const item = this.product();
-    return !this.selectedVariant() && item?.originalPrice && item.originalPrice > item.price
-      ? Math.round((1 - item.price / item.originalPrice) * 100)
-      : 0;
-  });
+  // CHANGED: the product's own "N% OFF" (discountLabel from PRICE and SELLING_PRICE), the same label the listing,
+  // Home and Wishlist cards show, instead of a second copy of the formula.
+  protected readonly discountLabel = computed(() =>
+    this.selectedVariant() ? '' : (this.product()?.discountLabel ?? ''),
+  );
   protected readonly related = computed<Product[]>(() => {
     const current = this.product();
     if (!current) return [];
@@ -357,11 +365,24 @@ export class ProductDetail {
     this.productService.load();
   }
 
-  /** The gallery heart: the viewed product's cart row for the selected variant (null: the row without a variant). */
+  /** The gallery heart: saves (or removes) the viewed product with the variant chosen on this page. */
   // CHANGED: the wishlist API (wishlist/save_for_later with that row's CART_ID and VARIANT_ID).
+  // CHANGED: sends wishlistVariantId() (it used to send the selection as is, so VARIANT_ID was null without one).
   protected toggleWishlist(): void {
     const item = this.product();
-    if (item) this.wishlist.toggleProduct(item, this.selectedVariantId());
+    if (item && !this.wishlistBlocked()) this.wishlist.toggleProduct(item, this.wishlistVariantId());
+  }
+
+  /**
+   * The VARIANT_ID the gallery heart sends (PUT wishlist/save_for_later): the variant selected on this page, i.e. the
+   * product's only variant, or the one the customer chose when it has several (the first in stock until they choose).
+   * Without any (no ACTIVE variants listed, or they could not be loaded): undefined, so the wishlist uses the cart
+   * row's variant, else the product's own variant from products/get.
+   */
+  // CHANGED (new)
+  private wishlistVariantId(): string | undefined {
+    const variants = this.variants();
+    return this.selectedVariantId() ?? (variants.length === 1 ? variants[0].id : undefined);
   }
 
   /** A "You may also like" card's heart: that product's cart row. */

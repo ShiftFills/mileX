@@ -12,6 +12,9 @@ export class ProductGallery {
   readonly images = input.required<readonly string[]>();
   readonly name = input('');
   readonly wishlisted = input(false);
+  /** Disables the heart (e.g. while the page's variants load, so it always has a variant to save). */
+  // CHANGED (new)
+  readonly wishlistDisabled = input(false);
   /** True while an image URL is still loading (e.g. a signed S3 URL); with no image, the placeholder shows it. */
   // CHANGED (new)
   readonly loading = input(false);

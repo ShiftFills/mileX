@@ -133,7 +133,10 @@ function productActiveStatus(value: unknown): boolean | undefined {
   }
 }
 
-/** A price as a product card shows it: the selling price, plus the struck MRP and its "% OFF" when MRP is higher. */
+/** A price as a product card shows it: SELLING_PRICE, plus PRICE (MRP) and its "% OFF" when MRP is higher.
+ * DISCOUNT is also present in the API response as an amount; the badge percentage comes from the two displayed
+ * prices so the badge stays consistent with the actual sale price, including when DISCOUNT is zero or stale.
+ */
 // CHANGED (new)
 export interface ListingPrice {
   price: number;
@@ -158,25 +161,28 @@ export interface ProductOffer {
 }
 
 /**
- * The "N% OFF" badge of a price below its MRP: round((PRICE − SELLING_PRICE) ÷ PRICE × 100), written as
- * round((1 − SELLING_PRICE ÷ PRICE) × 100), the formula the product listing has always used.
+ * The whole-number "N% OFF" of a price below its MRP: round((PRICE − SELLING_PRICE) ÷ PRICE × 100).
+ * Multiplying before dividing keeps whole-rupee prices exact (no floating-point drift at a .5 boundary).
  */
-// CHANGED: moved out of mapProduct (same formula) so the listing and the wishlist share it.
-function discountLabel(price: number, originalPrice: number): string {
-  return `${Math.round((1 - price / originalPrice) * 100)}% OFF`;
+// CHANGED: was discountLabel (same formula); returns the number so listingPrice can skip a 0% badge.
+function discountPercent(price: number, originalPrice: number): number {
+  return Math.round(((originalPrice - price) * 100) / originalPrice);
 }
 
 /**
  * The product listing's prices of a products/get record (a product, or one of its VARIANTS): SELLING_PRICE (else
  * PRICE) is the price; PRICE (MRP) is struck through with its "N% OFF" only when it is higher. Null without a price.
+ * A markdown that rounds to 0% (under 0.5% of MRP) is treated as no offer, so no "0% OFF" badge is shown.
  */
 // CHANGED (new): the rule mapProduct always applied, shared with the wishlist's variant prices.
+// CHANGED: no MRP or badge when the discount rounds to 0%.
 function listingPrice(record: Record<string, unknown>): ListingPrice | null {
   const price = numericValue(record['SELLING_PRICE']) ?? numericValue(record['PRICE']);
   if (price === undefined || price < 0) return null;
   const mrp = numericValue(record['PRICE']);
-  return mrp !== undefined && mrp > price
-    ? { price, originalPrice: mrp, discountLabel: discountLabel(price, mrp) }
+  const percent = mrp !== undefined && mrp > price ? discountPercent(price, mrp) : 0;
+  return mrp !== undefined && percent > 0
+    ? { price, originalPrice: mrp, discountLabel: `${percent}% OFF` }
     : { price };
 }
 

@@ -15,15 +15,14 @@
     </div>
     <div class="product-grid">
       <!-- CHANGED: each card shows its product's own image (signed S3 URL), or the placeholder. -->
+      <!-- CHANGED: no wishlist heart on the Home page cards. -->
       @for (product of bestDeals(); track product.id) {
         <app-product-card
           [product]="product"
-          [wishlisted]="wishlist.has(product.id)"
+          [showWishlist]="false"
           [imageSrc]="productImages.src(product)"
           [imageLoading]="productImages.loading(product)"
           (imageError)="productImages.failed(product, $event)"
-          [pendingAction]="wishlist.isPending(product.id) ? 'wishlist' : null"
-          (wishlistToggle)="toggleWishlist(product)"
         />
       }
     </div>
@@ -68,15 +67,14 @@
     </div>
     <div class="product-grid">
       <!-- CHANGED: each card shows its product's own image (signed S3 URL), or the placeholder. -->
+      <!-- CHANGED: no wishlist heart on the Home page cards. -->
       @for (product of recommended(); track product.id) {
         <app-product-card
           [product]="product"
-          [wishlisted]="wishlist.has(product.id)"
+          [showWishlist]="false"
           [imageSrc]="productImages.src(product)"
           [imageLoading]="productImages.loading(product)"
           (imageError)="productImages.failed(product, $event)"
-          [pendingAction]="wishlist.isPending(product.id) ? 'wishlist' : null"
-          (wishlistToggle)="toggleWishlist(product)"
         />
       }
     </div>

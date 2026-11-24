@@ -11,16 +11,19 @@
 
   <div class="catalog__tools">
     <app-search-box
+      class="toolbar-search"
       name="q"
       inputId="catalog-search"
       ariaLabel="Search products"
       placeholder="Search products..."
+      buttonSize="normal"
       [value]="query().get('q') ?? ''"
       (submitted)="search($event)"
     />
     <label>
       Category
       <app-select
+        class="toolbar-filter"
         [value]="query().get('category') ?? ''"
         [disabled]="categoriesStatus() !== 'success'"
         (valueChange)="setCategory($event)"
@@ -40,7 +43,7 @@
     </label>
     <label>
       Sort by
-      <app-select [value]="sortBy()" (valueChange)="updateSort($event)">
+      <app-select class="toolbar-filter" [value]="sortBy()" (valueChange)="updateSort($event)">
         <option value="featured">Featured</option>
         <option value="price-low">Price: low to high</option>
         <option value="price-high">Price: high to low</option>

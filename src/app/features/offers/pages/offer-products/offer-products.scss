@@ -1,0 +1,204 @@
+// CHANGED (new): one offer's products. The product section and grid match the Home page's product lists.
+:host {
+  display: block;
+  min-width: 0;
+  padding-block: 1.25rem 2rem;
+}
+
+.offer-products {
+  color: var(--color-text);
+}
+
+.offer-products__back {
+  display: inline-flex;
+  gap: 0.35rem;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  text-decoration: none;
+
+  &:hover { color: var(--color-text); text-decoration: underline; }
+  &:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 2px; }
+}
+
+// ---- States ----
+.offer-products__state {
+  display: flex;
+  min-height: 12rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  color: var(--color-text-muted);
+  text-align: center;
+
+  h1 {
+    margin: 0;
+    color: var(--color-text);
+    font-size: var(--text-lg);
+  }
+
+  p { margin: 0; }
+}
+
+div.offer-products__state {
+  flex-direction: row;
+  gap: 0.75rem;
+}
+
+.offer-products__alert {
+  display: block;
+  margin-top: var(--space-3);
+}
+
+.offer-products__retry {
+  margin-inline-start: 0.5rem;
+  border: 0;
+  background: transparent;
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+
+.offer-products__note {
+  margin: var(--space-3) 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+// ---- The offer ----
+.offer-products__summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  margin-block: var(--space-3) 1.5rem;
+  padding: 1.125rem 1.25rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 0.75rem;
+  background: linear-gradient(100deg, #fff1c9 0%, #fde09f 100%);
+  box-shadow: var(--shadow-sm);
+}
+
+.offer-products__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  flex-basis: 100%;
+
+  h1 {
+    margin: 0;
+    font-size: clamp(1.15rem, 2.6vw, 1.4rem);
+    font-weight: 800;
+  }
+}
+
+.offer-products__terms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0;
+  margin: 0;
+  font-size: 0.85rem;
+
+  span + span::before {
+    content: '·';
+    margin-inline: 0.5rem;
+    color: var(--color-text-muted);
+  }
+}
+
+.offer-products__code {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-inline-start: auto;
+  padding: 0.2rem 0.25rem 0.2rem var(--space-3);
+  border: 1px dashed var(--color-text-muted);
+  border-radius: var(--radius-md);
+  background: rgb(255 255 255 / 55%);
+}
+
+.offer-products__code-text {
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  -webkit-text-stroke: 0.2px currentColor;
+}
+
+.offer-products__copy {
+  display: grid;
+  width: 1.5rem;
+  height: 1.5rem;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+  cursor: pointer;
+
+  &:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 2px; }
+
+  svg {
+    width: 0.9rem;
+    height: 0.9rem;
+    stroke: currentColor;
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+}
+
+// ---- Products (as on the Home page) ----
+.product-section__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--color-border);
+
+  h2 {
+    margin: 0;
+    color: var(--color-text);
+    font-size: 1.2rem;
+    font-weight: 700;
+  }
+
+  span {
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
+  }
+}
+
+.product-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.offer-products__pagination {
+  display: block;
+  margin-top: var(--space-3);
+}
+
+@media (max-width: 991.98px) {
+  .product-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 575.98px) {
+  .product-section__heading h2 {
+    font-size: 1.1rem;
+  }
+
+  .product-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.65rem;
+  }
+
+  .offer-products__code {
+    margin-inline-start: 0;
+  }
+}

@@ -133,6 +133,27 @@ describe('Cart', () => {
     expect(text()).toContain('Your ₹749 subtotal does not qualify yet.');
   });
 
+  // The cart API's PRODUCT_DISCOUNT is the product's DISCOUNT column: 0.00 on most products sold below MRP.
+  it('computes the product discount of API rows from MRP and the row price, not PRODUCT_DISCOUNT', async () => {
+    const { customerFixture, customerRoot } = await openCustomerCart([
+      // Live pattern: MRP 125000, sold at 115000, PRODUCT_DISCOUNT still 0.00.
+      cartRow({ CART_ID: 80, PRODUCT_ID: 9, PRODUCT_NAME: 'Legion Laptop', CART_QUANTITY: 1, UNIT_PRICE: '115000.00',
+        MRP: '125000.00', PRODUCT_DISCOUNT: '0.00', CART_DISCOUNT: '0.00', TAX: '0.00', TOTAL_AMOUNT: '115000.00' }),
+      // A stale DISCOUNT on a product sold at MRP is not shown as a saving.
+      cartRow({ CART_ID: 81, PRODUCT_ID: 2, PRODUCT_NAME: 'Desk Lamp', CART_QUANTITY: 2, UNIT_PRICE: '3000.00',
+        MRP: '3000.00', PRODUCT_DISCOUNT: '500.00', CART_DISCOUNT: '0.00', TAX: '0.00', TOTAL_AMOUNT: '6000.00' }),
+    ]);
+    const rowOf = (name: string): HTMLElement =>
+      Array.from(customerRoot.querySelectorAll<HTMLElement>('.cart-items .cart-item'))
+        .find((article) => article.querySelector('h2')?.textContent?.includes(name))!;
+
+    expect(rowOf('Legion Laptop').querySelector('.cart-item__discount')?.textContent).toContain('₹10,000.00');
+    expect(rowOf('Desk Lamp').querySelector('.cart-item__discount')).toBeNull();
+    // Summary: ₹10,000 (Legion) + ₹250 (the local Wireless Mouse Updated, 999 − 749).
+    expect((customerRoot.textContent ?? '').replace(/\s+/g, '')).toContain('Productdiscount−₹10,250');
+    customerFixture.destroy();
+  });
+
   it('loads customer cart details using the CUSTOMER_ID (not the USER_ID) and preserves local items', async () => {
     signInCustomer();
     const customerFixture = TestBed.createComponent(Cart);

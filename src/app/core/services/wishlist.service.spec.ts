@@ -76,8 +76,6 @@ describe('WishlistService', () => {
 
   afterEach(() => {
     toast.dismiss();
-    // The heart never calls the shopping cart insert.
-    http.expectNone(INSERT_URL);
     http.verify();
     localStorage.clear();
   });
@@ -126,6 +124,8 @@ describe('WishlistService', () => {
     const save = http.expectOne(SAVE_URL);
     expect(save.request.method).toBe('PUT');
     expect(save.request.body).toEqual({ CART_ID: 59, VARIANT_ID: 28 });
+    // Already in the cart: no new cart row.
+    http.expectNone(INSERT_URL);
     save.flush(JSON.stringify({ status: true, message: 'Saved for later' }));
 
     expect(wishlist.has('18')).toBe(true);
@@ -134,14 +134,16 @@ describe('WishlistService', () => {
     expect(toast.current()).toEqual({ type: 'success', message: 'tissuee was saved to your wishlist.' });
   });
 
-  it('calls PUT with CART_ID null and the product\'s VARIANT_ID for a product with no cart row', () => {
+  // CHANGED: the heart only calls PUT wishlist/save_for_later (no shopping_cart/insert).
+  it('sends PUT { CART_ID: null, VARIANT_ID } for a product that is not in the cart, and never inserts it', () => {
     syncCart([]);
     const lenovo: Product = {
       ...TISSUE, id: '16', name: 'Lenovo IdeaPad Slim 57',
-      variantOptions: [{ id: '23', price: 20000, inStock: false }, { id: '24', price: 20000, inStock: true }],
+      variantOptions: [{ id: '23', price: 21000, inStock: false }, { id: '24', price: 20000, inStock: true }],
     };
 
     wishlist.toggleProduct(lenovo);
+    http.expectNone(INSERT_URL);
     const save = http.expectOne(SAVE_URL);
     expect(save.request.method).toBe('PUT');
     // No cart row: CART_ID null (none is invented), and the first variant in stock.
@@ -155,7 +157,7 @@ describe('WishlistService', () => {
   it('fills the heart when the backend saves a product sent without a CART_ID (the cart is read again)', () => {
     syncCart([]);
 
-    wishlist.toggleProduct(TISSUE);
+    wishlist.toggleProduct(TISSUE, '28');
     const save = http.expectOne(SAVE_URL);
     expect(save.request.body).toEqual({ CART_ID: null, VARIANT_ID: 28 });
     save.flush('Saved for later');
@@ -165,7 +167,7 @@ describe('WishlistService', () => {
     expect(toast.current()).toEqual({ type: 'success', message: 'tissuee was saved to your wishlist.' });
   });
 
-  it('keeps the heart empty when the backend accepts it but saves nothing', () => {
+  it('keeps the heart empty, and says why, when the backend accepts it but saves nothing', () => {
     syncCart([]);
 
     wishlist.toggleProduct(TISSUE);
@@ -174,8 +176,41 @@ describe('WishlistService', () => {
 
     expect(wishlist.has('18')).toBe(false);
     expect(toast.current()).toEqual({
-      type: 'error', message: 'tissuee was not saved: the wishlist API did not create a saved item without a CART_ID.',
+      type: 'error', message: 'tissuee was not saved: it is not in your cart, so there is no CART_ID to save.',
     });
+  });
+
+  // CHANGED (new): VARIANT_ID was null for a product whose products/get row has no VARIANTS list.
+  it('sends the VARIANT_ID of the product\'s own products/get row when it has no VARIANTS list', () => {
+    syncCart([]);
+    const mouse: Product = { ...TISSUE, id: '5', name: 'Wireless Mouse', variantOptions: undefined, variantId: 16 };
+
+    wishlist.toggleProduct(mouse);
+    const save = http.expectOne(SAVE_URL);
+    expect(save.request.body).toEqual({ CART_ID: null, VARIANT_ID: 16 });
+    save.flush({ message: 'CART_ID is required' }, { status: 400, statusText: 'Bad Request' });
+  });
+
+  // CHANGED (new): the cart row's variant is also read from PRODUCT_VARIANT_ID.
+  it('finds the cart row by PRODUCT_VARIANT_ID when VARIANT_ID is empty', () => {
+    syncCart([cartRow({ VARIANT_ID: null, PRODUCT_VARIANT_ID: 28 })]);
+
+    wishlist.toggleProduct(TISSUE, '28');
+    const save = http.expectOne(SAVE_URL);
+    expect(save.request.body).toEqual({ CART_ID: 59, VARIANT_ID: 28 });
+    save.flush('Saved for later');
+    expect(wishlist.has('18')).toBe(true);
+  });
+
+  // CHANGED (new): a cart row without a variant gives its CART_ID; the selected variant is sent with it.
+  it('sends the CART_ID of the product\'s row without a variant together with the selected VARIANT_ID', () => {
+    syncCart([cartRow({ CART_ID: 70, VARIANT_ID: null })]);
+
+    wishlist.toggleProduct(TISSUE, '28');
+    const save = http.expectOne(SAVE_URL);
+    expect(save.request.body).toEqual({ CART_ID: 70, VARIANT_ID: 28 });
+    save.flush('Saved for later');
+    expect(wishlist.has('18')).toBe(true);
   });
 
   it('sends VARIANT_ID null for a cart row without a variant', () => {
@@ -198,8 +233,9 @@ describe('WishlistService', () => {
     expect(save.request.body).toEqual({ CART_ID: 59, VARIANT_ID: 28 });
     save.flush('Saved for later');
 
-    // Variant 30 is not in the cart: CART_ID null with the selected VARIANT_ID 30.
+    // Variant 30 is not in the cart: CART_ID null with the selected VARIANT_ID 30 (the row of variant 29 is not used).
     wishlist.toggleProduct({ ...TISSUE, id: '18' }, '30');
+    http.expectNone(INSERT_URL);
     const second = http.expectOne(SAVE_URL);
     expect(second.request.body).toEqual({ CART_ID: null, VARIANT_ID: 30 });
     second.flush({ message: 'CART_ID is required' }, { status: 400, statusText: 'Bad Request' });

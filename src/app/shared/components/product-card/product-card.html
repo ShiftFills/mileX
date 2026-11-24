@@ -6,6 +6,8 @@
   } @else {
   <a class="product-card__link" [routerLink]="[routes.products, product().id]"><ng-container [ngTemplateOutlet]="cardBody" /></a>
   }
+  <!-- CHANGED: the heart is optional (shown unless the screen sets showWishlist to false). -->
+  @if (showWishlist()) {
   <app-button class="product-card__wishlist" variant="icon" size="small" [class.is-active]="wishlisted()"
     [class.product-card__wishlist--framed]="variant() === 'wishlist'"
     [ariaLabel]="wishlisted() ? 'Remove from wishlist' : 'Add to wishlist'" [ariaPressed]="wishlisted()"
@@ -20,6 +22,7 @@
     {{ wishlisted() ? '♥' : '♡' }}
     }
   </app-button>
+  }
   @if (showAddToCart()) {
   <!-- CHANGED: optional label and in-flight state (defaults: "Add to Cart", idle). -->
   <app-button class="product-card__add" variant="accent" [size]="variant() === 'wishlist' ? 'normal' : 'small'"
