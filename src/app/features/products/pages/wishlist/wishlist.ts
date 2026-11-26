@@ -14,12 +14,7 @@ import { Router, RouterLink } from '@angular/router';
 import { APP_ROUTES } from '@core/constants/app-routes';
 import { productCategoryLabel } from '@core/constants/product-categories';
 import { AuthService } from '@core/services/auth.service';
-import {
-  ListingPrice,
-  PRODUCT_FALLBACK_IMAGE,
-  ProductCatalogService,
-  ProductOffer,
-} from '@core/services/product-catalog.service';
+import { PRODUCT_FALLBACK_IMAGE, ProductCatalogService } from '@core/services/product-catalog.service';
 import { CartService } from '@core/services/cart.service';
 import { ProductImageDisplayService } from '@core/services/product-image-display.service';
 import { ToastService } from '@core/services/toast.service';
@@ -32,7 +27,7 @@ import { LoadingSpinner } from '@shared/components/loading-spinner/loading-spinn
 import { PageHeading } from '@shared/components/page-heading/page-heading';
 import { Pagination } from '@shared/components/pagination/pagination';
 import { ProductCard } from '@shared/components/product-card/product-card';
-import { Product, WishlistRow } from '@shared/models';
+import { Product, WishlistItem } from '@shared/models';
 import { Observable, Subscription, catchError, finalize, forkJoin, map, of, switchMap, tap } from 'rxjs';
 import {
   variantImageSource,
@@ -41,37 +36,29 @@ import {
 import { WishlistService } from '../../services/wishlist.service';
 
 const ALL = 'all';
-/** Wishlist rows per move_to_cart/get request (LIMIT). */
-// CHANGED (new)
+/** Wishlist items per wishlist/get request (LIMIT). */
 const PAGE_SIZE = 10;
-
+/** Units Move to Cart adds (as a product card's Add to Cart does). */
 // CHANGED (new)
+const MOVE_QUANTITY = 1;
+
 type SavedStatus = 'idle' | 'loading' | 'success' | 'error';
 type SavedAction = 'move' | 'remove';
 
-/**
- * What the product APIs returned for one PRODUCT_ID: products/get (the product, active or not, with its VARIANTS
- * prices; null when the API returns no such product) and product_variant/get (variant details, image and stock).
- */
-// CHANGED (new)
-// CHANGED: `offer` (loadProductOffer) replaces `product` (loadProduct), so inactive products keep their prices.
-interface ProductEntry {
-  offer: ProductOffer | null;
-  variants: readonly ProductVariant[];
-}
-
-/** One move_to_cart/get row (identified by its CART_ID) and the product card shown for it. */
-// CHANGED (new)
+/** One wishlist/get item (identified by PRODUCT_ID and PRODUCT_VARIANT_ID) and the product card shown for it. */
+// CHANGED: a wishlist/get item (it was a move_to_cart/get row, identified by its CART_ID).
 interface SavedItem {
-  row: WishlistRow;
+  /** `PRODUCT_ID:PRODUCT_VARIANT_ID`: several variants of one product can be saved, each its own card. */
+  key: string;
+  item: WishlistItem;
   product: Product;
   details: string[];
+  /** The SELLER_ID Move to Cart sends: the saved variant's, else the product's (as on the Product View). */
+  sellerId?: number;
   /** Delisted (inactive product or variant): greyed out, no link to its page, cannot be moved to the cart. */
-  // CHANGED (new)
   unavailable: boolean;
 }
 
-// CHANGED (new)
 interface SavedPage {
   page: number;
   items: SavedItem[];
@@ -79,24 +66,7 @@ interface SavedPage {
   total?: number;
 }
 
-/**
- * The product card with these listing prices: the selling price, and the struck MRP with its "% OFF" only when the
- * prices have them (the product's own are replaced, e.g. by its variant's).
- */
-// CHANGED (new)
-function withListingPrice(product: Product, pricing: ListingPrice): Product {
-  const card: Product = { ...product, price: pricing.price };
-  delete card.originalPrice;
-  delete card.discountLabel;
-  if (pricing.originalPrice !== undefined && pricing.discountLabel !== undefined) {
-    card.originalPrice = pricing.originalPrice;
-    card.discountLabel = pricing.discountLabel;
-  }
-  return card;
-}
-
 /** The card shown with the variant's own image, when the variant has one. */
-// CHANGED (new)
 function withVariantImage(card: Product, variant: ProductVariant | null): Product {
   const image = variant ? variantImageSource(variant) : {};
   if (!image.imageKey && !image.imageUrl) return card;
@@ -108,78 +78,41 @@ function withVariantImage(card: Product, variant: ProductVariant | null): Produc
 }
 
 /**
- * The card of a row without product data (products/get returned no row, or failed): the wishlist record itself,
- * with its PRODUCT_NAME and stored UNIT_PRICE (no MRP or badge). Missing product data says nothing about stock, so
- * the item is not reported as unavailable and can still be moved to the cart (the cart shows its stock).
+ * The card of one wishlist item, from the wishlist/get row itself:
+ * - Name, SKU, image, and prices priced like the product listing: SELLING_PRICE, then PRICE (MRP) struck through with
+ *   its "% OFF" only when it is higher.
+ * - Brand (from BRAND_ID) and the saved variant's name and options, image and stock from product_variant/get, when
+ *   they could be loaded (without them, the card is shown from the row alone).
+ * - Delisted (IS_ACTIVE "INACTIVE", or a variant whose STATUS is not ACTIVE): its prices greyed out, "no longer
+ *   available", no link to its page, and no Move to Cart. Otherwise stock decides: zero stock is "Out of stock".
  */
-// CHANGED (new)
-// CHANGED: no longer "Product unavailable" / out of stock: only stock data can make an item unavailable.
-function rowOnlyProduct(row: WishlistRow): Product {
-  return {
-    id: String(row.productId),
-    name: row.productName ?? `Product #${row.productId}`,
-    description: '',
-    price: row.unitPrice,
-    currency: 'INR',
-    imageUrl: PRODUCT_FALLBACK_IMAGE,
-    category: 'uncategorized',
-    inStock: true,
-  };
-}
-
-/**
- * The card of one wishlist row (its CART_ID is the record; several rows can share a PRODUCT_ID), priced like the
- * product listing with the product's current prices:
- * - Name: the row's PRODUCT_NAME (else the product's).
- * - Prices: the products/get VARIANTS entry with the row's PRODUCT_VARIANT_ID, else the product's own. SELLING_PRICE,
- *   then PRICE (MRP) struck through with its "% OFF" only when it is higher (the listing's rule). The row's UNIT_PRICE
- *   is shown only without product data, and its DISCOUNT is not used.
- * - Image, brand and variant details: products/get and product_variant/get, as on the Product View.
- * - Delisted (products/get IS_ACTIVE "INACTIVE", or a variant whose STATUS is not ACTIVE): its prices greyed out,
- *   "no longer available", no link to its page, and no Move to Cart. Otherwise stock decides: zero stock is
- *   "Out of stock". A row without product data is never reported as unavailable (see rowOnlyProduct).
- */
-// CHANGED (new)
-// CHANGED: inactive products are delisted across the storefront (STATUS=ACTIVE), so they show as no longer available.
+// CHANGED: from the wishlist/get row (it combined a move_to_cart/get row with products/get and product_variant/get).
 function savedItem(
-  row: WishlistRow,
-  entry: ProductEntry | undefined,
+  item: WishlistItem,
+  variants: readonly ProductVariant[] | undefined,
   brands: ReadonlyMap<string, string>,
 ): SavedItem {
-  const offer = entry?.offer ?? null;
-  if (!offer) {
-    return {
-      row,
-      product: rowOnlyProduct(row),
-      details: [`Qty: ${row.quantity}`, ...(entry ? [] : ['Product details could not be loaded.'])],
-      unavailable: false,
-    };
-  }
-
-  const { product, variantPrices } = offer;
-  // A row saved without a variant is shown from the product itself.
-  const variantPrice =
-    row.variantId === undefined ? undefined : variantPrices.find((price) => price.variantId === String(row.variantId));
+  const { product } = item;
   const variant =
-    row.variantId === undefined
-      ? null
-      : (entry?.variants.find((option) => option.id === String(row.variantId) && option.productId === row.productId) ??
-        null);
+    variants?.find((option) => option.id === String(item.variantId) && option.productId === item.productId) ?? null;
   const brand = product.brandName ?? (product.brand ? brands.get(product.brand) : undefined);
   const details = [
     ...(brand ? [`Brand: ${brand}`] : []),
     ...(variant ? [[variant.name, variantOptionsLabel(variant)].filter(Boolean).join(' · ')] : []),
-    `Qty: ${row.quantity}`,
+    ...(product.sku ? [`SKU: ${product.sku}`] : []),
   ];
-  const card = withVariantImage(
-    withListingPrice({ ...product, name: row.productName ?? product.name }, variantPrice ?? product),
-    variant,
-  );
+  const card = withVariantImage(product, variant);
+  const sellerId = variant?.sellerId ?? product.sellerId;
+  const entry = {
+    key: `${item.productId}:${item.variantId}`,
+    item,
+    ...(sellerId !== undefined && sellerId !== null ? { sellerId } : {}),
+  };
   const variantStatus = variant?.status.trim().toUpperCase() ?? '';
   const delisted = product.isActive === false || (variantStatus !== '' && variantStatus !== 'ACTIVE');
   if (delisted) {
     return {
-      row,
+      ...entry,
       product: { ...card, inStock: false },
       details: [
         ...details,
@@ -190,7 +123,7 @@ function savedItem(
   }
   const inStock = variant ? variant.stock > 0 : product.inStock;
   return {
-    row,
+    ...entry,
     product: { ...card, inStock },
     details: inStock ? details : [...details, 'Out of stock'],
     unavailable: false,
@@ -203,14 +136,13 @@ function savedItem(
   templateUrl: './wishlist.html',
   styleUrl: './wishlist.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  // CHANGED (new): each saved product shows its own image (signed S3 URL).
+  // Each saved product shows its own image (signed S3 URL).
   providers: [ProductImageDisplayService],
 })
 export class Wishlist {
   protected readonly wishlist = inject(WishlistService);
   private readonly cart = inject(CartService);
   protected readonly catalog = inject(ProductCatalogService);
-  // CHANGED (new)
   private readonly auth = inject(AuthService);
   private readonly shoppingCart = inject(ShoppingCartService);
   private readonly variantService = inject(ProductVariantService);
@@ -252,9 +184,10 @@ export class Wishlist {
     return products;
   });
 
-  // ---- Saved for later (move_to_cart/get): signed-in customers ----
-  // CHANGED (new): a customer's wishlist is their cart rows saved for later. Products saved with the heart icon
-  // (on this device only; there is no API for them) are still listed below it.
+  // ---- The account's wishlist (wishlist/get): signed-in customers ----
+  // CHANGED: the wishlist APIs (wishlist/get, wishlist/manage) replace the saved-for-later cart rows
+  // (move_to_cart/get, move_to_cart/update, shopping_cart/delete). Products saved on this device earlier are still
+  // listed below it.
   protected readonly isCustomer = computed(
     () => this.auth.user()?.userType?.trim().toUpperCase() === 'CUSTOMER',
   );
@@ -269,20 +202,20 @@ export class Wishlist {
   protected readonly total = signal<number | undefined>(undefined);
   protected readonly showPagination = computed(() => this.page() > 1 || this.hasNext());
   /** The Remove / Move to Cart request in flight. One at a time, so two page refreshes never overwrite each other. */
-  private readonly pending = signal<{ cartId: string; action: SavedAction } | null>(null);
+  private readonly pending = signal<{ key: string; action: SavedAction } | null>(null);
   protected readonly busy = computed(() => this.pending() !== null);
-  /** Product API results by PRODUCT_ID while the page is open: paging back or refreshing requests no product again. */
-  private readonly productEntries = new Map<number, ProductEntry>();
+  /** product_variant/get results by PRODUCT_ID while the page is open: paging back or refreshing requests none again. */
+  // CHANGED: variants only (each wishlist/get row already carries its product's details, so no products/get).
+  private readonly productVariants = new Map<number, readonly ProductVariant[]>();
   /** The last page there can be, learned when a page past the end came back empty. */
   private lastPage: number | null = null;
   private request?: Subscription;
 
-  // CHANGED (new): the wishlist shows catalog products, so it loads the catalog itself
-  // (CartService no longer loads it on every page).
+  // The wishlist shows catalog products saved on this device, so it loads the catalog itself.
   constructor() {
     this.catalog.load();
-    // CHANGED (new): a customer's saved items, and the S3 image URLs of the products on screen (one request per
-    // distinct key; cached URLs make none).
+    // A customer's wishlist, and the S3 image URLs of the products on screen (one request per distinct key; cached
+    // URLs make none).
     if (this.isCustomer()) this.loadSaved();
     effect(() => {
       const products = this.savedItems().map((item) => item.product);
@@ -307,14 +240,13 @@ export class Wishlist {
     this.catalog.load();
   }
 
-  // CHANGED (new)
   protected changePage(page: number): void {
     if (this.savedStatus() === 'loading' || this.busy() || page === this.page()) return;
     this.page.set(page);
     this.loadSaved();
   }
 
-  // CHANGED (new): "Sign in again" for a session without CUSTOMER_ID (returns to the wishlist), else "Try again".
+  /** "Sign in again" for a session without CUSTOMER_ID (returns to the wishlist), else "Try again". */
   protected retrySaved(): void {
     if (this.needsSignIn()) {
       this.auth.clearSession();
@@ -324,64 +256,100 @@ export class Wishlist {
     if (this.savedStatus() !== 'loading') this.loadSaved();
   }
 
-  /** The card button that shows this row's request in flight (heart: Remove, Add to Cart: Move to Cart). */
-  // CHANGED (new)
+  /** The card button that shows this item's request in flight (heart: Remove, Add to Cart: Move to Cart). */
   protected cardAction(item: SavedItem): 'wishlist' | 'add' | null {
     const pending = this.pending();
-    if (pending?.cartId !== item.row.cartId) return null;
+    if (pending?.key !== item.key) return null;
     return pending.action === 'move' ? 'add' : 'wishlist';
   }
 
-  /** Remove: DELETE shopping_cart/delete with the row's CART_ID, PRODUCT_ID, SELLER_ID, CUSTOMER_ID and variant. */
-  // CHANGED (new)
-  protected removeSaved(item: SavedItem): void {
-    this.runAction(item, 'remove', () => this.shoppingCart.removeSavedItem(item.row));
-  }
-
-  /** Move to Cart: PUT move_to_cart/update with the row's CART_ID. */
-  // CHANGED (new)
-  // CHANGED: PUT move_to_cart/update (it used to insert into the cart, then delete the saved row).
-  protected moveToCart(item: SavedItem): void {
-    if (!item.product.inStock) return;
-    this.runAction(item, 'move', () => this.shoppingCart.moveToCart(item.row.cartId));
+  /** Remove (the filled heart): POST wishlist/manage with the item's PRODUCT_ID, PRODUCT_VARIANT_ID and "REMOVE". */
+  // CHANGED: wishlist/manage (it was DELETE shopping_cart/delete with the saved row's IDs).
+  protected removeSaved(entry: SavedItem): void {
+    const { productId, variantId } = entry.item;
+    this.runAction(entry, 'remove', () => this.wishlist.manage(productId, variantId, 'REMOVE'));
   }
 
   /**
-   * Sends one action (one at a time: the card shows a spinner and every card's buttons are disabled), then reads the
-   * current page again. Success is reported only when the row is gone from move_to_cart/get, so a backend that
-   * accepted the request without changing the row is reported as a failure; a failed request keeps the row. The
-   * cart is read again as well, so the header count and the cart page show the change.
+   * Move to Cart: POST shopping_cart/insert with the item's PRODUCT_ID, PRODUCT_VARIANT_ID, its seller and the
+   * selling price shown on the card (one unit, with the Product View's placeholder amounts: no discount or tax), then
+   * POST wishlist/manage "REMOVE", so the item leaves the wishlist only once it is in the cart.
    */
-  private runAction(item: SavedItem, action: SavedAction, send: () => Observable<void>): void {
+  // CHANGED: shopping_cart/insert + wishlist/manage (move_to_cart/update needed a saved cart row's CART_ID, which a
+  // wishlist item does not have).
+  protected moveToCart(entry: SavedItem): void {
+    if (!entry.product.inStock || entry.unavailable) return;
+    const { productId, variantId } = entry.item;
+    const sellerId = entry.sellerId;
+    if (sellerId === undefined) {
+      this.toast.showError(`${entry.product.name} cannot be moved to your cart right now. Seller details are missing.`);
+      return;
+    }
+    const unitPrice = entry.product.price;
+    let added = false;
+    this.runAction(
+      entry,
+      'move',
+      () =>
+        this.shoppingCart
+          .addItem({
+            PRODUCT_ID: productId,
+            SELLER_ID: sellerId,
+            PRODUCT_VARIANT_ID: variantId,
+            QUANTITY: MOVE_QUANTITY,
+            UNIT_PRICE: unitPrice,
+            DISCOUNT: 0,
+            TAX: 0,
+            TOTAL_AMOUNT: unitPrice * MOVE_QUANTITY,
+          })
+          .pipe(
+            tap(() => (added = true)),
+            switchMap(() => this.wishlist.manage(productId, variantId, 'REMOVE')),
+          ),
+      (message) => {
+        if (!added) return message;
+        // In the cart, but still saved: the header count and the cart page show the new row.
+        this.refreshCart();
+        return `${entry.product.name} was added to your cart, but is still in your wishlist. ${message}`;
+      },
+    );
+  }
+
+  /**
+   * Sends one action (one at a time: the card shows a spinner and every card's buttons are disabled). Once the API
+   * reports success the card leaves the screen, then the current page is read again to fill its place. A failed
+   * request keeps the card and shows the API's message (`failureMessage` can reword it). Move to Cart also reads the
+   * cart again, so the header count and the cart page show the change.
+   */
+  private runAction(
+    entry: SavedItem,
+    action: SavedAction,
+    send: () => Observable<void>,
+    failureMessage: (message: string) => string = (message) => message,
+  ): void {
     if (this.pending()) return;
-    const { cartId } = item.row;
-    const name = item.product.name;
-    this.pending.set({ cartId, action });
+    const { key } = entry;
+    const name = entry.product.name;
+    this.pending.set({ key, action });
     send()
       .pipe(
-        // The action succeeded; a failed refresh only means the list is read again below.
+        tap(() => {
+          this.savedItems.update((items) => items.filter((item) => item.key !== key));
+          this.toast.showSuccess(
+            action === 'move' ? `${name} was moved to your cart.` : `${name} was removed from your wishlist.`,
+          );
+          if (action === 'move') this.refreshCart();
+        }),
+        // The action succeeded; a failed refresh only leaves the page as it is now.
         switchMap(() => this.fetchPage(this.page()).pipe(catchError(() => of(null)))),
         finalize(() => this.pending.set(null)),
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe({
         next: (result) => {
-          this.refreshCart();
-          if (result?.items.some((entry) => entry.row.cartId === cartId)) {
-            this.toast.showError(
-              action === 'move'
-                ? `${name} is still in your wishlist. It could not be moved to your cart.`
-                : `${name} is still in your wishlist. It could not be removed.`,
-            );
-          } else {
-            this.toast.showSuccess(
-              action === 'move' ? `${name} was moved to your cart.` : `${name} was removed from your wishlist.`,
-            );
-          }
           if (result) this.applyPage(result);
-          else this.loadSaved();
         },
-        error: (error: unknown) => this.toast.showError(this.catalog.getErrorMessage(error)),
+        error: (error: unknown) => this.toast.showError(failureMessage(this.catalog.getErrorMessage(error))),
       });
   }
 
@@ -421,14 +389,15 @@ export class Wishlist {
     this.savedStatus.set('success');
   }
 
-  /** One move_to_cart/get page (LIMIT / OFFSET) with the product card of each row. */
+  /** One wishlist/get page (LIMIT / OFFSET) with the product card of each item. */
+  // CHANGED: wishlist/get (WishlistService.loadPage) replaces move_to_cart/get.
   private fetchPage(page: number): Observable<SavedPage> {
-    return this.shoppingCart.getWishlist(PAGE_SIZE, (page - 1) * PAGE_SIZE).pipe(
-      switchMap(({ rows, hasNext, total }) =>
-        this.loadProductEntries(rows).pipe(
+    return this.wishlist.loadPage(PAGE_SIZE, (page - 1) * PAGE_SIZE).pipe(
+      switchMap(({ items, hasNext, total }) =>
+        this.loadVariantDetails(items).pipe(
           map((brands) => ({
             page,
-            items: rows.map((row) => savedItem(row, this.productEntries.get(row.productId), brands)),
+            items: items.map((item) => savedItem(item, this.productVariants.get(item.productId), brands)),
             hasNext,
             ...(total !== undefined ? { total } : {}),
           })),
@@ -438,43 +407,31 @@ export class Wishlist {
   }
 
   /**
-   * Loads each PRODUCT_ID not seen yet: products/get?PRODUCT_ID=<id> (image, prices with its VARIANTS prices, stock,
-   * brand; inactive products included) and product_variant/get?PRODUCT_ID=<id>&VARIANT_ID=-1 (the details and image
-   * of the row's PRODUCT_VARIANT_ID), plus the brand names (cached app-wide). A product that fails is shown from its
-   * row and requested again next time.
+   * The details a wishlist/get row does not carry: the brand names (cached app-wide) and, for each PRODUCT_ID not seen
+   * yet, product_variant/get?PRODUCT_ID=<id>&VARIANT_ID=-1 (the saved variant's name, options, image, seller and
+   * stock). A product whose variants fail is shown from its row and requested again next time.
    */
-  private loadProductEntries(rows: readonly WishlistRow[]): Observable<ReadonlyMap<string, string>> {
-    if (!rows.length) return of(new Map<string, string>());
+  // CHANGED: no products/get per product any more (the wishlist/get row has the product's name, image and prices).
+  private loadVariantDetails(items: readonly WishlistItem[]): Observable<ReadonlyMap<string, string>> {
+    if (!items.length) return of(new Map<string, string>());
     const brands$ = this.catalog.loadAllBrands().pipe(
       map((brands) => new Map(brands.map((brand) => [`brand-${brand.id}`, brand.label] as const))),
       catchError(() => of(new Map<string, string>())),
     );
-    const missing = [...new Set(rows.map((row) => row.productId))].filter((id) => !this.productEntries.has(id));
+    const missing = [...new Set(items.map((item) => item.productId))].filter((id) => !this.productVariants.has(id));
     if (!missing.length) return brands$;
 
-    let failed = false;
     return forkJoin({
       brands: brands$,
-      entries: forkJoin(
+      variants: forkJoin(
         missing.map((id) =>
-          forkJoin({
-            offer: this.catalog.loadProductOffer(id),
-            variants: this.variantService.loadProductVariants(id),
-          }).pipe(
-            tap((entry) => this.productEntries.set(id, entry)),
-            catchError(() => {
-              failed = true;
-              return of(null);
-            }),
+          this.variantService.loadProductVariants(id).pipe(
+            tap((variants) => this.productVariants.set(id, variants)),
+            catchError(() => of(null)),
           ),
         ),
       ),
-    }).pipe(
-      map(({ brands }) => {
-        if (failed) this.toast.showError('Some product details could not be loaded. Please try again later.');
-        return brands;
-      }),
-    );
+    }).pipe(map(({ brands }) => brands));
   }
 
   /** Reads the customer's cart again, so the header count and the cart page show the change. */

@@ -73,11 +73,14 @@ export class AdminLayout {
   private readonly adminLinks: SidebarLink[] = [
     { label: 'Dashboard', path: '/admin/dashboard', icon: 'dashboard' },
     this.productLinks,
+    // CHANGED (new): Admin only (not in the Seller menu).
+    { label: 'Categories', path: '/admin/categories', icon: 'categories' },
     // { label: 'Shopping Cart', path: '/cart', icon: 'cart' },/
     this.orderManagementLink,
     this.returnRequestLink,
     { label: 'Seller Verification', path: '/admin/sellers', icon: 'sellers' },
-    { label: 'My Orders', path: '/admin/my-orders', icon: 'my-orders' },
+    // CHANGED: My Orders is removed: it is a customer screen (/orders, customer login only). Admins manage
+    // orders in Order Management.
   ];
 
   // CHANGED: Sellers may use product management, order management and return requests in this area

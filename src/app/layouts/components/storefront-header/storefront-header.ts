@@ -41,6 +41,19 @@ export class StorefrontHeader {
     { label: 'My Account', route: APP_ROUTES.account, icon: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM4 21a8 8 0 0 1 16 0' },
     { label: 'Help & Support', route: APP_ROUTES.support, icon: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17h.01' },
   ];
+  /**
+   * My Orders and Track Order open the customer order history (/orders, customer login only): shown to customers
+   * and to visitors (who sign in first), never to an Admin or Seller account.
+   */
+  // CHANGED (new)
+  protected readonly showCustomerOrders = computed(
+    () => !this.auth.isAuthenticated() || this.auth.user()?.userType?.trim().toUpperCase() === 'CUSTOMER',
+  );
+  /** The account menu's links; My Orders only for customers. */
+  // CHANGED (new)
+  protected readonly visibleAccountLinks = computed(() =>
+    this.accountLinks.filter((link) => link.route !== APP_ROUTES.orders || this.showCustomerOrders()),
+  );
   protected readonly logoutIcon = 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9';
   protected readonly userName = computed(() => {
     const user = this.auth.user();

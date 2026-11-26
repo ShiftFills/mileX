@@ -19,6 +19,10 @@
       </span>
       <span class="stepper__text">
         <span class="stepper__label">{{ step.label }}</span>
+        <!-- CHANGED (new): the step's state for screen readers (stateLabels). -->
+        @if (stateLabels()) {
+          <span class="visually-hidden">{{ i < current() ? ', completed' : i === current() ? ', current' : ', upcoming' }}</span>
+        }
         @if (step.caption) {
           <span class="stepper__caption">{{ step.caption }}</span>
         }

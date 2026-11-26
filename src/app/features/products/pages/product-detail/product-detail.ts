@@ -207,7 +207,7 @@ export class ProductDetail {
   constructor() {
     // The full catalog is still used for "You may also like" and to restore the saved cart.
     this.productService.load();
-    // CHANGED (new): a signed-in customer's saved items fill their hearts (one shopping_cart/get per session).
+    // CHANGED (new): a signed-in customer's saved items fill their hearts (one wishlist/get read per session).
     this.wishlist.sync();
     // The same component instance is reused when navigating between products (e.g. "You may also like").
     effect(() => {
@@ -365,27 +365,26 @@ export class ProductDetail {
     this.productService.load();
   }
 
-  /** The gallery heart: saves (or removes) the viewed product with the variant chosen on this page. */
-  // CHANGED: the wishlist API (wishlist/save_for_later with that row's CART_ID and VARIANT_ID).
-  // CHANGED: sends wishlistVariantId() (it used to send the selection as is, so VARIANT_ID was null without one).
+  /** The gallery heart: adds (or removes) the viewed product with the variant chosen on this page. */
+  // CHANGED: POST wishlist/manage with PRODUCT_ID and wishlistVariantId() as PRODUCT_VARIANT_ID.
   protected toggleWishlist(): void {
     const item = this.product();
     if (item && !this.wishlistBlocked()) this.wishlist.toggleProduct(item, this.wishlistVariantId());
   }
 
   /**
-   * The VARIANT_ID the gallery heart sends (PUT wishlist/save_for_later): the variant selected on this page, i.e. the
-   * product's only variant, or the one the customer chose when it has several (the first in stock until they choose).
-   * Without any (no ACTIVE variants listed, or they could not be loaded): undefined, so the wishlist uses the cart
-   * row's variant, else the product's own variant from products/get.
+   * The PRODUCT_VARIANT_ID of the gallery heart (POST wishlist/manage, and whether the heart is filled): the variant
+   * selected on this page, i.e. the product's only variant, or the one the customer chose when it has several (the
+   * first in stock until they choose). Without any (no ACTIVE variants listed, or they could not be loaded):
+   * undefined, so the wishlist uses the product's own variant from products/get.
    */
-  // CHANGED (new)
-  private wishlistVariantId(): string | undefined {
+  // CHANGED: a computed signal (it was a method) so the template's heart follows the selected variant.
+  protected readonly wishlistVariantId = computed(() => {
     const variants = this.variants();
     return this.selectedVariantId() ?? (variants.length === 1 ? variants[0].id : undefined);
-  }
+  });
 
-  /** A "You may also like" card's heart: that product's cart row. */
+  /** A "You may also like" card's heart: that product with its default variant. */
   // CHANGED (new): split from toggleWishlist, which only handles the viewed product now.
   protected toggleRelatedWishlist(item: Product): void {
     this.wishlist.toggleProduct(item);

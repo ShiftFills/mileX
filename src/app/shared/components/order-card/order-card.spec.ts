@@ -69,8 +69,29 @@ describe('OrderCard', () => {
 
   it('links to the order detail page', async () => {
     await render(ORDER);
-    const hrefs = Array.from(root.querySelectorAll('a:not(.my-order__tracking-link)')).map((a) => a.getAttribute('href'));
+    // CHANGED: the Track Order link is checked below.
+    const hrefs = Array.from(root.querySelectorAll('a:not(.my-order__tracking-link):not(.my-order__link--track)'))
+      .map((a) => a.getAttribute('href'));
     expect(hrefs).toEqual(['/orders/ORD-2408', '/orders/ORD-2408']);
+  });
+
+  // CHANGED (new): Track Order opens Shipment Tracking for every order but a cancelled or failed one.
+  it('offers Track Order next to View Details, also without a tracking number', async () => {
+    await render({ ...ORDER, id: 'ORD0016', status: 'ORDERED', trackingNo: undefined });
+    const links = Array.from(root.querySelectorAll('.my-order__links a'), (a) => [a.textContent?.trim(), a.getAttribute('href')]);
+    expect(links).toEqual([
+      ['View Details →', '/orders/ORD0016'],
+      ['Track Order →', '/orders/ORD0016/tracking'],
+    ]);
+    expect(root.querySelector('.my-order__link--track')?.getAttribute('aria-label')).toBe('Track order ORD0016');
+  });
+
+  it('hides Track Order for a cancelled or failed order', async () => {
+    for (const status of ['CANCELLED', 'Failed']) {
+      await render({ ...ORDER, status });
+      expect(root.querySelector('.my-order__link--track'), status).toBeNull();
+      expect(root.querySelector('.my-order__link')?.textContent).toContain('View Details');
+    }
   });
 
   it('keeps one keyboard/screen-reader link per order; the arrow is an extra pointer target', async () => {

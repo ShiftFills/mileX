@@ -1,8 +1,10 @@
 import { ChangeDetectionStrategy, Component, TemplateRef, input } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 
-export interface TableHeaderContext<T> {
+export interface TableHeaderContext<T extends object> {
   $implicit: readonly T[];
+  // CHANGED (new): the header's own column, so one header template can serve several columns (e.g. sort buttons).
+  column: TableColumn<T>;
 }
 
 export interface TableCellContext<T> {

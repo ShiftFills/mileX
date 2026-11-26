@@ -9,7 +9,8 @@ import { OfferProducts } from './offer-products';
 // CHANGED (new): one offer's products as product cards (offer_discount/get?OFFER_ID=<id>, then products/get per product).
 const offerUrl = (id: number): string => `/api/offer_discount/get?OFFER_ID=${id}&LIMIT=50&OFFSET=0`;
 const productUrl = (id: number | string): string => `/api/products/get?PRODUCT_ID=${id}&STATUS=ACTIVE`;
-const CART_URL = '/api/shopping_cart/get?CUSTOMER_ID=1';
+// CHANGED: the hearts read the customer's wishlist (wishlist/get), no longer their cart (shopping_cart/get).
+const WISHLIST_SYNC_URL = '/api/wishlist/get?LIMIT=100&OFFSET=0';
 
 /** Dates at 12:00 IST (06:30 UTC), so they read the same day in any time zone. */
 const at = (day: string): string => `${day}T06:30:00.000Z`;
@@ -67,11 +68,11 @@ describe('OfferProducts', () => {
     fixture.detectChanges();
   }
 
-  /** Opens the page as a customer (their cart is read for the hearts) and answers the offer request with these rows. */
+  /** Opens the page as a customer (their wishlist is read for the hearts) and answers the offer request with these rows. */
   async function openOffer(id: number, rows: Record<string, unknown>[]): Promise<void> {
     signIn('CUSTOMER');
     await open(String(id));
-    http.expectOne(CART_URL).flush({ success: true, data: [] });
+    http.expectOne(WISHLIST_SYNC_URL).flush({ success: true, data: [] });
     http.expectOne(offerUrl(id)).flush({ status: 'SUCCESS', data: rows });
     await update();
   }
@@ -121,7 +122,7 @@ describe('OfferProducts', () => {
   it('shows the offer and its products as product cards, in the offer\'s order', async () => {
     signIn('CUSTOMER');
     await open('6');
-    http.expectOne(CART_URL).flush({ success: true, data: [] });
+    http.expectOne(WISHLIST_SYNC_URL).flush({ success: true, data: [] });
     expect(text(root.querySelector('[role="status"]'))).toContain('Loading offer');
 
     // The response also has a row of another offer: its product is not part of offer 6.
@@ -220,7 +221,7 @@ describe('OfferProducts', () => {
   it('shows a failed offer request with Try again', async () => {
     signIn('CUSTOMER');
     await open('6');
-    http.expectOne(CART_URL).flush({ success: true, data: [] });
+    http.expectOne(WISHLIST_SYNC_URL).flush({ success: true, data: [] });
     http.expectOne(offerUrl(6)).flush(
       { status: 'FAILED', message: 'Offers are unavailable.' },
       { status: 500, statusText: 'Server Error' },

@@ -107,7 +107,8 @@ export class OfferProducts {
   protected readonly failedCount = computed(() => this.countOnPage('error'));
 
   constructor() {
-    // A signed-in customer's saved items fill their hearts (one shopping_cart/get per session), as on Home.
+    // A signed-in customer's saved items fill their hearts (one wishlist/get read per session), as on Products.
+    // CHANGED: wishlist/get (it read the saved cart rows from shopping_cart/get).
     this.wishlist.sync();
 
     // The offer: again for another OFFER_ID, or on Try again. Guests and other accounts make no request.

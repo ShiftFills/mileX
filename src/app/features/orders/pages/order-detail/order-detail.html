@@ -81,10 +81,22 @@
             <h2 id="progress-title" class="od-card__title">Order Status</h2>
             <app-alert tone="danger">{{ note }}</app-alert>
           </section>
-        } @else if (stage() !== undefined) {
+        } @else if (stage() !== undefined || canTrack()) {
           <section appCard class="od-card od-progress" aria-labelledby="progress-title">
-            <h2 id="progress-title" class="od-card__title">Order Status</h2>
-            <app-stepper size="large" ariaLabel="Order progress" [steps]="progressSteps()" [current]="stage() ?? 0" />
+            <!-- CHANGED: "Track Shipment" for every open order. -->
+            <header class="od-progress__head">
+              <h2 id="progress-title" class="od-card__title">Order Status</h2>
+              @if (canTrack()) {
+                <a class="btn btn--accent btn-sm od-progress__track" [routerLink]="[routes.orders, orderNumber(), 'tracking']"
+                  [attr.aria-label]="'Track shipment of order ' + orderNumber()">Track Shipment</a>
+              }
+            </header>
+            <!-- CHANGED: a status without a tracker stage (e.g. APPROVED) is shown as text. -->
+            @if (stage() !== undefined) {
+              <app-stepper size="large" ariaLabel="Order progress" [steps]="progressSteps()" [current]="stage() ?? 0" />
+            } @else {
+              <p class="od-progress__status">Status: <strong>{{ statusLabel() }}</strong></p>
+            }
           </section>
         }
 

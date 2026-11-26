@@ -6,11 +6,24 @@ export const API_ENDPOINTS = {
   },
   productLookups: {
     // Public endpoint: storefront visitors who are not logged in have no access token.
+    // The category list of every screen that consumes categories (Add/Edit Product, All Products, Home, Product
+    // Listing, Header Menu). Admin changes made through categoryManagement below invalidate its cached response.
     categories: 'all_category/get',
     subCategories: 'sub_category/get',
     brands: 'brand_management/get',
     taxRates: 'tax_rate/get',
     productCodes: 'product_code/get',
+  },
+  // CHANGED (new): Admin Category Management (requires an Admin access token).
+  categoryManagement: {
+    /** GET `?CATEGORY_ID=-1&LIMIT=…&OFFSET=…` (-1: every category, parents and subcategories). */
+    get: 'category_management/get',
+    /** POST `{ CATEGORY_NAME, PARENT_CATEGORY_ID, CATEGORY_IMAGE, DESCRIPTION, STATUS, CREATED_BY }`. */
+    insert: 'category_management/insert',
+    /** PUT `{ CATEGORY_ID, CATEGORY_NAME, PARENT_CATEGORY_ID, CATEGORY_IMAGE, DESCRIPTION, STATUS, UPDATED_BY }`. */
+    update: 'category_management/update',
+    /** DELETE with body `{ CATEGORY_ID }`. */
+    delete: 'category_management/delete',
   },
   productVariants: {
     get: 'product_variant/get',
@@ -83,6 +96,11 @@ export const API_ENDPOINTS = {
   customerOrders: {
     get: 'customer_orders/get',
   },
+  // CHANGED (new): customer Shipment Tracking. GET `?ORDER_NUMBER=…&LIMIT=…&OFFSET=…`: one row per product of the
+  // order, each with the order's shipping and carrier details.
+  shipmentTracking: {
+    get: 'tracking',
+  },
   returnReasons: {
     get: 'return_reason/get',
   },
@@ -95,25 +113,23 @@ export const API_ENDPOINTS = {
   },
   placeOrder: {
     insert: 'place_order',
+    // CHANGED (new): Order Management (Admin). PUT `{ ORDER_ID, ORDER_STATUS, PAYMENT_STATUS, SHIPPING_STATUS }`, the
+    // status IDs from the order, payment and shipping status lookups.
+    update: 'place_order/update',
   },
   shoppingCart: {
     get: 'shopping_cart/get',
     insert: 'shopping_cart/insert',
     delete: 'shopping_cart/delete',
   },
+  // CHANGED: the wishlist has its own APIs. They replace wishlist/save_for_later (the hearts and the cart's Save for
+  // later) and move_to_cart/get + move_to_cart/update (the Wishlist screen), which worked on saved cart rows (CART_ID).
+  // The access token identifies the customer; a wishlist item is a PRODUCT_ID with its PRODUCT_VARIANT_ID.
   wishlist: {
-    /** PUT `{ CART_ID }` saves a cart row for later. */
-    saveForLater: 'wishlist/save_for_later',
-  },
-  // CHANGED (new): the Wishlist screen (replaces wishlist/get).
-  moveToCart: {
-    /**
-     * GET `?CATEGORY_ID=-1&PRODUCT_ID=-1&LIMIT=…&OFFSET=…` (-1: all categories / products): the signed-in customer's
-     * saved-for-later cart rows. It only reads.
-     */
-    get: 'move_to_cart/get',
-    /** PUT `{ CART_ID }`: moves one saved-for-later row back to the cart (Move to Cart). */
-    update: 'move_to_cart/update',
+    /** POST `{ PRODUCT_ID, PRODUCT_VARIANT_ID, ACTION: "ADD" | "REMOVE" }`: adds or removes one product variant. */
+    manage: 'wishlist/manage',
+    /** GET `?LIMIT=…&OFFSET=…`: one page of the signed-in customer's wishlist, with each product's details. */
+    get: 'wishlist/get',
   },
   // CHANGED (new): the customer Offers & Discounts page. Requires an access token.
   offerDiscount: {

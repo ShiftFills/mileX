@@ -11,7 +11,7 @@
             @if (column.headerTemplate; as headerTemplate) {
               <ng-container
                 [ngTemplateOutlet]="headerTemplate"
-                [ngTemplateOutletContext]="{ $implicit: rows() }"
+                [ngTemplateOutletContext]="{ $implicit: rows(), column }"
               />
             } @else {
               {{ column.label }}

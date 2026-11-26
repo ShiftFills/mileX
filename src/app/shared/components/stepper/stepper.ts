@@ -29,4 +29,10 @@ export class Stepper {
   /** Fit the large variant into a phone-width row instead of scrolling it. */
   readonly mobileFit = input(false);
   readonly ariaLabel = input('Progress');
+  /**
+   * Also says each step's state ("completed", "current", "upcoming") to screen readers, in visually hidden text, so the
+   * state is not given by colour and icon alone. Off by default: other steppers are unchanged.
+   */
+  // CHANGED (new)
+  readonly stateLabels = input(false);
 }

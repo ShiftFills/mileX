@@ -10,7 +10,7 @@ import {
   OrderManagementPage,
   OrderService,
 } from '@features/orders/services/order.service';
-import { of, throwError } from 'rxjs';
+import { NEVER, Subject, of, throwError } from 'rxjs';
 import { OrderManagement } from './order-management';
 
 const orderStatuses: StatusOption[] = [
@@ -61,6 +61,9 @@ describe('OrderManagement', () => {
     getManagementOrders: ReturnType<typeof vi.fn>;
     getSellerManagementOrders: ReturnType<typeof vi.fn>;
     getManagementCounts: ReturnType<typeof vi.fn>;
+    // CHANGED (new): PUT place_order/update.
+    updateOrderStatus: ReturnType<typeof vi.fn>;
+    orderUpdateErrorMessage: ReturnType<typeof vi.fn>;
   };
   let dateFilterService: { getDateFilters: ReturnType<typeof vi.fn> };
   let toast: { showError: ReturnType<typeof vi.fn>; showSuccess: ReturnType<typeof vi.fn> };
@@ -94,6 +97,10 @@ describe('OrderManagement', () => {
       ),
       getSellerManagementOrders: vi.fn(),
       getManagementCounts: vi.fn(() => of(orderCounts)),
+      updateOrderStatus: vi.fn(() => of('Order updated successfully')),
+      orderUpdateErrorMessage: vi.fn((error: unknown) =>
+        error instanceof Error ? error.message : 'The order could not be updated.',
+      ),
     };
     dateFilterService = {
       getDateFilters: vi.fn(() =>
@@ -119,10 +126,12 @@ describe('OrderManagement', () => {
     await render();
   });
 
-  it('keeps the Admin requests and never resolves a seller', () => {
+  // CHANGED: the Admin starts on every order status (-1); it was status 1.
+  it('keeps the Admin requests, starts on every order status and never resolves a seller', () => {
     expect(orderService.getSellerManagementOrders).not.toHaveBeenCalled();
     expect(sellerOnboarding.getCurrentSellerId).not.toHaveBeenCalled();
-    expect((root.querySelector('#admin-order-status') as HTMLSelectElement).value).toBe('1');
+    expect((root.querySelector('#admin-order-status') as HTMLSelectElement).value).toBe('-1');
+    expect(root.querySelector('#admin-order-status option')?.textContent?.trim()).toBe('All Order Status');
     expect(root.querySelector('.pagination__summary')?.textContent).toContain('7 orders');
   });
 
@@ -134,6 +143,8 @@ describe('OrderManagement', () => {
         value.textContent?.replace(/\s/g, ''),
       ),
     ).toEqual(['4', '₹6,000', '0', '4', '0']);
+    // CHANGED: no made-up trend figures on the cards (the APIs send none).
+    expect(root.querySelector('.stat-card__trend')).toBeNull();
     expect(root.querySelectorAll('tbody tr').length).toBe(6);
     const displayedStatuses = Array.from(root.querySelectorAll('tbody app-badge')).map((badge) =>
       badge.textContent?.trim(),
@@ -159,9 +170,10 @@ describe('OrderManagement', () => {
     expect((root.querySelector('#order-date-range') as HTMLSelectElement).value).toBe('10');
     expect(dateFilterService.getDateFilters).toHaveBeenCalledOnce();
     expect(orderService.getManagementOrders).toHaveBeenCalledOnce();
+    // CHANGED: DAYS=7 and -1 for all three statuses.
     expect(orderService.getManagementOrders).toHaveBeenCalledWith({
       DAYS: 7,
-      ORDER_STATUS: 1,
+      ORDER_STATUS: -1,
       PAYMENT_STATUS: -1,
       SHIPPING_STATUS: -1,
     });
@@ -190,7 +202,7 @@ describe('OrderManagement', () => {
 
     expect(orderService.getManagementOrders).toHaveBeenLastCalledWith({
       DAYS: 7,
-      ORDER_STATUS: 1,
+      ORDER_STATUS: -1,
       PAYMENT_STATUS: 3,
       SHIPPING_STATUS: -1,
     });
@@ -220,6 +232,195 @@ describe('OrderManagement', () => {
     });
     expect(orderService.getManagementCounts).toHaveBeenCalledTimes(2);
     expect(orderService.getManagementCounts).toHaveBeenLastCalledWith(30);
+  });
+
+  // CHANGED (new): sorting, readable dates and Clear filters.
+  describe('table', () => {
+    async function renderOrders(orders: OrderManagementOrder[]): Promise<void> {
+      fixture.destroy();
+      orderService.getManagementOrders.mockReturnValue(of(orders));
+      await render();
+    }
+
+    const orderNumbers = (): string[] =>
+      Array.from(root.querySelectorAll('tbody .order-no-link')).map((cell) => cell.textContent?.trim() ?? '');
+
+    it('shows ORDER_DATE as a readable date', async () => {
+      await renderOrders([{ ...makeOrder(1), orderDate: '2026-11-16T06:50:51.000Z' }]);
+      const dateCell = root.querySelectorAll('tbody tr td')[2];
+      expect(dateCell.textContent).toMatch(/^\s*\d{2} Nov 2026, \d{1,2}:\d{2} (AM|PM)\s*$/);
+    });
+
+    it('sorts every page by order amount and date, ascending then descending', async () => {
+      await renderOrders([
+        { ...makeOrder(1), amount: 300, orderDate: '2026-11-02T10:00:00.000Z' },
+        { ...makeOrder(2), amount: 100, orderDate: '2026-11-03T10:00:00.000Z' },
+        { ...makeOrder(3), amount: null, orderDate: '2026-11-01T10:00:00.000Z' },
+        { ...makeOrder(4), amount: 200, orderDate: '2026-11-04T10:00:00.000Z' },
+      ]);
+      const sortButton = (label: string): HTMLButtonElement =>
+        root.querySelector(`th button.order-sort[aria-label^="Sort by ${label}"]`) as HTMLButtonElement;
+
+      sortButton('Order Amount').click();
+      await settle();
+      // An order without an amount stays last.
+      expect(orderNumbers()).toEqual(['ORD-2', 'ORD-4', 'ORD-1', 'ORD-3']);
+      expect(sortButton('Order Amount').getAttribute('aria-label')).toBe('Sort by Order Amount, sorted ascending');
+
+      sortButton('Order Amount').click();
+      await settle();
+      expect(orderNumbers()).toEqual(['ORD-1', 'ORD-4', 'ORD-2', 'ORD-3']);
+
+      sortButton('Order Date').click();
+      await settle();
+      expect(orderNumbers()).toEqual(['ORD-3', 'ORD-1', 'ORD-2', 'ORD-4']);
+    });
+
+    it('clears the search and the status filters back to every status', async () => {
+      const paymentSelect = root.querySelector('#admin-order-payment') as HTMLSelectElement;
+      paymentSelect.value = '3';
+      paymentSelect.dispatchEvent(new Event('change'));
+      await settle();
+      expect(root.querySelector('.order-clear-filters')).not.toBeNull();
+
+      (root.querySelector('.order-clear-filters') as HTMLButtonElement).click();
+      await settle();
+
+      expect(orderService.getManagementOrders).toHaveBeenLastCalledWith({
+        DAYS: 7, ORDER_STATUS: -1, PAYMENT_STATUS: -1, SHIPPING_STATUS: -1,
+      });
+      expect((root.querySelector('#admin-order-payment') as HTMLSelectElement).value).toBe('-1');
+      expect(root.querySelector('.order-clear-filters')).toBeNull();
+    });
+  });
+
+  // CHANGED (new): the order details dialog and PUT place_order/update (Admin).
+  describe('order details and status update', () => {
+    const dialog = (): HTMLElement | null => root.querySelector('.order-dialog');
+    const select = (id: string): HTMLSelectElement => root.querySelector(`#${id}`) as HTMLSelectElement;
+    const updateButton = (): HTMLButtonElement =>
+      Array.from(root.querySelectorAll<HTMLButtonElement>('.order-dialog__actions button'))
+        .find((button) => button.textContent?.includes('Update') || button.textContent?.includes('Updating'))!;
+    const rowOf = (orderNo: string): HTMLElement =>
+      Array.from(root.querySelectorAll<HTMLElement>('tbody tr'))
+        .find((row) => row.querySelector('.order-no-link')?.textContent?.trim() === orderNo)!;
+
+    async function openOrder(orderNo: string): Promise<void> {
+      (rowOf(orderNo).querySelector('.order-action') as HTMLButtonElement).click();
+      await settle();
+    }
+
+    async function choose(id: string, value: string): Promise<void> {
+      select(id).value = value;
+      select(id).dispatchEvent(new Event('change'));
+      await settle();
+    }
+
+    it('opens from the row with the order\'s details and its current statuses selected', async () => {
+      expect(rowOf('ORD-1').querySelector('.order-action')?.getAttribute('aria-label')).toBe('Manage order ORD-1');
+      await openOrder('ORD-1');
+
+      expect(dialog()?.getAttribute('role')).toBe('dialog');
+      expect(dialog()?.querySelector('h2')?.textContent).toContain('Order ORD-1');
+      expect(dialog()?.textContent).toContain('Ravi Kumar');
+      expect(dialog()?.textContent).toContain('₹1,500.00');
+      // ORD-1: order status 1 (CONFIRMED), payment status 3 (FAILED), shipping status 1 (SHIPPED).
+      expect(select('update-order-status').value).toBe('1');
+      expect(select('update-payment-status').value).toBe('3');
+      expect(select('update-shipping-status').value).toBe('1');
+      // The options and IDs come from the status lookups.
+      expect(Array.from(select('update-payment-status').options).map((option) => [option.value, option.textContent?.trim()]))
+        .toEqual([['', 'Select payment status'], ['1', 'PAID'], ['2', 'PENDING'], ['3', 'FAILED']]);
+      // Nothing changed yet: nothing to save.
+      expect(updateButton().disabled).toBe(true);
+      expect(dialog()?.textContent).toContain('Change a status to update this order.');
+    });
+
+    it('sends ORDER_ID with the three selected status IDs, then shows a toast and the new statuses', async () => {
+      await openOrder('ORD-1');
+      await choose('update-order-status', '2');
+      await choose('update-payment-status', '1');
+      await choose('update-shipping-status', '2');
+      expect(updateButton().disabled).toBe(false);
+      // The list reload after the update stays pending here, so the row shows the update itself.
+      orderService.getManagementOrders.mockReturnValue(NEVER);
+      const listCalls = orderService.getManagementOrders.mock.calls.length;
+
+      updateButton().click();
+      await settle();
+
+      expect(orderService.updateOrderStatus).toHaveBeenCalledOnce();
+      expect(orderService.updateOrderStatus).toHaveBeenCalledWith({
+        ORDER_ID: 1, ORDER_STATUS: 2, PAYMENT_STATUS: 1, SHIPPING_STATUS: 2,
+      });
+      expect(toast.showSuccess).toHaveBeenCalledWith('Order updated successfully');
+      expect(dialog()).toBeNull();
+      const badges = Array.from(rowOf('ORD-1').querySelectorAll('app-badge')).map((badge) => badge.textContent?.trim());
+      expect(badges).toEqual(['PAID', 'PROCESSING', 'NOT SHIPPED']);
+      // The list and the counts are read again, and the table stays on screen meanwhile.
+      expect(orderService.getManagementOrders).toHaveBeenCalledTimes(listCalls + 1);
+      expect(orderService.getManagementCounts).toHaveBeenCalledTimes(2);
+      expect(root.querySelector('app-table')).not.toBeNull();
+    });
+
+    it('sends one request however often Update is clicked, and keeps the dialog open until it is answered', async () => {
+      const response = new Subject<string>();
+      orderService.updateOrderStatus.mockReturnValue(response);
+      await openOrder('ORD-1');
+      await choose('update-shipping-status', '2');
+
+      updateButton().click();
+      await settle();
+      updateButton().click();
+      await settle();
+      expect(orderService.updateOrderStatus).toHaveBeenCalledOnce();
+      expect(updateButton().getAttribute('aria-busy')).toBe('true');
+      expect(updateButton().textContent).toContain('Updating…');
+      expect(select('update-shipping-status').disabled).toBe(true);
+      expect((root.querySelector('.order-dialog__close') as HTMLButtonElement).disabled).toBe(true);
+      // Clicking outside does not close it while the update runs.
+      (root.querySelector('app-dialog .dialog-backdrop') as HTMLElement).click();
+      await settle();
+      expect(dialog()).not.toBeNull();
+
+      response.error(new Error('Invalid shipping status'));
+      await settle();
+
+      // Failed: the dialog stays open with the reason, and the form can be sent again.
+      expect(dialog()).not.toBeNull();
+      expect(dialog()?.querySelector('.order-dialog__error')?.textContent).toContain('Invalid shipping status');
+      expect(toast.showError).toHaveBeenCalledWith('Invalid shipping status');
+      expect(updateButton().disabled).toBe(false);
+      expect(toast.showSuccess).not.toHaveBeenCalled();
+      // The row keeps its statuses.
+      expect(Array.from(rowOf('ORD-1').querySelectorAll('app-badge')).map((badge) => badge.textContent?.trim()))
+        .toEqual(['FAILED', 'CONFIRMED', 'SHIPPED']);
+    });
+
+    it('requires every status: an order without one cannot be saved until it is chosen', async () => {
+      fixture.destroy();
+      orderService.getManagementOrders.mockReturnValue(of([{ ...makeOrder(1), shippingStatusId: null }]));
+      await render();
+      await openOrder('ORD-1');
+
+      expect(select('update-shipping-status').value).toBe('');
+      expect(updateButton().disabled).toBe(true);
+      expect(dialog()?.textContent).toContain('Select an order, payment and shipping status.');
+
+      await choose('update-shipping-status', '1');
+      expect(updateButton().disabled).toBe(false);
+    });
+
+    it('closes with Cancel without sending anything', async () => {
+      await openOrder('ORD-2');
+      await choose('update-order-status', '2');
+      Array.from(root.querySelectorAll<HTMLButtonElement>('.order-dialog__actions button'))
+        .find((button) => button.textContent?.includes('Cancel'))!.click();
+      await settle();
+
+      expect(dialog()).toBeNull();
+      expect(orderService.updateOrderStatus).not.toHaveBeenCalled();
+    });
   });
 
   // CHANGED (new): Seller login uses the SELLER_ID order dashboard API with API search, filters and paging.
@@ -350,6 +551,23 @@ describe('OrderManagement', () => {
       await settle();
       expect(orderService.getSellerManagementOrders).toHaveBeenCalledTimes(callsBeforeSearch + 2);
       expect(orderService.getSellerManagementOrders).toHaveBeenLastCalledWith(firstRequest);
+    });
+
+    // CHANGED (new): Sellers see an order's details, but cannot change its statuses.
+    it('shows an order\'s details read-only, without the status update form', async () => {
+      const view = root.querySelector('tbody tr .order-action') as HTMLButtonElement;
+      expect(view.getAttribute('aria-label')).toBe('View order ORD-1');
+      view.click();
+      await settle();
+
+      const dialog = root.querySelector('.order-dialog');
+      expect(dialog?.querySelector('h2')?.textContent).toContain('Order ORD-1');
+      expect(dialog?.textContent).toContain('Seller product 1');
+      expect(dialog?.querySelector('form')).toBeNull();
+      expect(dialog?.querySelector('select')).toBeNull();
+      // No sortable headers: the API pages the seller's orders.
+      expect(root.querySelector('th button.order-sort')).toBeNull();
+      expect(orderService.updateOrderStatus).not.toHaveBeenCalled();
     });
 
     it('shows the error with retry when the seller account cannot be resolved', async () => {

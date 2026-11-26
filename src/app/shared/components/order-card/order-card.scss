@@ -95,6 +95,18 @@
     white-space: nowrap;
   }
 
+  // CHANGED (new): View Details and Track Order side by side; they wrap onto two lines on a narrow card.
+  &__links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: u(0.2) u(0.75);
+    margin: u(0.5) 0 0;
+
+    .my-order__link {
+      margin-top: 0;
+    }
+  }
+
   &__link {
     display: inline-block;
     max-width: 100%;

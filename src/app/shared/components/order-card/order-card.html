@@ -7,7 +7,13 @@
       <h2 class="my-order__id" [title]="order().id">#{{ order().id }}</h2>
       <p class="my-order__meta">{{ order().placedOn | date: 'mediumDate' }} <span aria-hidden="true">&bull;</span> {{ itemCount() }} items</p>
       <p class="my-order__total">{{ order().total | currency: 'INR' : 'symbol' : '1.0-0' }}</p>
-      <a class="my-order__link" [routerLink]="detailsLink()" [attr.aria-label]="'View details for order ' + order().id">View Details &rarr;</a>
+      <!-- CHANGED: "Track Order" next to "View Details" (not for a cancelled or failed order). -->
+      <p class="my-order__links">
+        <a class="my-order__link" [routerLink]="detailsLink()" [attr.aria-label]="'View details for order ' + order().id">View Details &rarr;</a>
+        @if (canTrack()) {
+          <a class="my-order__link my-order__link--track" [routerLink]="trackingLink()" [attr.aria-label]="'Track order ' + order().id">Track Order &rarr;</a>
+        }
+      </p>
     </div>
   </div>
 

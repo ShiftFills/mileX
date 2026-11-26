@@ -3,7 +3,315 @@
   min-width: 0;
 }
 
-// 11 columns: let the shared table scroll horizontally instead of squashing on small screens.
+// 12 columns: let the shared table scroll horizontally instead of squashing on small screens.
+// CHANGED: a little wider for the Actions column.
 .orders-table {
-  --table-responsive-min-width: 64rem;
+  --table-responsive-min-width: 68rem;
+}
+
+// CHANGED (new): "Clear filters" next to the status filters.
+.order-clear-filters {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 0 var(--space-1);
+  border: 0;
+  background: transparent;
+  color: var(--color-file-link);
+  font-size: 0.62rem;
+  font-weight: var(--weight-bold);
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+// CHANGED (new): sortable column headers (Admin).
+.order-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &__icon {
+    width: 0.4rem;
+    height: 0.5rem;
+    flex: 0 0 auto;
+
+    path {
+      fill: var(--color-border);
+      transition: fill 0.15s ease;
+
+      &.is-on {
+        fill: var(--color-primary);
+      }
+    }
+  }
+
+  &:hover &__icon path:not(.is-on) {
+    fill: var(--color-placeholder);
+  }
+
+  &.is-active {
+    color: var(--color-primary);
+  }
+}
+
+// CHANGED (new): the order number opens the order's details.
+.order-no-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+// CHANGED (new): the row's Manage (Admin) / View (Seller) button.
+.order-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.15rem 0.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-primary);
+  font-size: 0.56rem;
+  font-weight: var(--weight-bold);
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+
+  svg {
+    width: 0.6rem;
+    height: 0.6rem;
+    stroke: currentColor;
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  &:hover {
+    border-color: var(--color-primary);
+    background: var(--color-bg);
+  }
+}
+
+.order-sort,
+.order-no-link,
+.order-action,
+.order-clear-filters,
+.order-dialog__close {
+  &:focus-visible {
+    border-radius: var(--radius-sm);
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+}
+
+// CHANGED (new): the order details / status update dialog, in the style of the Seller Details dialog.
+.order-dialog {
+  display: flex;
+  width: min(100%, 46rem);
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  flex-direction: column;
+  overflow-y: auto;
+  padding: var(--space-5);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+
+  &:focus {
+    outline: none;
+  }
+
+  > * {
+    flex-shrink: 0;
+  }
+
+  &__heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding-bottom: var(--space-3);
+    border-bottom: 1px solid var(--color-border-subtle);
+
+    h2 {
+      margin: 0;
+      color: var(--color-text);
+      font-size: 1.05rem;
+      font-weight: var(--weight-bold);
+      overflow-wrap: anywhere;
+    }
+
+    p {
+      margin: 0.15rem 0 0;
+      color: var(--color-text-muted);
+      font-size: 0.66rem;
+    }
+  }
+
+  &__close {
+    display: grid;
+    width: 1.5rem;
+    height: 1.5rem;
+    flex: 0 0 auto;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--color-text-muted);
+    cursor: pointer;
+
+    svg {
+      width: 0.85rem;
+      height: 0.85rem;
+      stroke: currentColor;
+      stroke-width: 1.4;
+      stroke-linecap: round;
+    }
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
+  }
+
+  &__statuses {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-4);
+    margin: var(--space-3) 0 0;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    list-style: none;
+
+    li {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+
+    span {
+      color: var(--color-text-muted);
+      font-size: 0.62rem;
+      font-weight: var(--weight-bold);
+    }
+  }
+
+  &__section {
+    margin: var(--space-4) 0 var(--space-2);
+    color: var(--color-text);
+    font-size: 0.78rem;
+    font-weight: var(--weight-bold);
+  }
+
+  &__form {
+    margin-top: var(--space-2);
+    padding-top: var(--space-1);
+    border-top: 1px solid var(--color-border-subtle);
+  }
+
+  &__alert {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    background: rgb(181 45 70 / 8%);
+    color: var(--color-danger);
+    font-size: 0.64rem;
+  }
+
+  &__error {
+    margin: var(--space-3) 0 0;
+    color: var(--color-danger);
+    font-size: 0.66rem;
+    overflow-wrap: anywhere;
+  }
+
+  &__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    margin-top: var(--space-4);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--color-border-subtle);
+
+    app-button {
+      min-width: 5.5rem;
+    }
+  }
+
+  &__hint {
+    flex: 1 1 12rem;
+    margin: 0;
+    color: var(--color-text-muted);
+    font-size: 0.62rem;
+  }
+}
+
+.order-field__label {
+  display: block;
+  margin-bottom: 0.2rem;
+  color: var(--color-text);
+  font-size: 0.64rem;
+  font-weight: var(--weight-bold);
+
+  b {
+    color: var(--color-danger);
+  }
+}
+
+.order-info {
+  margin: 0;
+  row-gap: var(--space-3);
+
+  > div {
+    padding-inline-end: var(--space-4);
+  }
+
+  dt {
+    color: var(--color-placeholder);
+    font-size: 0.64rem;
+    font-weight: var(--weight-bold);
+  }
+
+  dd {
+    margin: 0.1rem 0 0;
+    color: var(--color-text);
+    font-size: 0.72rem;
+    font-weight: var(--weight-medium);
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .order-dialog {
+    padding: var(--space-3);
+  }
+
+  .order-dialog__actions app-button {
+    flex: 1 1 0;
+  }
 }

@@ -230,7 +230,35 @@ describe('OrderDetail', () => {
 
     expect(root.querySelector('app-stepper')).toBeNull();
     expect(root.textContent).toContain('This order was cancelled.');
+    // CHANGED (new): no Track Shipment for a cancelled order.
+    expect(root.querySelector('.od-progress__track')).toBeNull();
   });
+
+  // CHANGED: Track Shipment opens /orders/<order number>/tracking for every open order (the STATUS of
+  // customer_orders/get does not follow the shipment, so it stays "ORDERED" while the order is in transit).
+  for (const status of ['ORDERED', 'APPROVED', 'SHIPPED', 'IN_TRANSIT']) {
+    it(`offers Track Shipment in the Order Status card for a ${status} order`, async () => {
+      await renderOrder([orderRow(15, 'ORD0005', { STATUS: status })]);
+      const track = root.querySelector('.od-progress .od-progress__head .od-progress__track');
+      expect(track?.getAttribute('href')).toBe('/orders/ORD0005/tracking');
+      expect(track?.textContent?.trim()).toBe('Track Shipment');
+      expect(track?.getAttribute('aria-label')).toBe('Track shipment of order ORD0005');
+    });
+  }
+
+  it('shows the status as text, with Track Shipment, for a status the tracker has no stage for', async () => {
+    await renderOrder([orderRow(15, 'ORD0005', { STATUS: 'APPROVED' })]);
+    expect(root.querySelector('.od-progress app-stepper')).toBeNull();
+    expect(root.querySelector('.od-progress__status')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Status: Approved');
+  });
+
+  for (const status of ['CANCELLED', 'FAILED']) {
+    it(`does not offer Track Shipment for a ${status} order`, async () => {
+      await renderOrder([orderRow(15, 'ORD0005', { STATUS: status })]);
+      expect(root.querySelector('.od-progress__track')).toBeNull();
+      expect(root.querySelector('app-stepper')).toBeNull();
+    });
+  }
 
   it('shows each item status when the items of one order differ', async () => {
     await renderOrder([

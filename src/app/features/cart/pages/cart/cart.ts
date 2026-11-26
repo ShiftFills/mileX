@@ -31,7 +31,7 @@ import { PageHeading } from '@shared/components/page-heading/page-heading';
 import { Stepper } from '@shared/components/stepper/stepper';
 import { CartItem } from '@shared/models';
 import { eventValue } from '@shared/utils/form-events';
-import { finalize } from 'rxjs';
+import { finalize, of, switchMap, tap } from 'rxjs';
 
 /** Stock counts at or below this are surfaced as "Only N left". */
 const LOW_STOCK_LIMIT = 10;
@@ -142,6 +142,9 @@ export class Cart {
     // saved cart rows are restored with the latest product values. load() is a no-op once loaded.
     this.catalog.load();
     if (this.isCustomer()) this.loadCustomerCart();
+    // CHANGED (new): Save for later skips the wishlist add for a variant that is already saved (one wishlist/get read
+    // per session, shared with the hearts).
+    this.wishlist.sync();
     // CHANGED (new): loads the S3 image URLs of the rows on screen whenever the cart or saved list changes
     // (one request per distinct key; cached URLs make none).
     effect(() => {
@@ -207,27 +210,51 @@ export class Cart {
     return this.pendingAction(item) !== undefined;
   }
 
+  /**
+   * Save for later moves an API row to the wishlist: POST wishlist/manage `{ PRODUCT_ID, PRODUCT_VARIANT_ID,
+   * ACTION: "ADD" }` with the row's product and variant (skipped when that variant is already in the wishlist), then
+   * DELETE shopping_cart/delete for the row. The row leaves the cart only after both succeeded.
+   */
+  // CHANGED: the wishlist API (wishlist/manage) replaces PUT wishlist/save_for_later, which marked the cart row as
+  // saved for later; the row is then deleted from the cart, as Save for later used to take it out of the cart.
   protected saveForLater(item: CartItem): void {
     const cartId = item.apiDetails?.cartId;
     if (cartId === undefined) {
       // Local-only row (guest, or added on this device): it has no CART_ID, so the API cannot be called.
-      if (!this.wishlist.has(item.product.id)) this.wishlist.toggle(item.product.id);
+      // CHANGED: hasOnDevice (has() now takes the product and its variant).
+      if (!this.wishlist.hasOnDevice(item.product.id)) this.wishlist.toggle(item.product.id);
       this.cart.remove(item.product.id);
       return;
     }
     if (this.pendingCartActions().has(cartId)) return;
+    const variantId = item.apiDetails?.variant?.id;
+    if (!variantId) {
+      this.toast.showError(`${item.product.name} cannot be saved to your wishlist right now. Variant details are missing.`);
+      return;
+    }
 
     this.setPending(cartId, 'save');
-    // CHANGED: with the row's variant (VARIANT_ID; null without one).
-    this.shoppingCart.saveForLater(cartId, item.apiDetails?.variant?.id).pipe(
+    let saved = false;
+    const addToWishlist = this.wishlist.has(item.product, variantId)
+      ? of(undefined)
+      : this.wishlist.manage(item.product.id, variantId, 'ADD');
+    addToWishlist.pipe(
+      tap(() => (saved = true)),
+      switchMap(() => this.shoppingCart.removeItem(item)),
       finalize(() => this.setPending(cartId, null)),
       takeUntilDestroyed(this.destroyRef),
     ).subscribe({
       next: () => {
-        this.cart.moveToSavedForLater(cartId);
-        this.toast.showSuccess(`${item.product.name} was moved to Saved for later.`);
+        this.cart.remove(item.product.id, cartId);
+        this.toast.showSuccess(`${item.product.name} was moved to your wishlist.`);
       },
-      error: (error: unknown) => this.toast.showError(this.catalog.getErrorMessage(error)),
+      error: (error: unknown) => {
+        const message = this.catalog.getErrorMessage(error);
+        // Saved, but the cart row is still there: say so, so it is not saved again by mistake.
+        this.toast.showError(
+          saved ? `${item.product.name} was saved to your wishlist, but could not be removed from your cart. ${message}` : message,
+        );
+      },
     });
   }
 

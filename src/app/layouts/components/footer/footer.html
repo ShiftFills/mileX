@@ -43,7 +43,10 @@
       <a [routerLink]="routes.login">Login</a>
       <a [routerLink]="routes.register">Register</a>
       <a [routerLink]="routes.account">Settings</a>
-      <a [routerLink]="routes.orders">My Orders</a>
+      <!-- CHANGED: customers and visitors only. -->
+      @if (showMyOrders()) {
+        <a [routerLink]="routes.orders">My Orders</a>
+      }
     </nav>
 
     <div class="store-footer__column store-footer__apps">

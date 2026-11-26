@@ -8,3 +8,5 @@ export * from './refund.model';
 export * from './shipment.model';
 export * from './user.model';
 export * from './payment-method.model';
+// CHANGED (new)
+export * from './wishlist.model';

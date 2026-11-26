@@ -91,9 +91,37 @@ describe('StorefrontHeader account menu', () => {
     expect(TestBed.inject(Router).url).toBe('/auth/register');
   });
 
+  // CHANGED (new): My Orders and Track Order open the customer-only order history.
+  it('shows Track Order to a guest, a customer, but not to an Admin or a Seller', async () => {
+    const trackOrder = (): HTMLAnchorElement | null => root.querySelector('a[href="/orders"]');
+    expect(trackOrder()?.textContent).toContain('Track Order');
+
+    auth.setSession({ id: '7', email: '', firstName: 'Asha', lastName: '', userType: 'CUSTOMER' }, 'token');
+    await fixture.whenStable();
+    expect(trackOrder()).not.toBeNull();
+
+    for (const userType of ['ADMIN', 'SELLER']) {
+      auth.setSession({ id: '1', email: '', firstName: 'Staff', lastName: '', userType }, 'token');
+      await fixture.whenStable();
+      expect(trackOrder(), userType).toBeNull();
+    }
+  });
+
+  it('leaves My Orders out of an Admin\'s account menu', async () => {
+    auth.setSession({ id: '1', email: 'admin@milex.in', firstName: 'Sujan', lastName: 'Saha', userType: 'ADMIN' }, 'token');
+    await openMenu();
+    const links = Array.from(root.querySelectorAll('#account-menu a')).map((a) => a.textContent?.trim());
+    expect(links).not.toContain('My Orders');
+    expect(root.querySelector('a[href="/orders"]')).toBeNull();
+  });
+
   describe('when signed in', () => {
     beforeEach(async () => {
-      auth.setSession({ id: '1', email: 'sujansaha@gmail.com', firstName: 'Sujan', lastName: 'saha' }, 'token');
+      // CHANGED: a customer account (My Orders is for customers).
+      auth.setSession(
+        { id: '1', email: 'sujansaha@gmail.com', firstName: 'Sujan', lastName: 'saha', userType: 'CUSTOMER' },
+        'token',
+      );
       await openMenu();
     });
 

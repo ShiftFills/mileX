@@ -32,7 +32,8 @@ export class CartService {
 
   /** Active cart rows only. Rows saved for later live in `savedItems` and never reach totals. */
   readonly items = this._items.asReadonly();
-  /** Cart rows the backend reports as SAVE_FOR_LATER = 1, plus rows saved during this session. */
+  /** Cart rows the backend reports as SAVE_FOR_LATER = 1 (the wishlist itself is WishlistService's). */
+  // CHANGED: no longer adds rows saved during this session (Save for later now adds to the wishlist).
   readonly savedItems = this._savedItems.asReadonly();
   /** Every unit in the cart, delisted ones included until they are removed (the header badge). */
   readonly count = computed(() => this._items().reduce((sum, item) => sum + item.quantity, 0));
@@ -162,28 +163,11 @@ export class CartService {
     this.checkProductStatuses(activeItems);
   }
 
-  /**
-   * Call after the save-for-later API succeeds: moves the API cart row out of the active list
-   * (which updates count, subtotal and total) and into the saved list without duplicating it.
-   */
-  moveToSavedForLater(cartId: string): void {
-    const item = this._items().find((entry) => entry.apiDetails?.cartId === cartId);
-    if (!item?.apiDetails) return;
-    const savedItem: CartItem = { ...item, apiDetails: { ...item.apiDetails, saveForLater: true } };
-    this._savedItems.update((saved) =>
-      saved.some((entry) => entry.apiDetails?.cartId === cartId) ? saved : [...saved, savedItem],
-    );
-    this.save(this._items().filter((entry) => entry.apiDetails?.cartId !== cartId));
-  }
+  // CHANGED: moveToSavedForLater and dropSavedItem are removed: Save for later and the hearts use the wishlist APIs
+  // (wishlist/manage), so no cart row is marked saved for later from here any more.
 
   clear(): void {
     this.save([]);
-  }
-
-  /** Call after a saved-for-later row was deleted through the API (e.g. a wishlist heart was unticked). */
-  // CHANGED (new)
-  dropSavedItem(cartId: string): void {
-    this._savedItems.update((saved) => saved.filter((item) => item.apiDetails?.cartId !== cartId));
   }
 
   /**

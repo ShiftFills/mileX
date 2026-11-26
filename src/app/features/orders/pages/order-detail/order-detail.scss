@@ -211,6 +211,31 @@ svg {
   }
 }
 
+// CHANGED (new): the title with "Track Shipment" beside it.
+.od-progress__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+
+  .od-card__title {
+    margin-bottom: 0;
+  }
+}
+
+// CHANGED (new): the status of an order whose status has no tracker stage.
+.od-progress__status {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+
+  strong {
+    color: var(--color-text);
+  }
+}
+
 // ---- Progress tracker (shared stepper, large) ----
 .od-progress app-stepper {
   --stepper-marker: 2.1rem;

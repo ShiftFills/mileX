@@ -210,6 +210,16 @@ export class OrderDetail {
     const status = this.orderStatus();
     return status === null ? undefined : CLOSED_STATUS_NOTES[orderStatusKey(status)];
   });
+  /**
+   * "Track Shipment" (/orders/<order number>/tracking): for every open order, i.e. any order with an item that is not
+   * cancelled or failed. The STATUS of customer_orders/get does not follow the shipment yet (it stays "ORDERED" while
+   * the tracking API reports "IN TRANSIT"), so it cannot tell whether the order has shipped; the tracking page itself
+   * says when it has not. Delivered orders keep it: their tracking page shows the delivery and Cancel / Return.
+   */
+  // CHANGED: every open order (it was SHIPPED / IN_TRANSIT / OUT_FOR_DELIVERY only, so it never showed).
+  protected readonly canTrack = computed(() =>
+    this.lines().some((line) => !CLOSED_STATUS_NOTES[orderStatusKey(line.status)]),
+  );
   protected readonly progressSteps = computed<StepperStep[]>(() => {
     const placedOn = this.placedOn();
     return PROGRESS_STEPS.map((step, index) =>

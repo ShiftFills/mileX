@@ -1,8 +1,238 @@
+import { formatDate } from '@angular/common';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { API_BASE_URL } from '@core/config/api.config';
-import { OrderService } from './order.service';
+import { ShipmentTracking } from '@shared/models';
+import {
+  OrderService,
+  SHIPMENT_STEPS,
+  mapShipmentTracking,
+  parseDeliveryAddress,
+  shipmentSteps,
+  validIsoDate,
+} from './order.service';
+
+// CHANGED (new): the tracking API sample row (GET tracking?ORDER_NUMBER=ORD0016&LIMIT=10&OFFSET=0).
+function trackingRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    ORDER_ID: 33, ORDER_NUMBER: 'ORD0016', ORDER_DATE: '2026-11-25T06:56:08.000Z',
+    ORDER_STATUS_ID: 7, ORDER_STATUS_NAME: 'APPROVED', ORDER_SHIPPING_STATUS_ID: 3, ORDER_SHIPPING_STATUS_NAME: 'IN TRANSIT',
+    PRODUCT_ID: 17, PRODUCT_NAME: 'Wireless Mosue', SKU: 'SKU0017', QUANTITY: 4, PRICE: '56666.00',
+    SUBTOTAL: '226664.00', DISCOUNT: '0.00', TAX: '0.00', TOTAL_AMOUNT: '226714.00', DELIVERY_ADDRESS_ID: 1,
+    DELIVERY_ADDRESS: 'pooja, 9876543210, 13/5a, 2nd Street, Near Bus Stand, Chennai, Tamil Nadu, India, 600040',
+    SHIPPING_ID: 1, SHIPMENT_NUMBER: 'SHP001', SHIPPING_PROVIDER_ID: 1, SHIPPING_PROVIDER_NAME: 'BlueDart',
+    TRACKING_NUMBER: 'TRK001', SHIPPING_DATE: '2026-11-26T18:30:00.000Z', EXPECTED_DELIVERY_DATE: '2026-11-31',
+    STATUS: 'On schedule',
+    ...overrides,
+  };
+}
+
+/** shipping_status/get rows, in the order the API sends them (IDs are not in delivery order). */
+const SHIPPING_STATUSES = [
+  { id: 4, label: 'DELIVERED' },
+  { id: 3, label: 'IN TRANSIT' },
+  { id: 2, label: 'NOT SHIPPED' },
+  { id: 1, label: 'SHIPPED' },
+  { id: 5, label: 'RETURNED' },
+];
+
+// CHANGED: the design's caption format.
+const dateTime = (value: string): string => formatDate(value, 'd MMM, hh:mm a', 'en-US');
+
+describe('shipment tracking mapping', () => {
+  it('maps one row: order, carrier, schedule, item, address and the API totals', () => {
+    const shipment = mapShipmentTracking([trackingRow()], 'ORD0016') as ShipmentTracking;
+
+    expect(shipment).toMatchObject({
+      orderId: 'ORD0016',
+      placedOn: '2026-11-25T06:56:08.000Z',
+      orderStatus: 'APPROVED',
+      shippingStatusId: 3,
+      shippingStatus: 'IN TRANSIT',
+      shipmentNumber: 'SHP001',
+      shippedOn: '2026-11-26T18:30:00.000Z',
+      carrier: { name: 'BlueDart', code: 'BLU', color: '#e63946', trackingNo: 'TRK001', siteUrl: 'https://www.bluedart.com/tracking' },
+      scheduleStatus: 'On schedule',
+      onSchedule: true,
+      items: [{ name: 'Wireless Mosue', sku: 'SKU0017', quantity: 4, price: 56666, tone: 'accent' }],
+      address: {
+        name: 'pooja',
+        phone: '9876543210',
+        lines: ['13/5a, 2nd Street, Near Bus Stand', 'Chennai, Tamil Nadu, India, 600040'],
+        city: 'Chennai',
+      },
+      // TOTAL_AMOUNT − (SUBTOTAL + TAX − DISCOUNT) = 50 is the shipping.
+      totals: { subtotal: 226664, discount: 0, tax: 0, shipping: 50, total: 226714 },
+    });
+    // Nothing the API does not send.
+    expect(shipment.currentLocation).toBeUndefined();
+    expect(shipment.distanceKm).toBeUndefined();
+    expect(shipment.route).toBeUndefined();
+    expect(shipment.payment).toBeUndefined();
+  });
+
+  it('shows no expected delivery for the impossible EXPECTED_DELIVERY_DATE "2026-11-31"', () => {
+    expect(mapShipmentTracking([trackingRow()])?.estimatedDelivery).toBeNull();
+    expect(mapShipmentTracking([trackingRow({ EXPECTED_DELIVERY_DATE: '2026-11-30' })])?.estimatedDelivery).toBe('2026-11-30');
+
+    expect(validIsoDate('2026-11-31')).toBe('');
+    expect(validIsoDate('2026-02-29')).toBe('');
+    expect(validIsoDate('2028-02-29')).toBe('2028-02-29');
+    expect(validIsoDate('2026-11-26T18:30:00.000Z')).toBe('2026-11-26T18:30:00.000Z');
+    expect(validIsoDate('30/11/2026')).toBe('');
+    expect(validIsoDate(null)).toBe('');
+  });
+
+  it('makes one item per product row and adds up the amounts of each order record once', () => {
+    const shipment = mapShipmentTracking([
+      trackingRow(),
+      trackingRow({
+        ORDER_ID: 34, PRODUCT_ID: 18, PRODUCT_NAME: 'USB Cable', SKU: 'SKU0018', QUANTITY: 2, PRICE: '100.00',
+        SUBTOTAL: '200.00', DISCOUNT: '20.00', TAX: '18.00', TOTAL_AMOUNT: '198.00',
+      }),
+      // Another row of order record 34 repeats its amounts: they are not added twice.
+      trackingRow({ ORDER_ID: 34, PRODUCT_NAME: 'USB Cable (2)', SUBTOTAL: '200.00', DISCOUNT: '20.00', TAX: '18.00', TOTAL_AMOUNT: '198.00' }),
+    ]) as ShipmentTracking;
+
+    expect(shipment.items.map((item) => [item.name, item.tone])).toEqual([
+      ['Wireless Mosue', 'accent'], ['USB Cable', 'neutral'], ['USB Cable (2)', 'neutral'],
+    ]);
+    expect(shipment.totals).toEqual({ subtotal: 226864, discount: 20, tax: 18, shipping: 50, total: 226912 });
+  });
+
+  it('copes with missing fields without inventing values', () => {
+    const shipment = mapShipmentTracking(
+      [{ ORDER_NUMBER: 'ORD0020', PRODUCT_ID: 9, QUANTITY: 'two', PRICE: null, ORDER_DATE: 'yesterday', STATUS: 'Delayed' }],
+      'ORD0020',
+    ) as ShipmentTracking;
+
+    expect(shipment).toMatchObject({
+      orderId: 'ORD0020',
+      placedOn: '',
+      estimatedDelivery: null,
+      carrier: { name: '', code: '', trackingNo: '' },
+      scheduleStatus: 'Delayed',
+      onSchedule: false,
+      items: [{ name: 'Product #9', sku: '', quantity: null, price: null }],
+      address: { name: '', phone: '', lines: [] },
+      totals: { subtotal: null, discount: null, tax: null, shipping: null, total: null },
+    });
+    expect(shipment.carrier.siteUrl).toBeUndefined();
+    expect(shipment.shipmentNumber).toBeUndefined();
+    expect(shipment.shippedOn).toBeUndefined();
+    // An unknown carrier has no website.
+    expect(mapShipmentTracking([trackingRow({ SHIPPING_PROVIDER_NAME: 'Local Courier' })])?.carrier.siteUrl).toBeUndefined();
+    expect(mapShipmentTracking([trackingRow({ STATUS: 'Running late' })])?.onSchedule).toBe(false);
+    expect(mapShipmentTracking([])).toBeNull();
+  });
+
+  // CHANGED (new): "On Schedule" / "Delayed" from EXPECTED_DELIVERY_DATE when the API sends no STATUS.
+  it('works out the schedule state from the expected delivery date when the API sends no STATUS', () => {
+    const today = new Date(2026, 10, 25);
+    const schedule = (overrides: Record<string, unknown>, day = today) => {
+      const shipment = mapShipmentTracking([trackingRow({ STATUS: null, ...overrides })], 'ORD0016', day);
+      return [shipment?.scheduleStatus, shipment?.onSchedule];
+    };
+
+    expect(schedule({ EXPECTED_DELIVERY_DATE: '2026-11-30' })).toEqual(['On Schedule', true]);
+    // Up to and including the expected day.
+    expect(schedule({ EXPECTED_DELIVERY_DATE: '2026-11-30' }, new Date(2026, 10, 30, 23, 0))).toEqual(['On Schedule', true]);
+    expect(schedule({ EXPECTED_DELIVERY_DATE: '2026-11-30' }, new Date(2026, 11, 1))).toEqual(['Delayed', false]);
+    // Nothing to work it out from, or no schedule to keep.
+    expect(schedule({ EXPECTED_DELIVERY_DATE: '2026-11-31' })[0]).toBe('');
+    expect(schedule({ EXPECTED_DELIVERY_DATE: '2026-11-30', ORDER_SHIPPING_STATUS_NAME: 'DELIVERED' })[0]).toBe('');
+    expect(schedule({ EXPECTED_DELIVERY_DATE: '2026-11-30', ORDER_STATUS_NAME: 'CANCELLED' })[0]).toBe('');
+    // STATUS, when sent, is shown as it is.
+    expect(mapShipmentTracking([trackingRow({ EXPECTED_DELIVERY_DATE: '2026-11-01' })], '', today)?.scheduleStatus).toBe('On schedule');
+  });
+
+  it('parses DELIVERY_ADDRESS as name, phone and address lines, or keeps it as one line', () => {
+    expect(parseDeliveryAddress('pooja, 9876543210, 13/5a, 2nd Street, Chennai, 600040')).toEqual({
+      name: 'pooja', phone: '9876543210', lines: ['13/5a, 2nd Street, Chennai, 600040'],
+    });
+    expect(parseDeliveryAddress('Asha K, +91 98765 43210, 4 Main Rd, Velachery, Chennai, Tamil Nadu, India, 600042')).toEqual({
+      name: 'Asha K',
+      phone: '+91 98765 43210',
+      lines: ['4 Main Rd, Velachery', 'Chennai, Tamil Nadu, India, 600042'],
+      // CHANGED (new): the city of a "city, state, country, PIN" address.
+      city: 'Chennai',
+    });
+    expect(parseDeliveryAddress('pooja, 9876543210, Chennai, Tamil Nadu, India, 600040').city).toBe('Chennai');
+    // Not "name, phone, address": shown as it is.
+    expect(parseDeliveryAddress('13/5a 2nd Street Chennai 600040')).toEqual({
+      name: '', phone: '', lines: ['13/5a 2nd Street Chennai 600040'],
+    });
+    expect(parseDeliveryAddress('pooja, Chennai, India')).toEqual({ name: '', phone: '', lines: ['pooja, Chennai, India'] });
+    expect(parseDeliveryAddress(undefined)).toEqual({ name: '', phone: '', lines: [] });
+  });
+
+  // CHANGED: always the design's five steps, with "22 Sep, 10:30 AM"-style captions.
+  describe('progress steps', () => {
+    const source = {
+      placedOn: '2026-11-25T06:56:08.000Z',
+      // Local time, so the caption is the same in every time zone.
+      shippedOn: '2026-11-26T15:45:00',
+      estimatedDelivery: '2026-11-30',
+      shippingStatusId: 3,
+      shippingStatus: 'IN TRANSIT',
+    };
+
+    it('always shows the design\'s five steps, with the dates the API sends', () => {
+      const { steps, currentStep } = shipmentSteps(source, SHIPPING_STATUSES);
+
+      expect(steps).toEqual([
+        { label: 'Order Placed', caption: dateTime(source.placedOn) },
+        { label: 'Packed', caption: '' },
+        { label: 'Shipped', caption: dateTime(source.shippedOn) },
+        { label: 'In Transit', caption: '' },
+        // The expected date is in the status card, not here.
+        { label: 'Delivered', caption: 'Pending Arrival' },
+      ]);
+      expect(currentStep).toBe(3);
+      expect(SHIPMENT_STEPS).toEqual(['Order Placed', 'Packed', 'Shipped', 'In Transit', 'Delivered']);
+    });
+
+    it('formats a date-time as "d MMM, hh:mm a" and a plain date as "d MMM"', () => {
+      const { steps } = shipmentSteps({ ...source, placedOn: '2026-09-22T10:30:00', shippedOn: '2026-09-23' }, null);
+      expect(steps[0].caption).toBe('22 Sep, 10:30 AM');
+      expect(steps[2].caption).toBe('23 Sep');
+      // A date sent as local midnight has no time of day to show.
+      expect(shipmentSteps({ ...source, shippedOn: '2026-09-23T00:00:00' }, null).steps[2].caption).toBe('23 Sep');
+    });
+
+    it('finds the current status by ID in the shipping-status list, else by name', () => {
+      // ID 4 is DELIVERED in the list, whatever the name says.
+      const delivered = shipmentSteps({ ...source, shippingStatusId: 4, shippingStatus: 'IN TRANSIT' }, SHIPPING_STATUSES);
+      expect(delivered.currentStep).toBe(4);
+      // Delivered: no "Pending Arrival" any more.
+      expect(delivered.steps.at(-1)).toEqual({ label: 'Delivered', caption: '' });
+      expect(shipmentSteps({ ...source, shippingStatusId: 99, shippingStatus: 'Delivered' }, SHIPPING_STATUSES).currentStep).toBe(4);
+      expect(shipmentSteps({ ...source, shippingStatusId: 2, shippingStatus: 'NOT SHIPPED' }, SHIPPING_STATUSES).currentStep).toBe(0);
+    });
+
+    it('puts each status on the last step at or before its stage', () => {
+      const current = (shippingStatus: string): number =>
+        shipmentSteps({ placedOn: source.placedOn, estimatedDelivery: null, shippingStatus }, null).currentStep;
+      expect(current('Processing')).toBe(1);
+      expect(current('SHIPPED')).toBe(2);
+      // Out for delivery has no step of its own: it is shown on In Transit.
+      expect(current('Out for delivery')).toBe(3);
+      expect(current('Delivered')).toBe(4);
+      expect(current('Something new')).toBe(0);
+    });
+
+    it('adds no caption the API has no date for', () => {
+      expect(shipmentSteps({ placedOn: '', estimatedDelivery: null }, null)).toEqual({
+        steps: SHIPMENT_STEPS.map((label, index) => ({
+          label,
+          caption: index === SHIPMENT_STEPS.length - 1 ? 'Pending Arrival' : '',
+        })),
+        currentStep: 0,
+      });
+    });
+  });
+});
 
 describe('OrderService', () => {
   let service: OrderService;
@@ -21,6 +251,122 @@ describe('OrderService', () => {
   });
 
   afterEach(() => http.verify());
+
+  // CHANGED (new): GET tracking?ORDER_NUMBER=…&LIMIT=…&OFFSET=…, then the shipping-status list for the steps.
+  describe('getShipmentTracking', () => {
+    const TRACKING_URL = 'https://api.example.test/api/tracking';
+    const trackingRequest = (offset: number) =>
+      http.expectOne(
+        (request) =>
+          request.url === TRACKING_URL &&
+          request.params.get('ORDER_NUMBER') === 'ORD0016' &&
+          request.params.get('LIMIT') === '10' &&
+          request.params.get('OFFSET') === String(offset),
+      );
+    const statusesRequest = () =>
+      http.expectOne(
+        (request) => request.url.endsWith('/shipping_status/get') && request.params.get('SHIPPING_STATUS_ID') === '-1',
+      );
+    const statusRows = SHIPPING_STATUSES.map(({ id, label }) => ({ SHIPPING_STATUS_ID: id, SHIPPING_STATUS: label }));
+
+    it('sends ORDER_NUMBER, LIMIT and OFFSET, then builds the steps from the shipping statuses', () => {
+      let result: ShipmentTracking | null | undefined;
+      service.getShipmentTracking(' ORD0016 ').subscribe((shipment) => (result = shipment));
+
+      const request = trackingRequest(0);
+      expect(request.request.method).toBe('GET');
+      expect(request.request.params.keys()).toEqual(['ORDER_NUMBER', 'LIMIT', 'OFFSET']);
+      request.flush({ success: true, message: 'Shipment tracking details fetched successfully', count: 1, data: [trackingRow()] });
+      statusesRequest().flush({ status: 'SUCCESS', data: statusRows });
+
+      expect(result?.carrier.trackingNo).toBe('TRK001');
+      // CHANGED: the design's five steps; ID 3 is IN TRANSIT in the list.
+      expect(result?.steps.map((step) => step.label)).toEqual([...SHIPMENT_STEPS]);
+      expect(result?.currentStep).toBe(3);
+    });
+
+    it('reads the next pages while count is more than the rows received', () => {
+      let result: ShipmentTracking | null | undefined;
+      service.getShipmentTracking('ORD0016').subscribe((shipment) => (result = shipment));
+
+      const firstPage = Array.from({ length: 10 }, (_, index) => trackingRow({ PRODUCT_NAME: `Product ${index + 1}` }));
+      trackingRequest(0).flush({ success: true, count: 12, data: firstPage });
+      trackingRequest(10).flush({
+        success: true, count: 12, data: [trackingRow({ PRODUCT_NAME: 'Product 11' }), trackingRow({ PRODUCT_NAME: 'Product 12' })],
+      });
+      statusesRequest().flush({ status: 'SUCCESS', data: statusRows });
+
+      expect(result?.items).toHaveLength(12);
+      expect(result?.items.at(-1)?.name).toBe('Product 12');
+    });
+
+    it('returns null for an order without tracking rows, and leaves out rows of another order', () => {
+      const results: (ShipmentTracking | null)[] = [];
+      service.getShipmentTracking('ORD0016').subscribe((shipment) => results.push(shipment));
+      trackingRequest(0).flush({ success: true, count: 0, data: [] });
+
+      service.getShipmentTracking('ORD0016').subscribe((shipment) => results.push(shipment));
+      trackingRequest(0).flush({ success: true, count: 1, data: [trackingRow({ ORDER_NUMBER: 'ORD0099' })] });
+
+      expect(results).toEqual([null, null]);
+      http.expectNone((request) => request.url.endsWith('/shipping_status/get'));
+    });
+
+    it('keeps the steps from the status name when the shipping statuses cannot be loaded', () => {
+      let result: ShipmentTracking | null | undefined;
+      service.getShipmentTracking('ORD0016').subscribe((shipment) => (result = shipment));
+      trackingRequest(0).flush({ success: true, count: 1, data: [trackingRow()] });
+      statusesRequest().flush({ message: 'Forbidden' }, { status: 403, statusText: 'Forbidden' });
+
+      expect(result?.steps.map((step) => step.label)).toEqual([...SHIPMENT_STEPS]);
+      expect(result?.currentStep).toBe(3);
+    });
+
+    // CHANGED (new): loading the tracking again (the page's Refresh) does not load the shipping statuses again.
+    it('loads the shipping statuses once for every tracking load, and again only after a failed load', () => {
+      const results: (ShipmentTracking | null)[] = [];
+      service.getShipmentTracking('ORD0016').subscribe((shipment) => results.push(shipment));
+      trackingRequest(0).flush({ success: true, count: 1, data: [trackingRow()] });
+      statusesRequest().flush({ message: 'Unavailable' }, { status: 503, statusText: 'Unavailable' });
+
+      service.getShipmentTracking('ORD0016').subscribe((shipment) => results.push(shipment));
+      trackingRequest(0).flush({ success: true, count: 1, data: [trackingRow()] });
+      statusesRequest().flush({ status: 'SUCCESS', data: statusRows });
+
+      service.getShipmentTracking('ORD0016').subscribe((shipment) => results.push(shipment));
+      trackingRequest(0).flush({ success: true, count: 1, data: [trackingRow({ ORDER_SHIPPING_STATUS_ID: 4 })] });
+      http.expectNone((request) => request.url.endsWith('/shipping_status/get'));
+
+      expect(results.map((shipment) => shipment?.currentStep)).toEqual([3, 3, 4]);
+    });
+
+    it('reports a failed response and sends nothing without an order number', () => {
+      let error: unknown;
+      service.getShipmentTracking('ORD0016').subscribe({ error: (caught: unknown) => (error = caught) });
+      trackingRequest(0).flush({ success: false, message: 'Order not found for this customer' });
+      expect(error).toEqual(new Error('Order not found for this customer'));
+
+      service.getShipmentTracking('  ').subscribe({ error: (caught: unknown) => (error = caught) });
+      expect(error).toBeInstanceOf(RangeError);
+      http.expectNone((request) => request.url === TRACKING_URL);
+    });
+  });
+
+  // CHANGED (new): customer_orders/get does not send TRACKING_NUMBER today; a row that has one links to tracking.
+  it('maps a customer order row\'s TRACKING_NUMBER to trackingNo when it is sent', () => {
+    let orders: { trackingNo?: string }[] = [];
+    service.getCustomerOrders(1, 10, 0).subscribe((page) => (orders = page.orders));
+    const row = {
+      ORDER_ID: 33, ORDER_NUMBER: 'ORD0016', CUSTOMER_ID: 1, PRODUCT_ID: 17, PRODUCT_VARIANT_ID: null, QUANTITY: 4,
+      TOTAL_AMOUNT: '226714.00', ORDER_DATE: '2026-11-25T06:56:08.000Z', STATUS: 'SHIPPED',
+    };
+    http.expectOne((request) => request.url.endsWith('/customer_orders/get')).flush({
+      success: true, total_records: 2, data: [{ ...row, TRACKING_NUMBER: 'TRK001' }, { ...row, ORDER_ID: 34 }],
+    });
+
+    expect(orders.map((order) => order.trackingNo)).toEqual(['TRK001', undefined]);
+    expect('trackingNo' in orders[1]).toBe(false);
+  });
 
   it('loads customer orders with LIMIT/OFFSET and maps amounts and product IDs', () => {
     let result: unknown;
@@ -620,7 +966,8 @@ describe('OrderService', () => {
     expect(error).toEqual(new Error('Payment statuses unavailable.'));
   });
 
-  it('uses the required default filters and maps the order response', () => {
+  // CHANGED: the Admin default is every order status (ORDER_STATUS=-1); it was 1.
+  it('uses the required default filters (DAYS=7, -1 for every status) and maps the order response', () => {
     let result: unknown;
     service.getManagementOrders().subscribe((orders) => (result = orders));
 
@@ -628,7 +975,7 @@ describe('OrderService', () => {
       (candidate) =>
         candidate.url === 'https://api.example.test/api/order_dashboard/get' &&
         candidate.params.get('DAYS') === '7' &&
-        candidate.params.get('ORDER_STATUS') === '1' &&
+        candidate.params.get('ORDER_STATUS') === '-1' &&
         candidate.params.get('PAYMENT_STATUS') === '-1' &&
         candidate.params.get('SHIPPING_STATUS') === '-1',
     );
@@ -698,6 +1045,59 @@ describe('OrderService', () => {
         shippingStatusId: null,
       },
     ]);
+  });
+
+  // CHANGED (new): PUT place_order/update.
+  describe('updateOrderStatus', () => {
+    const update = { ORDER_ID: 1, ORDER_STATUS: 5, PAYMENT_STATUS: 12, SHIPPING_STATUS: 7 };
+
+    it('sends PUT place_order/update with the documented body and emits the API message', () => {
+      let message: unknown;
+      service.updateOrderStatus(update).subscribe((result) => (message = result));
+
+      const request = http.expectOne('https://api.example.test/api/place_order/update');
+      expect(request.request.method).toBe('PUT');
+      expect(request.request.body).toEqual({ ORDER_ID: 1, ORDER_STATUS: 5, PAYMENT_STATUS: 12, SHIPPING_STATUS: 7 });
+      request.flush({ status: true, message: 'Order updated successfully' });
+
+      expect(message).toBe('Order updated successfully');
+    });
+
+    it('reports a 2xx response that says the update failed', () => {
+      let error: unknown;
+      service.updateOrderStatus(update).subscribe({ error: (caught: unknown) => (error = caught) });
+      http.expectOne('https://api.example.test/api/place_order/update').flush({ status: false, message: 'Order not found' });
+
+      expect(error).toEqual(new Error('Order not found'));
+    });
+
+    it('reads the message of a failed request', () => {
+      let error: unknown;
+      service.updateOrderStatus(update).subscribe({ error: (caught: unknown) => (error = caught) });
+      http.expectOne('https://api.example.test/api/place_order/update').flush(
+        { message: 'Invalid shipping status' },
+        { status: 400, statusText: 'Bad Request' },
+      );
+
+      expect(service.orderUpdateErrorMessage(error)).toBe('Invalid shipping status');
+      expect(service.orderUpdateErrorMessage(new Error(''))).toBe('The order could not be updated.');
+    });
+
+    it('rejects a missing order or status ID (including the -1 filter value) without a request', () => {
+      const errors: unknown[] = [];
+      for (const payload of [
+        { ...update, ORDER_ID: 0 },
+        { ...update, ORDER_STATUS: -1 },
+        { ...update, PAYMENT_STATUS: 1.5 },
+        { ...update, SHIPPING_STATUS: Number.NaN },
+      ]) {
+        service.updateOrderStatus(payload).subscribe({ error: (caught: unknown) => errors.push(caught) });
+      }
+
+      expect(errors).toHaveLength(4);
+      expect(errors.every((error) => error instanceof RangeError)).toBe(true);
+      http.expectNone('https://api.example.test/api/place_order/update');
+    });
   });
 
   it('sends the selected values for all filters', () => {

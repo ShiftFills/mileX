@@ -186,7 +186,12 @@ function listingPrice(record: Record<string, unknown>): ListingPrice | null {
     : { price };
 }
 
-function mapProduct(value: unknown): Product | null {
+/**
+ * One products/get record as a storefront product (null when it has no PRODUCT_ID, name or price).
+ * Exported for wishlist/get, whose rows carry the same product fields.
+ */
+// CHANGED: exported (the wishlist rows are mapped with the same rules); unchanged otherwise.
+export function mapProduct(value: unknown): Product | null {
   if (!isRecord(value)) return null;
 
   const rawId = value['PRODUCT_ID'];
@@ -700,6 +705,13 @@ function lookupEntries(response: unknown, resource: string): readonly unknown[] 
   return data;
 }
 
+/** True when a category row names a parent category (PARENT_CATEGORY_ID is a positive ID). */
+// CHANGED (new)
+function hasParentCategory(record: Record<string, unknown>): boolean {
+  const parentId = numericValue(record['PARENT_CATEGORY_ID'] ?? record['PARENT_ID']);
+  return parentId !== undefined && Number.isSafeInteger(parentId) && parentId > 0;
+}
+
 function mapLookupOptions(
   response: unknown,
   resource: string,
@@ -753,6 +765,10 @@ const PRODUCT_LOOKUP_DEFINITIONS: Readonly<
     idAliases: ['CATEGORY_ID', 'ID'],
     labelField: 'CATEGORY_NAME',
     labelAliases: ['CATEGORY_NAME', 'NAME', 'CATEGORY'],
+    // CHANGED (new): the category lists (menus, filters, the product forms' Category) are top-level categories;
+    // subcategories come from sub_category/get. all_category/get sends no PARENT_CATEGORY_ID today, so every row
+    // is kept; should it send one, a row with a parent (a subcategory made in Category Management) is left out.
+    isActive: (record) => !hasParentCategory(record),
   },
   subCategories: {
     path: API_ENDPOINTS.productLookups.subCategories,
@@ -883,10 +899,11 @@ export class ProductCatalogService {
   }
 
   /**
-   * One product for the wishlist: `products/get?PRODUCT_ID=<id>` like loadProduct, but an inactive product is
-   * returned too (with `isActive: false`), so a saved item can still show its name, image and prices. Comes with
-   * the listing prices of its VARIANTS. Null when the API returns no row for that ID.
+   * One product, active or not: `products/get?PRODUCT_ID=<id>` like loadProduct, but an inactive product is
+   * returned too (with `isActive: false`), so the cart can mark a delisted row. Comes with the listing prices of its
+   * VARIANTS. Null when the API returns no row for that ID.
    */
+  // CHANGED: the cart's delisted check only (the Wishlist screen now reads its products from wishlist/get).
   // CHANGED (new)
   loadProductOffer(productId: string | number): Observable<ProductOffer | null> {
     const id = Number(productId);
@@ -1046,6 +1063,20 @@ export class ProductCatalogService {
   /** Clears cached pages after a successful product mutation or when fresh data is required. */
   invalidatePageCache(): void {
     this.pageRequests.clear();
+  }
+
+  /**
+   * Call after a category was added, changed or deleted (Admin Category Management). The cached category list
+   * (all_category/get), the subcategory lists (sub_category/get) and the product pages (whose rows carry category
+   * names) are dropped, so every screen that needs them next (Add/Edit Product, All Products, Home, Product Listing,
+   * Header Menu, Product View) reads them again. Brands, tax rates and product codes stay cached.
+   */
+  // CHANGED (new)
+  invalidateCategoryLookups(): void {
+    for (const key of [...this.lookupRequests.keys()]) {
+      if (key.startsWith('categories:') || key.startsWith('subCategories:')) this.lookupRequests.delete(key);
+    }
+    this.invalidatePageCache();
   }
 
   findById(id: string): Product | undefined {

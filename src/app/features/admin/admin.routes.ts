@@ -33,6 +33,13 @@ export const ADMIN_ROUTES: Routes = [
         title: 'Variants',
         loadComponent: () => import('./pages/product-variants/product-variants').then((m) => m.ProductVariants),
       },
+      // CHANGED (new): Admin only. roleMatchGuard lets Sellers open product, order and return pages under /admin, not this.
+      {
+        path: 'categories',
+        title: 'Category Management',
+        loadComponent: () =>
+          import('./pages/category-management/category-management').then((m) => m.CategoryManagement),
+      },
       {
         path: 'orders',
         title: 'Order Management',
@@ -48,11 +55,9 @@ export const ADMIN_ROUTES: Routes = [
         title: 'Seller Verification',
         loadComponent: () => import('./pages/seller-verification/seller-verification').then((m) => m.SellerVerification),
       },
-      {
-        path: 'my-orders',
-        title: 'My Orders',
-        loadComponent: () => import('./pages/my-orders/my-orders').then((m) => m.MyOrders),
-      },
+      // CHANGED: My Orders is a customer screen (/orders), so Admins no longer have a route to it; an old link or
+      // bookmark to /admin/my-orders opens Order Management instead. (The MyOrders component is kept.)
+      { path: 'my-orders', pathMatch: 'full', redirectTo: 'orders' },
     ],
   },
 ];

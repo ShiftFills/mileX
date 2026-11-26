@@ -130,6 +130,43 @@ describe('ProductCatalogService', () => {
     expect(subcategories).toEqual([{ id: '71', label: 'Phones' }]);
   });
 
+  // CHANGED (new): Category Management drops the cached category lists after a change.
+  it('reads categories and subcategories again after invalidateCategoryLookups, keeping the other lookups cached', () => {
+    const subscribeAll = (): void => {
+      catalog.loadCategories().subscribe();
+      catalog.loadSubCategories('7').subscribe();
+      catalog.loadTaxRates().subscribe();
+    };
+    const flushAll = (urls: string[]): number =>
+      http.match((request) => urls.some((url) => request.url.endsWith(url)))
+        .map((request) => request.flush({ status: 'SUCCESS', data: [] })).length;
+
+    subscribeAll();
+    expect(flushAll(['/all_category/get', '/sub_category/get', '/tax_rate/get'])).toBe(3);
+    subscribeAll();
+    expect(flushAll(['/all_category/get', '/sub_category/get', '/tax_rate/get'])).toBe(0);
+
+    catalog.invalidateCategoryLookups();
+    subscribeAll();
+    expect(flushAll(['/all_category/get', '/sub_category/get'])).toBe(2);
+    http.expectNone((request) => request.url.endsWith('/tax_rate/get'));
+  });
+
+  // CHANGED (new): the category lists are top-level categories; a row with a PARENT_CATEGORY_ID is a subcategory.
+  it('leaves rows with a PARENT_CATEGORY_ID out of the category list', () => {
+    let categories: unknown;
+    catalog.loadCategories().subscribe((options) => (categories = options));
+    http.expectOne((request) => request.url.endsWith('/all_category/get')).flush({
+      status: 'SUCCESS',
+      data: [
+        { CATEGORY_ID: 7, CATEGORY_NAME: 'Fashion' },
+        { CATEGORY_ID: 8, CATEGORY_NAME: 'Furniture', PARENT_CATEGORY_ID: null },
+        { CATEGORY_ID: 12, CATEGORY_NAME: 'Bags', PARENT_CATEGORY_ID: 7 },
+      ],
+    });
+    expect(categories).toEqual([{ id: '7', label: 'Fashion' }, { id: '8', label: 'Furniture' }]);
+  });
+
   it('loads the full product-code list and product-specific codes with their respective IDs', () => {
     let allProductCodes: unknown;
     let productCodes: unknown;

@@ -26,4 +26,16 @@ describe('Stepper', () => {
   it('numbers steps that are not done', () => {
     expect(root.querySelectorAll('.stepper__marker')[2].textContent?.trim()).toBe('3');
   });
+
+  // CHANGED (new): optional screen-reader text for each step's state.
+  it('adds no state text by default', () => {
+    expect(root.querySelector('.visually-hidden')).toBeNull();
+  });
+
+  it('says each step\'s state in visually hidden text with stateLabels', async () => {
+    fixture.componentRef.setInput('stateLabels', true);
+    await fixture.whenStable();
+    const states = Array.from(root.querySelectorAll('li'), (step) => step.querySelector('.visually-hidden')?.textContent?.trim());
+    expect(states).toEqual([', completed', ', current', ', upcoming']);
+  });
 });

@@ -1,13 +1,16 @@
 <section appCard class="tracking-map" [class.is-expanded]="expanded()" aria-labelledby="map-title">
           <header class="tracking-map__head d-flex align-items-center gap-3">
             <h2 id="map-title" class="tracking-map__title">Live Route GPS Tracking</h2>
-            <span class="tracking-pill">{{ shipment().distanceKm }} km to Destination</span>
+            <!-- CHANGED: only when the API sends the distance. -->
+            @if (distanceKm() !== undefined) {
+              <span class="tracking-pill">{{ distanceKm() }} km to Destination</span>
+            }
             <button type="button" class="tracking-map__expand" [attr.aria-pressed]="expanded()" [attr.aria-label]="expanded() ? 'Collapse map' : 'Expand map'" (click)="toggleExpanded()">
               <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M10 2.5h3.5V6M13.5 2.5 9.5 6.5M6 13.5H2.5V10M2.5 13.5l4-4" /></svg>
             </button>
           </header>
 
-          <div class="tracking-map__stage" role="img" [attr.aria-label]="'Map: package at ' + shipment().currentLocation + ', ' + shipment().distanceKm + ' km from destination'">
+          <div class="tracking-map__stage" role="img" [attr.aria-label]="stageLabel()">
             <svg class="tracking-map__art" viewBox="0 0 640 310" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
               <g fill="none" stroke="#e1e7ef">
                 <path d="M30 0v310" stroke-width="22" />
@@ -16,32 +19,64 @@
                 <path d="M0 200c120-8 230 8 330-8s210-92 310-100" stroke-width="24" />
                 <path d="M585 310c-30-30-60-60-140-80" stroke-width="14" />
               </g>
-              <path fill="none" stroke="#2f6fed" stroke-width="4" stroke-dasharray="9 7" d="M0 214c130 4 230 6 310-14s190-38 330-42" />
-            </svg>
-            <div class="tracking-map__marker">
-              @if (popupOpen()) {
-                <div class="tracking-map__popup">
-                  <p class="d-flex justify-content-between">
-                    <strong>{{ shipment().carrier.name }}</strong>
-                    <button type="button" aria-label="Close map details" (click)="popupOpen.set(false)">
-                      <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8" /></svg>
-                    </button>
-                  </p>
-                  <p>Location: <strong>{{ shipment().currentLocation }}</strong></p>
-                </div>
+              <!-- CHANGED: the route line and the vehicle marker only with a current location from the API. -->
+              @if (location()) {
+                <path class="tracking-map__route" fill="none" stroke="#2f6fed" stroke-width="4" stroke-dasharray="9 7" d="M0 214c130 4 230 6 310-14s190-38 330-42" />
               }
-              <span class="tracking-map__pin d-flex align-items-center justify-content-center" aria-hidden="true" (click)="popupOpen.set(true)">
-                <svg viewBox="0 0 16 16" width="16" height="16"><path d="m13.5 2.5-11 4.7 4.4 1.9 1.9 4.4z" /></svg>
-              </span>
-            </div>
+            </svg>
+            @if (location()) {
+              <div class="tracking-map__marker">
+                @if (popupOpen()) {
+                  <div class="tracking-map__popup">
+                    <p class="d-flex justify-content-between">
+                      <strong>{{ shipment().carrier.name }}</strong>
+                      <button type="button" aria-label="Close map details" (click)="popupOpen.set(false)">
+                        <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8" /></svg>
+                      </button>
+                    </p>
+                    <p>Location: <strong>{{ location() }}</strong></p>
+                  </div>
+                }
+                <!-- CHANGED: a button (it was a click-only <span>), so the details can be reopened from the keyboard. -->
+                <button type="button" class="tracking-map__pin d-flex align-items-center justify-content-center"
+                  [attr.aria-label]="'Show location of ' + shipment().carrier.name" [attr.aria-expanded]="popupOpen()" (click)="popupOpen.set(true)">
+                  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="m13.5 2.5-11 4.7 4.4 1.9 1.9 4.4z" /></svg>
+                </button>
+              </div>
+            }
+            <!-- CHANGED (new): why the map has no marker or route. -->
+            @if (emptyNote()) {
+              <p class="tracking-map__empty d-flex align-items-center gap-2" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="14" height="14"><path d="M13 6.5c0 3.8-5 8-5 8s-5-4.2-5-8a5 5 0 1 1 10 0Z" /><circle cx="8" cy="6.5" r="1.6" /></svg>
+                Live location not available yet
+              </p>
+            }
           </div>
+          <!-- CHANGED: the route title, driver and vehicle the API sends; without them, that the live location is not
+               available yet, with the carrier and tracking number the API does send. -->
           <div class="tracking-map__status d-flex align-items-center gap-3">
             <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path d="M1.5 4h8v7h-8zM9.5 6.5h3l2 2V11h-5zM4.5 12.5a1 1 0 1 0 0-.01M11.5 12.5a1 1 0 1 0 0-.01" /></svg>
-            <p>
-              <strong>{{ shipment().route.title }}</strong>
-              <span>Driver: <b>{{ shipment().route.driver }}</b> | Vehicle: {{ shipment().route.vehicle }}</span>
+            <p role="status">
+              <strong>{{ title() }}</strong>
+              @if (driver() || vehicle()) {
+                <span>
+                  @if (driver()) { Driver: <b>{{ driver() }}</b> }
+                  @if (driver() && vehicle()) { | }
+                  @if (vehicle()) { Vehicle: {{ vehicle() }} }
+                </span>
+              } @else if (shipment().carrier.name || shipment().carrier.trackingNo) {
+                <span>
+                  @if (shipment().carrier.name) { Carrier: <b>{{ shipment().carrier.name }}</b> }
+                  @if (shipment().carrier.name && shipment().carrier.trackingNo) { | }
+                  @if (shipment().carrier.trackingNo) { Tracking No: {{ shipment().carrier.trackingNo }} }
+                </span>
+              }
+              <!-- CHANGED (new): a failed Refresh (the details shown stay as they were). -->
+              @if (error()) {
+                <span class="tracking-map__error" role="alert">{{ error() }}</span>
+              }
             </p>
-            <app-button class="tracking-refresh" variant="accent" size="small" [loading]="refreshing()" (clicked)="refresh()">
+            <app-button class="tracking-refresh" variant="accent" size="small" ariaLabel="Refresh tracking details" [loading]="refreshing()" (clicked)="refresh.emit()">
               <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v3h-3" /></svg>
               Refresh
             </app-button>

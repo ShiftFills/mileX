@@ -2,8 +2,8 @@
   <app-page-heading heading="My Wishlist" subtitle="Your saved items, always in one place." />
 
   @if (isCustomer()) {
-    <!-- CHANGED (new): a customer's wishlist is their saved-for-later cart rows (move_to_cart/get), shown with each row's
-         product and variant from the product APIs. -->
+    <!-- CHANGED: a customer's wishlist comes from wishlist/get (it was their saved-for-later cart rows); each item is a
+         product variant, shown with the row's own product details. -->
     <section class="wishlist__section" aria-label="Saved for later">
       @if (savedStatus() === 'loading' || savedStatus() === 'idle') {
         <div class="wishlist__state" role="status"><app-loading-spinner /> Loading your wishlist…</div>
@@ -15,7 +15,8 @@
       } @else if (savedItems().length) {
         <div appCard class="wishlist__products">
           <div class="wishlist__grid">
-            @for (item of savedItems(); track item.row.cartId) {
+            <!-- CHANGED: tracked by PRODUCT_ID and PRODUCT_VARIANT_ID (it was the CART_ID). -->
+            @for (item of savedItems(); track item.key) {
               <app-product-card
                 variant="wishlist"
                 [product]="item.product"
@@ -51,13 +52,14 @@
       } @else {
         <div appCard class="wishlist__empty">
           <h2>Your wishlist is empty</h2>
-          <p>Use “Save for later” in your cart to keep items here.</p>
+          <!-- CHANGED: the hearts save to the wishlist too. -->
+          <p>Save products with the heart icon, or use “Save for later” in your cart, to keep them here.</p>
           <a class="btn btn--accent btn-sm" [routerLink]="routes.products">Browse products</a>
         </div>
       }
     </section>
 
-    <!-- CHANGED (new): products saved with the heart icon are kept on this device only (there is no API for them). -->
+    <!-- CHANGED: products saved on this device earlier (while signed out); they are not part of the account's wishlist. -->
     @if (wishlist.products().length) {
       <section class="wishlist__section" aria-labelledby="wishlist-device-title">
         <h2 id="wishlist-device-title" class="wishlist__section-title">Saved on this device</h2>

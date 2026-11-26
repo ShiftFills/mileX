@@ -7,6 +7,7 @@ import { STORAGE_KEYS } from '@core/constants/storage-keys';
 import { AuthService } from '@core/services/auth.service';
 import { CartService } from '@core/services/cart.service';
 import { ToastService } from '@core/services/toast.service';
+import { WishlistService } from '@core/services/wishlist.service';
 import { Cart } from './cart';
 
 function clearStorage(): void {
@@ -28,6 +29,10 @@ const PRODUCTS_RESPONSE = {
 /** The sample customer login: a different USER_ID and CUSTOMER_ID, as returned by the backend. */
 const USER_ID = 3;
 const CUSTOMER_ID = 1;
+// CHANGED (new): the wishlist APIs (Save for later adds to the wishlist, then deletes the cart row).
+const WISHLIST_SYNC_URL = '/api/wishlist/get?LIMIT=100&OFFSET=0';
+const MANAGE_URL = '/api/wishlist/manage';
+const DELETE_URL = '/api/shopping_cart/delete';
 
 function tokenWithClaims(claims: Record<string, unknown>): string {
   return `header.${btoa(JSON.stringify(claims)).replace(/=/g, '')}.signature`;
@@ -84,6 +89,20 @@ describe('Cart', () => {
         data: [{ PRODUCT_ID: id, PRODUCT_NAME: 'Product', SELLING_PRICE: '1.00', IS_ACTIVE: inactive.includes(id) ? 'INACTIVE' : 'ACTIVE' }],
       });
     }
+  };
+  /**
+   * Answers the customer cart's one wishlist read (GET wishlist/get, which Save for later uses to skip a variant that
+   * is already saved) with these saved product variants.
+   */
+  // CHANGED (new)
+  const answerWishlistSync = (saved: readonly { productId: number; variantId: number }[] = []): void => {
+    http.expectOne(WISHLIST_SYNC_URL).flush({
+      status: true,
+      message: 'WISHLIST DETAILS FETCHED SUCCESSFULLY',
+      data: saved.map(({ productId, variantId }) => ({
+        CUSTOMER_ID, PRODUCT_ID: productId, PRODUCT_VARIANT_ID: variantId, PRODUCT_NAME: 'Saved', SELLING_PRICE: '1.00',
+      })),
+    });
   };
   /** Whitespace-free text, for label/value pairs that sit in separate elements (<dt>/<dd>). */
   const compact = (): string => root.textContent?.replace(/\s+/g, '') ?? '';
@@ -165,6 +184,7 @@ describe('Cart', () => {
     expect(request.request.params.get('CUSTOMER_ID')).not.toBe(String(USER_ID));
     expect(request.request.params.has('PRODUCT_ID')).toBe(false);
     expect(request.request.params.has('SELLER_ID')).toBe(false);
+    answerWishlistSync();
     request.flush({
       success: true,
       message: 'Shopping cart details fetched successfully',
@@ -236,6 +256,7 @@ describe('Cart', () => {
       message: 'Shopping cart details fetched successfully',
       data: [cartRow({ CUSTOMER_ID: USER_ID })],
     });
+    answerWishlistSync();
     await customerFixture.whenStable();
     customerFixture.detectChanges();
 
@@ -288,7 +309,12 @@ describe('Cart', () => {
   });
 
   // CHANGED: answers the product-status lookups too; products in `inactive` are delisted.
-  async function openCustomerCart(rows: Record<string, unknown>[], inactive: readonly number[] = []): Promise<{
+  // CHANGED: and the customer's wishlist read (wishlist/get), with the `saved` product variants.
+  async function openCustomerCart(
+    rows: Record<string, unknown>[],
+    inactive: readonly number[] = [],
+    saved: readonly { productId: number; variantId: number }[] = [],
+  ): Promise<{
     customerFixture: ComponentFixture<Cart>;
     customerRoot: HTMLElement;
   }> {
@@ -300,6 +326,7 @@ describe('Cart', () => {
       message: 'Shopping cart details fetched successfully',
       data: rows,
     });
+    answerWishlistSync(saved);
     answerStatusLookups(inactive);
     await customerFixture.whenStable();
     customerFixture.detectChanges();
@@ -403,8 +430,10 @@ describe('Cart', () => {
       customerFixture.destroy();
     });
 
-    it('calls PUT wishlist/save_for_later with the row CART_ID once, then moves the row and updates totals', async () => {
-      const { customerFixture, customerRoot } = await openCustomerCart([cartRow()]);
+    // CHANGED: POST wishlist/manage ADD with the row's product and variant, then DELETE shopping_cart/delete for the row
+    // (it was PUT wishlist/save_for_later, which kept the row in the cart as saved for later).
+    it('adds the row\'s product variant to the wishlist once, then deletes the cart row and updates totals', async () => {
+      const { customerFixture, customerRoot } = await openCustomerCart([cartRow({ VARIANT_ID: 21 })]);
       const subtotalBefore = cart.subtotal();
       const button = saveButtonOf(customerRoot);
 
@@ -412,58 +441,54 @@ describe('Cart', () => {
       button.click(); // repeated click while the request is in flight
       customerFixture.detectChanges();
 
-      const request = http.expectOne((req) => req.url.endsWith('/wishlist/save_for_later'));
-      expect(request.request.method).toBe('PUT');
-      // CHANGED: with the row's VARIANT_ID (null: this row has no variant).
-      expect(request.request.body).toEqual({ CART_ID: 70, VARIANT_ID: null });
+      const add = http.expectOne(MANAGE_URL);
+      expect(add.request.method).toBe('POST');
+      expect(add.request.body).toEqual({ PRODUCT_ID: 12, PRODUCT_VARIANT_ID: 21, ACTION: 'ADD' });
       expect(button.disabled).toBe(true);
       expect(button.getAttribute('aria-busy')).toBe('true');
+      add.flush({ status: true, message: 'ADDED TO WISHLIST', data: { CUSTOMER_ID, PRODUCT_ID: 12, PRODUCT_VARIANT_ID: 21 } });
 
-      request.flush('SUCCESS');
+      const remove = http.expectOne(DELETE_URL);
+      expect(remove.request.method).toBe('DELETE');
+      expect(remove.request.body).toEqual({ CART_ID: 70, PRODUCT_ID: 12, SELLER_ID: 8, CUSTOMER_ID, PRODUCT_VARIANT_ID: 21 });
+      remove.flush('SUCCESS');
       await customerFixture.whenStable();
       customerFixture.detectChanges();
 
       expect(customerRoot.querySelectorAll('.cart-items .cart-item')).toHaveLength(1);
       expect(customerRoot.querySelector('.cart-items')?.textContent).not.toContain('Head Set');
-      expect(customerRoot.querySelectorAll('.cart-saved .cart-item')).toHaveLength(1);
-      expect(customerRoot.querySelector('.cart-saved')?.textContent).toContain('Head Set');
       expect(cart.count()).toBe(1);
       expect(cart.subtotal()).toBe(subtotalBefore - 1200);
-      expect(TestBed.inject(ToastService).current()?.type).toBe('success');
+      expect(TestBed.inject(ToastService).current()).toEqual({ type: 'success', message: 'Head Set was moved to your wishlist.' });
+      // In the account's wishlist (every heart for that variant is filled), not on this device.
+      expect(TestBed.inject(WishlistService).has({ id: '12' }, 21)).toBe(true);
       expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.wishlist) ?? '[]')).not.toContain('12');
       customerFixture.destroy();
     });
 
-    it('calls PUT for a backend row when TOTAL_AMOUNT is omitted by shopping_cart/get', async () => {
-      const { customerFixture, customerRoot } = await openCustomerCart([
-        cartRow({
-          CART_ID: 5,
-          PRODUCT_ID: 1,
-          SELLER_ID: 1,
-          SKU: 'CRT0001',
-          CART_QUANTITY: 2,
-          UNIT_PRICE: '600.00',
-          TOTAL_AMOUNT: undefined,
-          CART_DISCOUNT: undefined,
-          TAX: undefined,
-          CUSTOMER_ID,
-          PRODUCT_NAME: 'Head Set',
-          PRODUCT_CODE_SKU: 'SKU0001',
-          MRP: '3000.00',
-          PRODUCT_DISCOUNT: undefined,
-        }),
-      ]);
+    it('only deletes the cart row when its variant is already in the wishlist', async () => {
+      const { customerFixture, customerRoot } = await openCustomerCart(
+        [cartRow({ VARIANT_ID: 21 })], [], [{ productId: 12, variantId: 21 }],
+      );
 
-      expect(customerRoot.querySelector('.cart-item__total')?.textContent).toContain('₹1,200.00');
       saveButtonOf(customerRoot).click();
-
-      const request = http.expectOne('/api/wishlist/save_for_later');
-      expect(request.request.method).toBe('PUT');
-      expect(request.request.body).toEqual({ CART_ID: 5, VARIANT_ID: null });
-      request.flush('SUCCESS');
+      http.expectNone(MANAGE_URL);
+      http.expectOne(DELETE_URL).flush('SUCCESS');
       await customerFixture.whenStable();
 
-      expect(TestBed.inject(ToastService).current()?.type).toBe('success');
+      expect(TestBed.inject(ToastService).current()).toEqual({ type: 'success', message: 'Head Set was moved to your wishlist.' });
+      customerFixture.destroy();
+    });
+
+    it('says why a row without a variant cannot be saved, without a request', async () => {
+      const { customerFixture, customerRoot } = await openCustomerCart([cartRow()]);
+
+      saveButtonOf(customerRoot).click();
+      http.expectNone(MANAGE_URL);
+      http.expectNone(DELETE_URL);
+      expect(TestBed.inject(ToastService).current()).toEqual({
+        type: 'error', message: 'Head Set cannot be saved to your wishlist right now. Variant details are missing.',
+      });
       customerFixture.destroy();
     });
 
@@ -476,40 +501,56 @@ describe('Cart', () => {
       customerFixture.destroy();
     });
 
-    it('keeps the row in the cart and shows an error toast when the API fails', async () => {
-      const { customerFixture, customerRoot } = await openCustomerCart([cartRow()]);
+    it('keeps the row in the cart and shows an error toast when the wishlist API fails', async () => {
+      const { customerFixture, customerRoot } = await openCustomerCart([cartRow({ VARIANT_ID: 21 })]);
       const button = saveButtonOf(customerRoot);
 
       button.click();
-      http.expectOne((req) => req.url.endsWith('/wishlist/save_for_later')).flush(
-        { message: 'Cart row could not be saved' },
+      http.expectOne(MANAGE_URL).flush(
+        { message: 'Item could not be added to the wishlist' },
         { status: 500, statusText: 'Server Error' },
       );
       await customerFixture.whenStable();
       customerFixture.detectChanges();
 
+      http.expectNone(DELETE_URL);
       expect(customerRoot.querySelectorAll('.cart-items .cart-item')).toHaveLength(2);
-      expect(customerRoot.querySelector('.cart-saved')).toBeNull();
       expect(button.disabled).toBe(false);
       expect(TestBed.inject(ToastService).current()).toEqual({
         type: 'error',
-        message: 'Cart row could not be saved',
+        message: 'Item could not be added to the wishlist',
       });
       customerFixture.destroy();
     });
 
     it('treats a 2xx response that reports failure as an error', async () => {
-      const { customerFixture, customerRoot } = await openCustomerCart([cartRow()]);
+      const { customerFixture, customerRoot } = await openCustomerCart([cartRow({ VARIANT_ID: 21 })]);
 
       saveButtonOf(customerRoot).click();
-      http.expectOne((req) => req.url.endsWith('/wishlist/save_for_later')).flush(
-        JSON.stringify({ status: 'FAILURE', message: 'Already saved' }),
-      );
+      http.expectOne(MANAGE_URL).flush({ status: false, message: 'PRODUCT VARIANT NOT FOUND' });
       await customerFixture.whenStable();
       customerFixture.detectChanges();
 
-      expect(customerRoot.querySelector('.cart-saved')).toBeNull();
-      expect(TestBed.inject(ToastService).current()).toEqual({ type: 'error', message: 'Already saved' });
+      http.expectNone(DELETE_URL);
+      expect(customerRoot.querySelectorAll('.cart-items .cart-item')).toHaveLength(2);
+      expect(TestBed.inject(ToastService).current()).toEqual({ type: 'error', message: 'PRODUCT VARIANT NOT FOUND' });
+      customerFixture.destroy();
+    });
+
+    it('says so when the item was saved to the wishlist but its cart row could not be deleted', async () => {
+      const { customerFixture, customerRoot } = await openCustomerCart([cartRow({ VARIANT_ID: 21 })]);
+
+      saveButtonOf(customerRoot).click();
+      http.expectOne(MANAGE_URL).flush({ status: true, message: 'ADDED TO WISHLIST', data: { CUSTOMER_ID, PRODUCT_ID: 12, PRODUCT_VARIANT_ID: 21 } });
+      http.expectOne(DELETE_URL).flush({ message: 'Cart row could not be deleted' }, { status: 500, statusText: 'Server Error' });
+      await customerFixture.whenStable();
+      customerFixture.detectChanges();
+
+      expect(customerRoot.querySelectorAll('.cart-items .cart-item')).toHaveLength(2);
+      expect(TestBed.inject(ToastService).current()).toEqual({
+        type: 'error',
+        message: 'Head Set was saved to your wishlist, but could not be removed from your cart. Cart row could not be deleted',
+      });
       customerFixture.destroy();
     });
   });
@@ -559,6 +600,7 @@ describe('Cart', () => {
       message: 'Cart unavailable',
       data: [],
     });
+    answerWishlistSync();
     await customerFixture.whenStable();
     customerFixture.detectChanges();
 

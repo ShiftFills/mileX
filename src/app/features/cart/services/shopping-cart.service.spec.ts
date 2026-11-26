@@ -371,220 +371,37 @@ describe('ShoppingCartService', () => {
       expectNoInsert();
     });
   });
+  // CHANGED (new): Remove sends PRODUCT_VARIANT_ID only for a row with a variant (a row without one sent NaN, which
+  // failed before any request with "Cart, product, seller and customer IDs must be positive safe integers.").
+  describe('removeItem (DELETE shopping_cart/delete)', () => {
+    function loadRows(): CartItem[] {
+      let items: CartItem[] = [];
+      service.getCart(3).subscribe((result) => (items = result));
+      http.expectOne((request) => request.url.endsWith('/shopping_cart/get')).flush(CART_RESPONSE);
+      return items;
+    }
 
-  // CHANGED (new): move_to_cart/get, and the Move to Cart / Remove requests for a saved row.
-  describe('wishlist (saved-for-later rows)', () => {
-    /** A saved row with PRODUCT_NAME and a variant (the earlier wishlist/get sample). */
-    const WISHLIST_ROW = {
-      CART_ID: 45, PRODUCT_ID: 3, PRODUCT_VARIANT_ID: 9, SELLER_ID: 6, SKU: 'CRT0045', QUANTITY: 1,
-      UNIT_PRICE: '999.00', DISCOUNT: '0.00', TAX: '0.00', TOTAL_AMOUNT: '999.00', CUSTOMER_ID: 1,
-      SAVE_FOR_LATER: 1, CREATED_BY: 3, UPDATED_BY: 3,
-      CREATED_AT: '2026-11-17T10:54:42.000Z', UPDATED_AT: '2026-11-19T04:30:58.000Z',
-      PRODUCT_NAME: 'Dell Inspiron 15',
-    };
-    const wishlistResponse = (data: unknown[]) => ({
-      status: true, message: 'Saved for Later items retrieved successfully', data,
-    });
-
-    beforeEach(() => signIn('CUSTOMER', { USER_ID: 3, CUSTOMER_ID: 1 }));
-
-    // CHANGED (new): the sample move_to_cart/get response (two rows, PRODUCT_VARIANT_ID null, no PRODUCT_NAME).
-    it('reads move_to_cart/get with CATEGORY_ID=-1 and PRODUCT_ID=-1, keeping every row and its null variant', () => {
-      let page: unknown;
-      service.getWishlist(10, 0).subscribe((result) => (page = result));
-
-      const request = http.expectOne('/api/move_to_cart/get?CATEGORY_ID=-1&PRODUCT_ID=-1&LIMIT=10&OFFSET=0');
-      expect(request.request.method).toBe('GET');
-      request.flush({
-        status: true,
-        message: 'Save for Later products fetched successfully',
-        data: [
-          {
-            CART_ID: 33, PRODUCT_ID: 2, PRODUCT_VARIANT_ID: null, SELLER_ID: 1, SKU: 'CRT0033', QUANTITY: 5,
-            UNIT_PRICE: '3000.00', DISCOUNT: '0.00', TAX: '0.00', TOTAL_AMOUNT: '15000.00', CUSTOMER_ID: 1,
-            SAVE_FOR_LATER: 1, CREATED_BY: 3, UPDATED_BY: 3,
-            CREATED_AT: '2026-11-13T10:04:56.000Z', UPDATED_AT: '2026-11-17T08:00:08.000Z',
-          },
-          {
-            CART_ID: 30, PRODUCT_ID: 3, PRODUCT_VARIANT_ID: null, SELLER_ID: 1, SKU: 'CRT0030', QUANTITY: 1,
-            UNIT_PRICE: '55000.00', DISCOUNT: '0.00', TAX: '0.00', TOTAL_AMOUNT: '55000.00', CUSTOMER_ID: 1,
-            SAVE_FOR_LATER: 1, CREATED_BY: 3, UPDATED_BY: 3,
-            CREATED_AT: '2026-11-13T06:10:33.000Z', UPDATED_AT: '2026-11-13T07:07:31.000Z',
-          },
-        ],
-      });
-
-      expect(page).toEqual({
-        rows: [
-          {
-            cartId: '33', productId: 2, sellerId: 1, customerId: 1, sku: 'CRT0033', quantity: 5,
-            unitPrice: 3000, discount: 0, tax: 0, totalAmount: 15000,
-          },
-          {
-            cartId: '30', productId: 3, sellerId: 1, customerId: 1, sku: 'CRT0030', quantity: 1,
-            unitPrice: 55000, discount: 0, tax: 0, totalAmount: 55000,
-          },
-        ],
-        hasNext: false,
-        total: 2,
-      });
-    });
-
-    it('requests one page with LIMIT and OFFSET only, and maps each row', () => {
-      let page: unknown;
-      service.getWishlist(10, 0).subscribe((result) => (page = result));
-
-      const request = http.expectOne('/api/move_to_cart/get?CATEGORY_ID=-1&PRODUCT_ID=-1&LIMIT=10&OFFSET=0');
-      expect(request.request.method).toBe('GET');
-      expect(request.request.params.has('CUSTOMER_ID')).toBe(false);
-      request.flush(wishlistResponse([WISHLIST_ROW]));
-
-      expect(page).toEqual({
-        rows: [{
-          cartId: '45', productId: 3, variantId: 9, sellerId: 6, customerId: 1, productName: 'Dell Inspiron 15',
-          sku: 'CRT0045', quantity: 1, unitPrice: 999, discount: 0, tax: 0, totalAmount: 999,
-        }],
-        // Fewer rows than LIMIT: the last page, so the total is known.
-        hasNext: false,
-        total: 1,
-      });
-    });
-
-    it('reports a next page when a page is full, and uses total_records when the API sends it', () => {
-      const full = Array.from({ length: 2 }, (_, index) => ({ ...WISHLIST_ROW, CART_ID: 50 + index }));
-      let page: { hasNext: boolean; total?: number } | undefined;
-      service.getWishlist(2, 2).subscribe((result) => (page = result));
-      http.expectOne('/api/move_to_cart/get?CATEGORY_ID=-1&PRODUCT_ID=-1&LIMIT=2&OFFSET=2').flush(wishlistResponse(full));
-      expect(page).toMatchObject({ hasNext: true });
-      expect(page?.total).toBeUndefined();
-
-      service.getWishlist(2, 2).subscribe((result) => (page = result));
-      http.expectOne('/api/move_to_cart/get?CATEGORY_ID=-1&PRODUCT_ID=-1&LIMIT=2&OFFSET=2').flush({ ...wishlistResponse(full), total_records: 4 });
-      expect(page).toMatchObject({ hasNext: false, total: 4 });
-    });
-
-    it('returns no rows for an empty wishlist and leaves out rows no longer saved', () => {
-      let rows: unknown[] = [{}];
-      service.getWishlist(10, 0).subscribe((result) => (rows = result.rows));
-      http.expectOne('/api/move_to_cart/get?CATEGORY_ID=-1&PRODUCT_ID=-1&LIMIT=10&OFFSET=0').flush(wishlistResponse([{ ...WISHLIST_ROW, SAVE_FOR_LATER: 0 }]));
-      expect(rows).toEqual([]);
-
-      service.getWishlist(10, 0).subscribe((result) => (rows = result.rows));
-      http.expectOne('/api/move_to_cart/get?CATEGORY_ID=-1&PRODUCT_ID=-1&LIMIT=10&OFFSET=0').flush(wishlistResponse([]));
-      expect(rows).toEqual([]);
-    });
-
-    it('rejects rows for another customer, invalid IDs and a failed response', () => {
-      const errors: unknown[] = [];
-      for (const data of [[{ ...WISHLIST_ROW, CUSTOMER_ID: 3 }], [{ ...WISHLIST_ROW, SELLER_ID: null }]]) {
-        service.getWishlist(10, 0).subscribe({ error: (caught: unknown) => errors.push(caught) });
-        http.expectOne('/api/move_to_cart/get?CATEGORY_ID=-1&PRODUCT_ID=-1&LIMIT=10&OFFSET=0').flush(wishlistResponse(data));
-      }
-      service.getWishlist(10, 0).subscribe({ error: (caught: unknown) => errors.push(caught) });
-      http.expectOne('/api/move_to_cart/get?CATEGORY_ID=-1&PRODUCT_ID=-1&LIMIT=10&OFFSET=0').flush({ status: false, message: 'Token expired' });
-
-      expect(errors).toEqual([
-        new Error('The wishlist API returned an item for a different customer.'),
-        new Error('The wishlist API returned an invalid seller ID.'),
-        new Error('Token expired'),
-      ]);
-    });
-
-    it('keeps a row saved without a variant (PRODUCT_VARIANT_ID null or 0) and leaves its variant out', () => {
-      let rows: { cartId: string; variantId?: number }[] = [];
-      service.getWishlist(10, 0).subscribe((result) => (rows = result.rows));
-      http.expectOne('/api/move_to_cart/get?CATEGORY_ID=-1&PRODUCT_ID=-1&LIMIT=10&OFFSET=0').flush(wishlistResponse([
-        { ...WISHLIST_ROW, PRODUCT_VARIANT_ID: null },
-        { ...WISHLIST_ROW, CART_ID: 46, PRODUCT_VARIANT_ID: 0 },
-        { ...WISHLIST_ROW, CART_ID: 47 },
-      ]));
-
-      expect(rows.map((row) => row.cartId)).toEqual(['45', '46', '47']);
-      expect(rows.map((row) => row.variantId)).toEqual([undefined, undefined, 9]);
-      expect('variantId' in rows[0]).toBe(false);
-    });
-
-    it('sends nothing without a customer session', () => {
-      auth.clearSession();
-      let error: unknown;
-      service.getWishlist(10, 0).subscribe({ error: (caught: unknown) => (error = caught) });
-
-      expect(error).toEqual(new Error('Sign in as a customer to see your wishlist.'));
-      http.expectNone((request) => request.url.endsWith('/move_to_cart/get'));
-    });
-
-    // CHANGED: Save for later sends VARIANT_ID with the CART_ID (null for a row without a variant).
-    it('saves with PUT wishlist/save_for_later { CART_ID, VARIANT_ID } and rejects invalid IDs without a request', () => {
-      service.saveForLater('59', '28').subscribe();
-      const save = http.expectOne('/api/wishlist/save_for_later');
-      expect(save.request.method).toBe('PUT');
-      expect(save.request.body).toEqual({ CART_ID: 59, VARIANT_ID: 28 });
-      save.flush('Saved for later');
-
-      service.saveForLater('30', null).subscribe();
-      http.expectOne('/api/wishlist/save_for_later').flush('Saved for later');
-
-      // CHANGED (new): a product with no cart row (wishlist heart): CART_ID null.
-      service.saveForLater(null, 23).subscribe();
-      const withoutRow = http.expectOne('/api/wishlist/save_for_later');
-      expect(withoutRow.request.method).toBe('PUT');
-      expect(withoutRow.request.body).toEqual({ CART_ID: null, VARIANT_ID: 23 });
-      withoutRow.flush('Saved for later');
-
-      let error: unknown;
-      service.saveForLater('0', 28).subscribe({ error: (caught: unknown) => (error = caught) });
-      expect(error).toBeInstanceOf(RangeError);
-      service.saveForLater('59', 'abc').subscribe({ error: (caught: unknown) => (error = caught) });
-      expect(error).toBeInstanceOf(RangeError);
-      http.expectNone('/api/wishlist/save_for_later');
-    });
-
-
-    // CHANGED (new): Move to Cart.
-    it('moves a saved row to the cart with PUT move_to_cart/update and its CART_ID only', () => {
-      let moved = false;
-      service.moveToCart('5').subscribe({ complete: () => (moved = true) });
-      const move = http.expectOne('/api/move_to_cart/update');
-      expect(move.request.method).toBe('PUT');
-      expect(move.request.body).toEqual({ CART_ID: 5 });
-      move.flush(JSON.stringify({ status: true, message: 'Moved to cart' }));
-      expect(moved).toBe(true);
-
-      let error: unknown;
-      service.moveToCart('5').subscribe({ error: (caught: unknown) => (error = caught) });
-      http.expectOne('/api/move_to_cart/update').flush(JSON.stringify({ status: false }));
-      expect(error).toEqual(new Error('The item could not be moved to your cart.'));
-
-      service.moveToCart('0').subscribe({ error: (caught: unknown) => (error = caught) });
-      expect(error).toBeInstanceOf(RangeError);
-      http.expectNone('/api/move_to_cart/update');
-    });
-
-    it('removes a saved row with DELETE shopping_cart/delete and the row\'s own IDs', () => {
+    it('deletes a row without a variant with its four IDs and no PRODUCT_VARIANT_ID', () => {
+      const [headSet] = loadRows();
       let removed = false;
-      service.removeSavedItem({
-        cartId: '45', productId: 3, variantId: 9, sellerId: 6, customerId: 1, quantity: 1,
-        unitPrice: 999, discount: 0, tax: 0, totalAmount: 999,
-      }).subscribe({ complete: () => (removed = true) });
+      service.removeItem(headSet).subscribe({ complete: () => (removed = true) });
 
       const request = http.expectOne('/api/shopping_cart/delete');
       expect(request.request.method).toBe('DELETE');
-      expect(request.request.body).toEqual({
-        CART_ID: 45, PRODUCT_ID: 3, SELLER_ID: 6, CUSTOMER_ID: 1, PRODUCT_VARIANT_ID: 9,
-      });
+      expect(request.request.body).toEqual({ CART_ID: 70, PRODUCT_ID: 12, SELLER_ID: 8, CUSTOMER_ID: 3 });
       request.flush('Cart item deleted successfully');
       expect(removed).toBe(true);
     });
 
-    it('removes a saved row without a variant using the other four IDs only', () => {
-      service.removeSavedItem({
-        cartId: '45', productId: 3, sellerId: 6, customerId: 1, quantity: 1,
-        unitPrice: 999, discount: 0, tax: 0, totalAmount: 999,
-      }).subscribe();
+    it('sends the PRODUCT_VARIANT_ID of a row with a variant', () => {
+      const [, mug] = loadRows();
+      service.removeItem(mug).subscribe();
 
       const request = http.expectOne('/api/shopping_cart/delete');
-      expect(request.request.body).toEqual({ CART_ID: 45, PRODUCT_ID: 3, SELLER_ID: 6, CUSTOMER_ID: 1 });
+      expect(request.request.body).toEqual({ CART_ID: 71, PRODUCT_ID: 13, SELLER_ID: 9, CUSTOMER_ID: 3, PRODUCT_VARIANT_ID: 21 });
       request.flush('Cart item deleted successfully');
     });
   });
+  // CHANGED: the wishlist tests (move_to_cart/get, move_to_cart/update, wishlist/save_for_later) moved to
+  // wishlist.service.spec.ts with the new wishlist APIs.
 });

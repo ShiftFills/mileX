@@ -305,36 +305,35 @@ describe('ProductDetail', () => {
     expect(heart().classList.contains('is-active')).toBe(false);
   });
 
-  it('turns the gallery heart red after wishlist/save_for_later and back after the saved row is removed', () => {
+  // CHANGED: POST wishlist/manage ADD / REMOVE with PRODUCT_ID and PRODUCT_VARIANT_ID (it was PUT
+  // wishlist/save_for_later with a cart row's CART_ID, and DELETE shopping_cart/delete).
+  it('turns the gallery heart red after wishlist/manage ADD and back after REMOVE', () => {
     TestBed.inject(AuthService).setSession(
       { id: '3', email: '', firstName: 'pooja123', lastName: '', userType: 'CUSTOMER' },
       tokenWithClaims({ USER_ID: 3, CUSTOMER_ID: 4 }),
     );
     const heart = (): HTMLElement => fixture.nativeElement.querySelector('app-product-gallery .gallery__wish');
-    // Product 3 (no variants) is in the customer's cart as CART_ID 81 (read once by the hearts).
+    // The customer's wishlist is read once for the hearts (empty here).
     TestBed.inject(WishlistService).sync();
-    http.expectOne('/api/shopping_cart/get?CUSTOMER_ID=4').flush({
-      success: true,
-      data: [{ CART_ID: 81, PRODUCT_ID: 3, SELLER_ID: 24, CART_QUANTITY: 1, UNIT_PRICE: '75000.00', CUSTOMER_ID: 4, SAVE_FOR_LATER: 0, PRODUCT_NAME: 'Samsung Galaxy S25' }],
-    });
-    http.expectOne('/api/products/get?PRODUCT_ID=3').flush({ status: 'SUCCESS', data: [PRODUCT_ROWS[0]] });
+    http.expectOne('/api/wishlist/get?LIMIT=100&OFFSET=0').flush({ status: true, data: [] });
     fixture.detectChanges();
     expect(heart().classList.contains('is-active')).toBe(false);
 
-    // wishlist/save_for_later with that row's CART_ID and its VARIANT_ID (null: no variant); no cart insert.
+    // Product 3 lists no variants: its products/get row's VARIANT_ID (14), the variant Add to Cart sends too.
     component.toggleWishlist();
     http.expectNone('/api/shopping_cart/insert');
-    const save = http.expectOne('/api/wishlist/save_for_later');
-    expect(save.request.body).toEqual({ CART_ID: 81, VARIANT_ID: null });
-    save.flush('Saved for later');
+    const add = http.expectOne('/api/wishlist/manage');
+    expect(add.request.method).toBe('POST');
+    expect(add.request.body).toEqual({ PRODUCT_ID: 3, PRODUCT_VARIANT_ID: 14, ACTION: 'ADD' });
+    add.flush({ status: true, message: 'ADDED TO WISHLIST', data: { CUSTOMER_ID: 4, PRODUCT_ID: 3, PRODUCT_VARIANT_ID: 14 } });
     fixture.detectChanges();
     expect(heart().classList.contains('is-active')).toBe(true);
     expect(heart().textContent).toContain('♥');
 
     component.toggleWishlist();
-    const remove = http.expectOne('/api/shopping_cart/delete');
-    expect(remove.request.body).toEqual({ CART_ID: 81, PRODUCT_ID: 3, SELLER_ID: 24, CUSTOMER_ID: 4 });
-    remove.flush('Cart item deleted successfully');
+    const remove = http.expectOne('/api/wishlist/manage');
+    expect(remove.request.body).toEqual({ PRODUCT_ID: 3, PRODUCT_VARIANT_ID: 14, ACTION: 'REMOVE' });
+    remove.flush({ status: true, message: 'REMOVED FROM WISHLIST', data: { CUSTOMER_ID: 4, PRODUCT_ID: 3, PRODUCT_VARIANT_ID: 14 } });
     fixture.detectChanges();
     expect(heart().classList.contains('is-active')).toBe(false);
     expect(heart().textContent).toContain('♡');
@@ -524,37 +523,39 @@ describe('ProductDetail', () => {
       });
     });
 
-    // CHANGED (new): the gallery heart sends PUT wishlist/save_for_later { CART_ID, VARIANT_ID } only (no cart insert),
-    // with the variant chosen on this page (it could send VARIANT_ID null).
+    // CHANGED: the gallery heart sends POST wishlist/manage { PRODUCT_ID, PRODUCT_VARIANT_ID, ACTION } (it was PUT
+    // wishlist/save_for_later { CART_ID, VARIANT_ID }), with the variant chosen on this page, and is filled only when
+    // that variant is in the wishlist.
     describe('gallery heart', () => {
       const heartButton = (): HTMLButtonElement =>
         fixture.nativeElement.querySelector('app-product-gallery .gallery__wish button');
-      const CART_URL = '/api/shopping_cart/get?CUSTOMER_ID=4';
+      const heartActive = (): boolean =>
+        fixture.nativeElement.querySelector('app-product-gallery .gallery__wish').classList.contains('is-active');
 
-      /** Reads the customer's cart (shopping_cart/get) with these rows of product 5. */
-      function syncCart(rows: Record<string, unknown>[]): void {
+      /** Reads the customer's wishlist once (wishlist/get) with these saved variants of product 5. */
+      function syncWishlist(variantIds: number[]): void {
         TestBed.inject(WishlistService).sync();
-        http.expectOne(CART_URL).flush({
-          success: true,
-          data: rows.map((row) => ({
-            PRODUCT_ID: 5, SELLER_ID: 44, CART_QUANTITY: 1, UNIT_PRICE: '899.00', CUSTOMER_ID: 4, SAVE_FOR_LATER: 0,
-            PRODUCT_NAME: 'Wireless Mouse', ...row,
+        http.expectOne('/api/wishlist/get?LIMIT=100&OFFSET=0').flush({
+          status: true,
+          data: variantIds.map((variantId) => ({
+            CUSTOMER_ID: 4, PRODUCT_ID: 5, PRODUCT_VARIANT_ID: variantId, PRODUCT_NAME: 'Wireless Mouse', SELLING_PRICE: '799.00',
           })),
         });
-        // The cart's product-status lookup (once per product).
-        for (const lookup of http.match('/api/products/get?PRODUCT_ID=5')) lookup.flush({ status: true, data: [PRODUCT_ROWS[2]] });
+        fixture.detectChanges();
       }
 
-      /** Taps the heart and returns the PUT wishlist/save_for_later body; no other cart call is made first. */
+      /** Taps the heart and returns the POST wishlist/manage body (answered with success); no cart call is made. */
       function tapHeart(): unknown {
         component.toggleWishlist();
         http.expectNone('/api/shopping_cart/insert');
-        const save = http.expectOne('/api/wishlist/save_for_later');
-        expect(save.request.method).toBe('PUT');
-        const body = save.request.body as { CART_ID: number | null };
-        save.flush('Saved for later');
-        // Sent without a CART_ID: the cart is read again to see whether it was saved (here it was not).
-        if (body.CART_ID === null) http.expectOne(CART_URL).flush({ success: true, data: [] });
+        const request = http.expectOne('/api/wishlist/manage');
+        expect(request.request.method).toBe('POST');
+        const body = request.request.body as { PRODUCT_ID: number; PRODUCT_VARIANT_ID: number; ACTION: string };
+        request.flush({
+          status: true,
+          message: body.ACTION === 'ADD' ? 'ADDED TO WISHLIST' : 'REMOVED FROM WISHLIST',
+          data: { CUSTOMER_ID: 4, PRODUCT_ID: body.PRODUCT_ID, PRODUCT_VARIANT_ID: body.PRODUCT_VARIANT_ID },
+        });
         fixture.detectChanges();
         return body;
       }
@@ -566,42 +567,55 @@ describe('ProductDetail', () => {
         );
       });
 
-      it('sends the CART_ID of the selected variant\'s cart row with its VARIANT_ID', () => {
+      it('adds the selected variant (the first in stock until the customer chooses)', () => {
         openProduct5();
-        syncCart([{ CART_ID: 59, VARIANT_ID: 32 }]);
-        // Brown (32), the first in stock, is in the cart as CART_ID 59.
-        expect(tapHeart()).toEqual({ CART_ID: 59, VARIANT_ID: 32 });
+        syncWishlist([]);
+        expect(heartActive()).toBe(false);
+        // Brown (32), the first in stock.
+        expect(tapHeart()).toEqual({ PRODUCT_ID: 5, PRODUCT_VARIANT_ID: 32, ACTION: 'ADD' });
+        expect(heartActive()).toBe(true);
       });
 
-      it('sends the variant the customer picks; CART_ID null when that variant is not in the cart', () => {
+      it('follows the selected variant: filled for a saved one, and adds the one the customer picks', () => {
         openProduct5();
-        syncCart([{ CART_ID: 59, VARIANT_ID: 32 }]);
+        syncWishlist([32]);
+        expect(heartActive()).toBe(true);
+
+        // Grey (33) is not saved, although Brown (32) of the same product is.
         cards()[2].click();
         fixture.detectChanges();
-        // Grey (33) is not in the cart (the row of Brown is not used for it).
-        expect(tapHeart()).toEqual({ CART_ID: null, VARIANT_ID: 33 });
+        expect(heartActive()).toBe(false);
+        expect(tapHeart()).toEqual({ PRODUCT_ID: 5, PRODUCT_VARIANT_ID: 33, ACTION: 'ADD' });
+        expect(heartActive()).toBe(true);
+      });
+
+      it('removes the selected variant when its filled heart is tapped', () => {
+        openProduct5();
+        syncWishlist([32]);
+        expect(tapHeart()).toEqual({ PRODUCT_ID: 5, PRODUCT_VARIANT_ID: 32, ACTION: 'REMOVE' });
+        expect(heartActive()).toBe(false);
       });
 
       it('sends the only variant of a product that has one, even when it is out of stock', () => {
         openProduct5({ status: 'SUCCESS', data: [PRODUCT_5_VARIANTS[0]] });
-        syncCart([]);
-        expect(tapHeart()).toEqual({ CART_ID: null, VARIANT_ID: 31 });
+        syncWishlist([]);
+        expect(tapHeart()).toEqual({ PRODUCT_ID: 5, PRODUCT_VARIANT_ID: 31, ACTION: 'ADD' });
       });
 
       it('is off while the variants load, and uses the product\'s own VARIANT_ID when they cannot be loaded', () => {
         fixture.componentRef.setInput('id', '5');
         fixture.detectChanges();
         flushProduct(5);
-        syncCart([]);
+        syncWishlist([]);
         expect(heartButton().disabled).toBe(true);
         component.toggleWishlist();
-        http.expectNone('/api/wishlist/save_for_later');
+        http.expectNone('/api/wishlist/manage');
 
         http.expectOne(variantUrl(5)).flush({ status: 'FAILURE', message: 'Variants are unavailable' });
         fixture.detectChanges();
         expect(heartButton().disabled).toBe(false);
         // Product 5's products/get row: VARIANT_ID 16 (the variant Add to Cart sends too).
-        expect(tapHeart()).toEqual({ CART_ID: null, VARIANT_ID: 16 });
+        expect(tapHeart()).toEqual({ PRODUCT_ID: 5, PRODUCT_VARIANT_ID: 16, ACTION: 'ADD' });
       });
     });
 

@@ -65,6 +65,9 @@ export class OrderCard {
   protected readonly detailsLink = computed(() => [APP_ROUTES.orders, this.order().id]);
   protected readonly trackingLink = computed(() => [APP_ROUTES.orders, this.order().id, 'tracking']);
   protected readonly statusTone = computed(() => orderStatusTone(this.order().status));
+  /** "Track Order": for every order but a cancelled or failed one (the statuses with the danger badge). */
+  // CHANGED (new): the order STATUS does not follow the shipment yet, so the tracking page says when it has not shipped.
+  protected readonly canTrack = computed(() => this.statusTone() !== 'danger');
   protected readonly itemCount = computed(() =>
     this.order().items.reduce((count, item) => count + item.quantity, 0),
   );

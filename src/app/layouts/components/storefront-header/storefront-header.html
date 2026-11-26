@@ -32,7 +32,10 @@
             </div>
           }
         </div>
-        <a [routerLink]="routes.orders"><img src="/images/track-order.svg" alt="" />Track Order</a>
+        <!-- CHANGED: customers and visitors only (order tracking is part of the customer's My Orders). -->
+        @if (showCustomerOrders()) {
+          <a [routerLink]="routes.orders"><img src="/images/track-order.svg" alt="" />Track Order</a>
+        }
         <a [routerLink]="routes.login" [queryParams]="sellerLoginQuery"><img src="/images/selllOnMilex.svg" alt="" />Sell on Milex</a>
       </nav>
     </div>
@@ -83,7 +86,8 @@
                   </div>
                 </div>
                 <div class="store-header__profile-links">
-                  @for (link of accountLinks; track link.route) {
+                  <!-- CHANGED: My Orders for customer accounts only. -->
+                  @for (link of visibleAccountLinks(); track link.route) {
                     <a role="menuitem" [routerLink]="link.route" (click)="closeAccountMenu()">
                       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path [attr.d]="link.icon" /></svg>
                       {{ link.label }}

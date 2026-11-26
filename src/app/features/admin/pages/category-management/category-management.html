@@ -1,0 +1,286 @@
+<!-- CHANGED (new): Admin Category Management. -->
+<main class="admin-content admin-list-page">
+  <app-page-heading heading="Category Management" subtitle="Manage product categories and subcategories.">
+    <app-button class="category-add" variant="accent" size="small" (clicked)="openAdd($event.currentTarget)">
+      <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
+      Add Category
+    </app-button>
+  </app-page-heading>
+
+  <section appCard class="admin-list-panel" aria-label="Categories">
+    <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-2 gap-lg-3 py-2">
+      <label class="admin-list-search">
+        <img src="/images/search-icon.svg" alt="" aria-hidden="true" />
+        <app-input class="admin-list-search-control" inputId="category-search" name="categorySearch"
+          placeholder="Search by name, ID, parent or description…" size="compact" [value]="query()"
+          (valueInput)="setQuery($event)" />
+        <span class="visually-hidden">Search categories</span>
+      </label>
+      <div class="admin-list-filters">
+        <label class="visually-hidden" for="category-level-filter">Filter by level</label>
+        <app-select class="admin-list-filter admin-list-filter--wide" inputId="category-level-filter" name="categoryLevel"
+          size="compact" [value]="typeFilter()" (valueChange)="setTypeFilter($event)">
+          <option value="all">All levels</option>
+          <option value="top">Top-level categories</option>
+          <option value="sub">Subcategories</option>
+        </app-select>
+        <label class="visually-hidden" for="category-status-filter">Filter by status</label>
+        <app-select class="admin-list-filter" inputId="category-status-filter" name="categoryStatus" size="compact"
+          [value]="statusFilter()" (valueChange)="setStatusFilter($event)">
+          <option value="all">All statuses</option>
+          <option value="Active">Active</option>
+          <option value="Inactive">Inactive</option>
+        </app-select>
+        @if (hasActiveFilters()) {
+          <button type="button" class="category-clear-filters" (click)="clearFilters()">Clear filters</button>
+        }
+      </div>
+    </div>
+
+    @if (loadStatus() === 'success' && categories().length) {
+      <p class="category-summary">
+        <strong>{{ summary().total }}</strong> {{ summary().total === 1 ? 'category' : 'categories' }}
+        <span aria-hidden="true">·</span> {{ summary().topLevel }} top-level
+        <span aria-hidden="true">·</span> {{ summary().subcategories }} {{ summary().subcategories === 1 ? 'subcategory' : 'subcategories' }}
+        @if (summary().inactive) {
+          <span aria-hidden="true">·</span> {{ summary().inactive }} inactive
+        }
+      </p>
+    }
+
+    <ng-template #imageCell let-row>
+      @if (productImages.src(row.category); as src) {
+        <img class="category-thumb" [src]="src" alt="" (error)="productImages.failed(row.category, src)" />
+      } @else {
+        <span class="category-thumb category-thumb--empty" [class.is-loading]="productImages.loading(row.category)" role="img"
+          [attr.aria-label]="(productImages.loading(row.category) ? 'Loading image of ' : 'No image for ') + row.name">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="3" /><circle cx="9" cy="9" r="1.5" /><path d="m4.5 18 5-5 3 3 2-2 5 5" /></svg>
+        </span>
+      }
+    </ng-template>
+    <!-- Subcategories are indented under their parent, with a connector. -->
+    <ng-template #nameCell let-row>
+      <div class="category-name" [class.category-name--sub]="row.depth > 0" [style.--category-depth]="row.depth">
+        @if (row.depth > 0) {
+          <svg class="category-name__connector" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2 0v6.5a1.5 1.5 0 0 0 1.5 1.5H11" /></svg>
+        }
+        <span class="category-name__text">
+          {{ row.name }}
+          @if (row.depth > 0) { <span class="visually-hidden">(subcategory)</span> }
+        </span>
+        @if (row.childCount) {
+          <small class="category-name__count">{{ row.childCount }} {{ row.childCount === 1 ? 'subcategory' : 'subcategories' }}</small>
+        }
+      </div>
+    </ng-template>
+    <ng-template #descriptionCell let-row>
+      <span class="category-description" [attr.title]="row.category.description || null">{{ row.description }}</span>
+    </ng-template>
+    <ng-template #statusCell let-row>
+      <app-badge [tone]="row.status === 'Active' ? 'success' : 'neutral'" size="compact">{{ row.status }}</app-badge>
+    </ng-template>
+    <ng-template #actionsCell let-row>
+      <div class="category-actions">
+        <button type="button" class="category-icon-button" [attr.aria-label]="'Edit ' + row.name" title="Edit"
+          (click)="openEdit(row, $event.currentTarget)">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10.8 2.7a1.6 1.6 0 0 1 2.3 2.3L5.6 12.5l-3 .8.8-3z" /><path d="m9.7 3.8 2.3 2.3" /></svg>
+        </button>
+        <button type="button" class="category-icon-button category-icon-button--danger" [attr.aria-label]="'Delete ' + row.name"
+          title="Delete" (click)="openDelete(row, $event.currentTarget)">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8h5.8l.6-8M6.8 7v3.5M9.2 7v3.5" /></svg>
+        </button>
+      </div>
+    </ng-template>
+
+    @if (loadStatus() === 'loading') {
+      <div class="d-flex justify-content-center align-items-center gap-2 py-4" role="status">
+        <app-loading-spinner /> Loading categories…
+      </div>
+    } @else if (loadStatus() === 'error') {
+      <div class="alert alert-danger d-flex justify-content-between align-items-center gap-3" role="alert">
+        <span>{{ loadError() }}</span>
+        <button type="button" class="btn btn-outline-danger btn-sm" (click)="retryLoad()">Try again</button>
+      </div>
+    } @else if (!categories().length) {
+      <div class="category-empty">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.5 6.5h6l1.5 2h9.5v10a1.5 1.5 0 0 1-1.5 1.5h-14a1.5 1.5 0 0 1-1.5-1.5z" /><path d="M3.5 6.5V5A1.5 1.5 0 0 1 5 3.5h4l1.5 2" /></svg>
+        <h2>No categories yet</h2>
+        <p>Add a category to start organising your products.</p>
+        <app-button variant="accent" size="small" (clicked)="openAdd($event.currentTarget)">Add Category</app-button>
+      </div>
+    } @else {
+      <app-table class="admin-list-table category-table" ariaLabel="Categories" [columns]="tableColumns()"
+        [rows]="visibleRows()" emptyMessage="No categories match these filters." />
+      <app-pagination ariaLabel="Category pages" itemLabel="categories" [page]="currentPage()" [pageSize]="pageSize"
+        [total]="filteredRows().length" (pageChange)="page.set($event)" />
+    }
+  </section>
+</main>
+
+<!-- Add / Edit (one form). -->
+@if (dialogMode(); as mode) {
+  <app-dialog (closed)="closeForm()">
+    <section #formDialog class="category-dialog" role="dialog" aria-modal="true" aria-labelledby="category-form-title"
+      (click)="$event.stopPropagation()" (keydown.escape)="closeForm()">
+      <header class="category-dialog__heading">
+        <div>
+          <h2 id="category-form-title">{{ mode === 'add' ? 'Add Category' : 'Edit Category' }}</h2>
+          <p>{{ mode === 'add' ? 'Create a top-level category, or a subcategory under one.' : 'Update the details of “' + (editing()?.name ?? '') + '”.' }}</p>
+        </div>
+        <button type="button" class="category-dialog__close" aria-label="Close" [disabled]="saving()" (click)="closeForm()">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m3.5 3.5 9 9M12.5 3.5l-9 9" /></svg>
+        </button>
+      </header>
+
+      <form novalidate (submit)="$event.preventDefault(); save()">
+        <div class="category-form">
+          <div class="category-form__fields">
+            <div class="category-field">
+              <label class="category-field__label" for="category-name">Category name <b aria-hidden="true">*</b></label>
+              <app-input inputId="category-name" name="categoryName" size="compact" placeholder="e.g. Fashion"
+                [value]="form().name" [required]="true" [disabled]="saving()"
+                [ariaInvalid]="submitted() && nameError() ? true : null" ariaDescribedBy="category-name-error"
+                (valueInput)="setField('name', $event)" />
+              @if (submitted() && nameError()) {
+                <p id="category-name-error" class="category-field__error" role="alert">{{ nameError() }}</p>
+              }
+            </div>
+
+            <div class="category-field">
+              <label class="category-field__label" for="category-parent">Parent category</label>
+              <app-select inputId="category-parent" name="categoryParent" size="compact" [value]="form().parentId"
+                [disabled]="saving() || editingChildCount() > 0" ariaDescribedBy="category-parent-hint"
+                (valueChange)="setField('parentId', $event)">
+                <option value="">None (top-level category)</option>
+                @for (option of parentOptions(); track option.id) {
+                  <option [value]="option.id">{{ option.label }}</option>
+                }
+              </app-select>
+              <p id="category-parent-hint" class="category-field__hint">
+                @if (editingChildCount() > 0) {
+                  It has {{ editingChildCount() }} {{ editingChildCount() === 1 ? 'subcategory' : 'subcategories' }}, so it stays a top-level category.
+                } @else {
+                  Leave as None for a top-level category, or choose one to make this a subcategory.
+                }
+              </p>
+              @if (submitted() && parentError()) {
+                <p class="category-field__error" role="alert">{{ parentError() }}</p>
+              }
+            </div>
+
+            <div class="category-field">
+              <label class="category-field__label" for="category-status">Status</label>
+              <app-select inputId="category-status" name="categoryStatus" size="compact" [value]="form().status"
+                [disabled]="saving()" (valueChange)="setField('status', $event)">
+                <option value="Active">Active</option>
+                <option value="Inactive">Inactive</option>
+              </app-select>
+            </div>
+
+            <div class="category-field">
+              <label class="category-field__label" for="category-description">Description</label>
+              <app-textarea inputId="category-description" name="categoryDescription" size="compact" [rows]="3"
+                placeholder="What belongs in this category?" [value]="form().description" [disabled]="saving()"
+                [ariaInvalid]="submitted() && descriptionError() ? true : null" ariaDescribedBy="category-description-count"
+                (valueInput)="setField('description', $event)" />
+              <p id="category-description-count" class="category-field__hint category-field__hint--end"
+                [class.is-over]="form().description.trim().length > descriptionMaxLength">
+                {{ form().description.trim().length }}/{{ descriptionMaxLength }}
+              </p>
+              @if (submitted() && descriptionError()) {
+                <p class="category-field__error" role="alert">{{ descriptionError() }}</p>
+              }
+            </div>
+          </div>
+
+          <div class="category-form__image">
+            <span class="category-field__label" id="category-image-label">Category image</span>
+            <div class="category-upload" aria-labelledby="category-image-label">
+              @if (imagePreview(); as preview) {
+                <img [src]="preview" alt="Preview of the new image" (error)="previewFailed()" />
+              } @else if (currentImageSource(); as current) {
+                @if (productImages.src(current); as src) {
+                  <img [src]="src" [alt]="'Current image of ' + current.name" (error)="productImages.failed(current, src)" />
+                } @else {
+                  <span class="category-upload__placeholder" [class.is-loading]="productImages.loading(current)">
+                    {{ productImages.loading(current) ? 'Loading image…' : 'Image unavailable' }}
+                  </span>
+                }
+              } @else {
+                <span class="category-upload__placeholder">
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="3" /><circle cx="9" cy="9" r="1.5" /><path d="m4.5 18 5-5 3 3 2-2 5 5" /></svg>
+                  No image
+                </span>
+              }
+            </div>
+            <div class="category-upload__actions">
+              <label class="category-upload__choose" [class.is-disabled]="saving()">
+                {{ imagePreview() || currentImageSource() ? 'Change image' : 'Upload image' }}
+                <input class="visually-hidden" type="file" accept="image/png,image/jpeg,image/webp" [disabled]="saving()"
+                  (change)="onImageChange($event)" />
+              </label>
+              @if (imagePreview() || currentImageSource()) {
+                <button type="button" class="category-upload__remove" [disabled]="saving()" (click)="removeImage()">Remove</button>
+              }
+            </div>
+            <p class="category-field__hint">Optional. PNG, JPG or WEBP, up to 5 MB.</p>
+            @if (imageError()) {
+              <p class="category-field__error" role="alert">{{ imageError() }}</p>
+            }
+          </div>
+        </div>
+
+        @if (saveError()) {
+          <p class="category-dialog__error" role="alert">{{ saveError() }}</p>
+        }
+
+        <footer class="category-dialog__actions">
+          <app-button variant="outline" size="small" [disabled]="saving()" (clicked)="closeForm()">Cancel</app-button>
+          <app-button variant="accent" size="small" type="submit" [loading]="saving()">
+            {{ saving() ? (uploadingImage() ? 'Uploading image…' : 'Saving…') : mode === 'add' ? 'Add Category' : 'Update Category' }}
+          </app-button>
+        </footer>
+      </form>
+    </section>
+  </app-dialog>
+}
+
+<!-- Delete confirmation. -->
+@if (deleteTarget(); as row) {
+  <app-dialog (closed)="closeDelete()">
+    <section #deleteDialog class="category-dialog category-dialog--delete" role="alertdialog" aria-modal="true"
+      aria-labelledby="category-delete-title" aria-describedby="category-delete-text" tabindex="-1"
+      (click)="$event.stopPropagation()" (keydown.escape)="closeDelete()">
+      <header class="category-dialog__heading">
+        <h2 id="category-delete-title">Delete Category</h2>
+        <button type="button" class="category-dialog__close" aria-label="Close" [disabled]="deleting()" (click)="closeDelete()">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m3.5 3.5 9 9M12.5 3.5l-9 9" /></svg>
+        </button>
+      </header>
+      @if (row.childCount > 0) {
+        <p id="category-delete-text" class="category-dialog__warning">
+          “{{ row.name }}” has {{ row.childCount }} {{ row.childCount === 1 ? 'subcategory' : 'subcategories' }}.
+          Move them to another category or delete them first.
+        </p>
+      } @else {
+        <p id="category-delete-text" class="category-dialog__text">
+          Delete “{{ row.name }}”{{ row.depth > 0 ? ' (subcategory of ' + row.parentLabel + ')' : '' }}? This cannot be undone.
+        </p>
+        <p class="category-dialog__note">A category that products still use cannot be deleted.</p>
+      }
+      @if (deleteError()) {
+        <p class="category-dialog__error" role="alert">{{ deleteError() }}</p>
+      }
+      <footer class="category-dialog__actions">
+        <app-button variant="outline" size="small" [disabled]="deleting()" (clicked)="closeDelete()">
+          {{ row.childCount > 0 ? 'Close' : 'Cancel' }}
+        </app-button>
+        @if (!row.childCount) {
+          <app-button variant="danger" size="small" [loading]="deleting()" (clicked)="confirmDelete()">
+            {{ deleting() ? 'Deleting…' : 'Delete' }}
+          </app-button>
+        }
+      </footer>
+    </section>
+  </app-dialog>
+}

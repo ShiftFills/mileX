@@ -1,67 +1,125 @@
 <div class="store-container tracking">
+  <!-- CHANGED: no "Back to Order Details" link (the design has none above the heading). -->
   <app-page-heading heading="Shipment Tracking" subtitle="Monitor status, location and delivery progress." />
 
+  <!-- CHANGED: loading, error (with Try again) and not-shipped-yet states of the tracking API. -->
+  @switch (status()) {
+    @case ('loading') {
+      <div class="tracking__state" role="status">
+        <app-loading-spinner />
+        <span>Loading shipment details…</span>
+      </div>
+      
+    }
+
+    @case ('error') {
+      <app-alert tone="danger" role="alert">
+        {{ error() }}
+        <button type="button" class="tracking__retry" (click)="retry()">Try again</button>
+      </app-alert>
+    }
+
+    @default {
   @if (shipment(); as s) {
     @if (notice()) {
       <app-alert class="tracking__notice" tone="warning" role="alert">{{ notice() }}</app-alert>
     }
 
-    <div class="row g-3 g-lg-3">
+    <!-- CHANGED: the design's 20px gaps (tracking-grid) and 40% / 60% first row (it was col-lg-5 / col-lg-7). -->
+    <div class="row tracking-grid">
       <!-- Order + carrier -->
-      <div class="col-12 col-lg-5">
+      <div class="col-12 tracking-grid__order">
         <section appCard class="tracking-card tracking-order" aria-labelledby="order-title">
           <h2 id="order-title" class="tracking-order__label">Order Details</h2>
           <p class="tracking-order__id">
             <strong>{{ s.orderId }}</strong>
-            <span>{{ s.placedOn | date: 'd MMM y' }}</span>
+            @if (s.placedOn) {
+              <span>{{ s.placedOn | date: 'd MMM y' }}</span>
+            }
           </p>
-          <div class="tracking-carrier d-flex flex-wrap align-items-center gap-3">
-            <span class="tracking-carrier__logo d-flex align-items-center justify-content-center" [style.background]="s.carrier.color" aria-hidden="true">{{ s.carrier.code }}</span>
-            <div class="tracking-carrier__info">
-              <p class="tracking-carrier__name">Carrier: <strong>{{ s.carrier.name }}</strong></p>
-              <p class="tracking-carrier__no d-flex align-items-center gap-2">
-                {{ s.carrier.trackingNo }}
-                <button type="button" class="tracking-carrier__copy d-inline-flex" [attr.aria-label]="copied() ? 'Tracking number copied' : 'Copy tracking number'" (click)="copyTrackingNo()">
-                  @if (copied()) {
-                    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7" /></svg>
-                  } @else {
-                    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path d="M10.5 5.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2" /></svg>
-                  }
-                </button>
-              </p>
+          <!-- CHANGED: no "Shipment No · Shipped on" line (not in the design; the shipping date is on the timeline). -->
+          <!-- CHANGED: only once a carrier or tracking number is assigned; the copy and Visit Site buttons only with
+               a tracking number / a known carrier website. -->
+          @if (s.carrier.name || s.carrier.trackingNo) {
+            <div class="tracking-carrier d-flex flex-wrap align-items-center gap-3">
+              @if (s.carrier.code) {
+                <span class="tracking-carrier__logo d-flex align-items-center justify-content-center" [style.background]="s.carrier.color" aria-hidden="true">{{ s.carrier.code }}</span>
+              }
+              <div class="tracking-carrier__info">
+                @if (s.carrier.name) {
+                  <p class="tracking-carrier__name">Carrier: <strong>{{ s.carrier.name }}</strong></p>
+                }
+                @if (s.carrier.trackingNo) {
+                  <p class="tracking-carrier__no d-flex align-items-center gap-2">
+                    {{ s.carrier.trackingNo }}
+                    <button type="button" class="tracking-carrier__copy d-inline-flex" [attr.aria-label]="copied() ? 'Tracking number copied' : 'Copy tracking number'" (click)="copyTrackingNo()">
+                      @if (copied()) {
+                        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7" /></svg>
+                      } @else {
+                        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path d="M10.5 5.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2" /></svg>
+                      }
+                    </button>
+                  </p>
+                }
+              </div>
+              @if (s.carrier.siteUrl) {
+                <a class="btn btn--outline tracking-carrier__visit" [href]="s.carrier.siteUrl" target="_blank" rel="noopener noreferrer">
+                  Visit Site
+                  <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M9 3h4v4M13 3 7.5 8.5M11.5 9v3.5a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1H7" /></svg>
+                </a>
+              }
             </div>
-            <a class="btn btn--outline tracking-carrier__visit" [href]="s.carrier.siteUrl" target="_blank" rel="noopener noreferrer">
-              Visit Site
-              <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M9 3h4v4M13 3 7.5 8.5M11.5 9v3.5a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1H7" /></svg>
-            </a>
-          </div>
+          }
         </section>
       </div>
 
       <!-- Live status -->
-      <div class="col-12 col-lg-7">
-        <section appCard class="tracking-card tracking-status d-flex flex-column flex-md-row align-items-start align-items-md-center" aria-label="Delivery status">
-          <div class="tracking-status__main">
-            <p class="tracking-status__flags d-flex align-items-center gap-2">
-              <span class="tracking-status__live d-inline-flex align-items-center gap-1">
+      <div class="col-12 tracking-grid__status">
+        <!-- CHANGED: the design's two halves (layout in the SCSS; it was flex utility classes). -->
+        <section appCard class="tracking-card tracking-status" aria-label="Delivery status">
+          <!-- CHANGED: role="status" (the live delivery status). -->
+          <div class="tracking-status__main" role="status">
+            <p class="tracking-status__flags d-flex align-items-center">
+              <span class="tracking-status__live d-inline-flex align-items-center">
                 <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M1.5 4h8v7h-8zM9.5 6.5h3l2 2V11h-5zM4.5 12.5a1 1 0 1 0 0-.01M11.5 12.5a1 1 0 1 0 0-.01" /></svg>
                 Live Status
               </span>
-              <span class="tracking-status__schedule" [class.is-late]="!s.onSchedule">{{ s.scheduleStatus }}</span>
+              @if (s.scheduleStatus) {
+                <span class="tracking-status__schedule" [class.is-late]="!s.onSchedule">{{ s.scheduleStatus }}</span>
+              }
             </p>
             <p class="tracking-status__caption">Estimated Delivery Date</p>
-            <p class="tracking-status__date">{{ s.estimatedDelivery | date: 'EEEE, MMM d, y' }}</p>
-          </div>
-          <div class="tracking-status__side d-flex flex-column align-items-center gap-3">
-            <app-button class="tracking-map-button" variant="accent" (clicked)="showMap()">
-              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="m1.5 3.5 4-1.5 5 1.5 4-1.5v10l-4 1.5-5-1.5-4 1.5zM5.5 2v10.5M10.5 3.5V14" /></svg>
-              Live Map View
-            </app-button>
-            <p class="tracking-status__where d-flex align-items-center gap-2">
-              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M13 6.5c0 3.8-5 8-5 8s-5-4.2-5-8a5 5 0 1 1 10 0Z" /><circle cx="8" cy="6.5" r="1.6" /></svg>
-              Package currently at <strong>{{ s.currentLocation }}</strong>
+            <!-- CHANGED: "Not available" when the API sends no valid date. -->
+            <p class="tracking-status__date">
+              @if (s.estimatedDelivery) {
+                {{ s.estimatedDelivery | date: 'EEEE, MMM d, y' }}
+              } @else {
+                Not available
+              }
             </p>
           </div>
+          <!-- CHANGED: always shown, as in the design (it needed live location data). Live Map View goes to the map card;
+               the location line names the API's current location, or says that it is not available yet. -->
+          @if (showLiveTracking()) {
+            <div class="tracking-status__side">
+              <app-button class="tracking-map-button" variant="accent" (clicked)="showMap()">
+                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="m1.5 3.5 4-1.5 5 1.5 4-1.5v10l-4 1.5-5-1.5-4 1.5zM5.5 2v10.5M10.5 3.5V14" /></svg>
+                Live Map View
+              </app-button>
+              <p class="tracking-status__where d-flex align-items-center">
+                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M13 6.5c0 3.8-5 8-5 8s-5-4.2-5-8a5 5 0 1 1 10 0Z" /><circle cx="8" cy="6.5" r="1.6" /></svg>
+                <!-- CHANGED: one text block, so it wraps as a sentence beside the pin. -->
+                <!-- CHANGED: without a current location (the API sends none yet), the shipping status and carrier. -->
+                @if (currentLocation()) {
+                  <span>Package currently at <strong>{{ currentLocation() }}</strong></span>
+                } @else if (packageStatus(); as packageNow) {
+                  <span>Package currently <strong>{{ packageNow.status }}</strong>@if (packageNow.carrier) { with <strong>{{ packageNow.carrier }}</strong>}</span>
+                } @else {
+                  <span>Current location not available yet</span>
+                }
+              </p>
+            </div>
+          }
         </section>
       </div>
 
@@ -69,81 +127,120 @@
       <div class="col-12">
         <section appCard class="tracking-card tracking-timeline" aria-labelledby="timeline-title">
           <h2 id="timeline-title" class="tracking-card__title d-flex align-items-center gap-2">Shipment Timeline Progress</h2>
-          <app-stepper size="large" [mobileFit]="true" ariaLabel="Shipment progress" [steps]="steps()" [current]="s.currentStep" />
+          <!-- CHANGED: a note instead of the steps for a cancelled, failed or returned order. -->
+          @if (closedNote(); as note) {
+            <app-alert tone="danger">{{ note }}</app-alert>
+          } @else {
+            <!-- CHANGED: stateLabels, so each step also says "completed", "current" or "upcoming" to screen readers. -->
+            <app-stepper size="large" [mobileFit]="true" [stateLabels]="true" ariaLabel="Shipment progress" [steps]="steps()" [current]="s.currentStep" />
+          }
         </section>
       </div>
 
-      <!-- Map -->
-      <div class="col-12 col-lg-6">
-        <app-shipment-map id="shipment-map" tabindex="-1" [shipment]="s" />
-      </div>
+      <!-- Live Route GPS Tracking (CHANGED: always shown, as in the design; it needed live location data). Beside the
+           cards from 1200px in the design's 48.75% / 51.25% split (tracking-grid__map / __side), stacked above them on
+           smaller screens. -->
+      @if (showLiveTracking()) {
+        <div class="col-12 tracking-grid__map">
+          <app-shipment-map id="shipment-map" tabindex="-1" [shipment]="s" [refreshing]="refreshing()" [error]="refreshError()" (refresh)="refreshTracking()" />
+        </div>
+      }
 
-      <!-- Package / address / payment -->
-      <div class="col-12 col-lg-6">
-        <div class="tracking-stack d-grid gap-3">
+      <!-- Package / address / payment (CHANGED: the full width, in two columns on large screens, without the map) -->
+      <div class="col-12" [class.tracking-grid__side]="showLiveTracking()">
+        <div class="tracking-stack d-grid" [class.tracking-stack--wide]="!showLiveTracking()">
           <section appCard class="tracking-card" aria-labelledby="package-title">
             <header class="tracking-card__head d-flex align-items-center justify-content-between gap-3">
-              <h2 id="package-title" class="tracking-card__title d-flex align-items-center gap-2">Package Content <span>( {{ itemCount() }} items )</span></h2>
-              <span class="tracking-pill">Verified Packed</span>
+              <h2 id="package-title" class="tracking-card__title d-flex align-items-center gap-2">Package Content <span>( {{ itemCount() }} {{ itemCount() === 1 ? 'item' : 'items' }} )</span></h2>
+              <!-- CHANGED: only once the shipping status is Packed or later. -->
+              @if (verifiedPacked()) {
+                <span class="tracking-pill">Verified Packed</span>
+              }
             </header>
             <ul class="tracking-items">
-              @for (item of s.items; track item.sku) {
+              @for (item of s.items; track $index) {
                 <li class="d-flex gap-3">
                   <span class="tracking-items__icon d-flex align-items-center justify-content-center" [class.is-accent]="item.tone === 'accent'" aria-hidden="true">
                     <svg viewBox="0 0 24 24" width="24" height="24"><path [attr.d]="item.icon" /></svg>
                   </span>
                   <div>
                     <p class="tracking-items__name">{{ item.name }}</p>
-                    <p class="tracking-items__meta">SKU: {{ item.sku }} &bull; Qty: {{ item.quantity }}</p>
-                    <p class="tracking-items__price">{{ item.price | currency: 'INR' : 'symbol' : '1.2-2' }}</p>
+                    <p class="tracking-items__meta">
+                      @if (item.sku) { SKU: {{ item.sku }} }
+                      @if (item.sku && item.quantity !== null) { &bull; }
+                      @if (item.quantity !== null) { Qty: {{ item.quantity }} }
+                    </p>
+                    @if (item.price !== null) {
+                      <p class="tracking-items__price">{{ item.price | currency: 'INR' : 'symbol' : '1.2-2' }}</p>
+                    }
                   </div>
                 </li>
               }
             </ul>
-            <p class="tracking-subtotal d-flex align-items-center justify-content-between"><span>Sub total Amount</span><strong>{{ subtotal() | currency: 'INR' : 'symbol' : '1.2-2' }}</strong></p>
+            <!-- CHANGED: the API's SUBTOTAL only, as in the design (Discount / Tax / Shipping / Total rows removed; the
+                 amounts stay in shipment.totals). -->
+            @if (s.totals && s.totals.subtotal !== null) {
+              <p class="tracking-subtotal d-flex align-items-center justify-content-between"><span>Sub total Amount</span><strong>{{ s.totals.subtotal | currency: 'INR' : 'symbol' : '1.2-2' }}</strong></p>
+            }
           </section>
 
           <section appCard class="tracking-card" aria-labelledby="address-title">
             <header class="tracking-card__head d-flex align-items-center justify-content-between gap-3"><h2 id="address-title" class="tracking-card__title d-flex align-items-center gap-2">Delivery Address</h2></header>
             <address class="tracking-address">
-              <strong>{{ s.address.name }}</strong>
-              @for (line of s.address.lines; track line) {
-                <span>{{ line }}</span>
+              @if (s.address.name) {
+                <strong>{{ s.address.name }}</strong>
               }
-              <span class="tracking-address__phone d-flex align-items-center gap-2">
-                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3 2.5h2.5l1 3-1.5 1a8 8 0 0 0 4 4l1-1.5 3 1v2.5a1 1 0 0 1-1 1A10.5 10.5 0 0 1 2 3.5a1 1 0 0 1 1-1Z" /></svg>
-                {{ s.address.phone }}
-              </span>
+              @for (line of s.address.lines; track $index) {
+                <span>{{ line }}</span>
+              } @empty {
+                <span>Not available</span>
+              }
+              @if (s.address.phone) {
+                <span class="tracking-address__phone d-flex align-items-center gap-2">
+                  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3 2.5h2.5l1 3-1.5 1a8 8 0 0 0 4 4l1-1.5 3 1v2.5a1 1 0 0 1-1 1A10.5 10.5 0 0 1 2 3.5a1 1 0 0 1 1-1Z" /></svg>
+                  {{ s.address.phone }}
+                </span>
+              }
             </address>
           </section>
 
-          <section appCard class="tracking-card" aria-labelledby="payment-title">
-            <header class="tracking-card__head d-flex align-items-center justify-content-between gap-3">
-              <h2 id="payment-title" class="tracking-card__title d-flex align-items-center gap-2">
-                <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><rect x="1.5" y="3.5" width="13" height="9" rx="1.5" /><path d="M1.5 6.5h13M4 10h2" /></svg>
-                Payment &amp; Billing
-              </h2>
-              <span class="tracking-pill">{{ s.payment.status }}</span>
-            </header>
-            <div class="tracking-payment d-flex flex-wrap align-items-center gap-3">
-              <span class="tracking-payment__badge" aria-hidden="true">{{ s.payment.badge }}</span>
-              <p>
-                <strong>{{ s.payment.method }}</strong>
-                <span>Authorized {{ s.payment.authorizedOn | date: 'MMM d, y' }}</span>
-              </p>
-              <app-button class="tracking-invoice" variant="outline" size="small" (clicked)="downloadInvoice()">
-                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 1.5h5.5L13 5v9.5H4zM9.5 1.5V5H13M6 8h5M6 10.5h5" /></svg>
-                Invoice PDF
-              </app-button>
-            </div>
-          </section>
+          <!-- CHANGED: only when the API sends payment details (the tracking API does not yet). -->
+          @if (s.payment; as payment) {
+            <section appCard class="tracking-card" aria-labelledby="payment-title">
+              <header class="tracking-card__head d-flex align-items-center justify-content-between gap-3">
+                <h2 id="payment-title" class="tracking-card__title d-flex align-items-center gap-2">
+                  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><rect x="1.5" y="3.5" width="13" height="9" rx="1.5" /><path d="M1.5 6.5h13M4 10h2" /></svg>
+                  Payment &amp; Billing
+                </h2>
+                <span class="tracking-pill">{{ payment.status }}</span>
+              </header>
+              <div class="tracking-payment d-flex flex-wrap align-items-center gap-3">
+                <span class="tracking-payment__badge" aria-hidden="true">{{ payment.badge }}</span>
+                <p>
+                  <strong>{{ payment.method }}</strong>
+                  <span>Authorized {{ payment.authorizedOn | date: 'MMM d, y' }}</span>
+                </p>
+                <!-- CHANGED: a link to the invoice, only when the backend sends its URL (no invoice API yet). -->
+                @if (s.actions?.invoiceUrl; as invoiceUrl) {
+                  <a class="btn btn--outline btn-sm tracking-invoice" [href]="invoiceUrl" target="_blank" rel="noopener noreferrer">
+                    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 1.5h5.5L13 5v9.5H4zM9.5 1.5V5H13M6 8h5M6 10.5h5" /></svg>
+                    Invoice PDF
+                  </a>
+                }
+              </div>
+            </section>
+          }
 
           <div class="row g-2">
-            <div class="col-12 col-sm-6"><a class="btn btn--outline w-100" [routerLink]="routes.support">
-              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5" /><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3" /></svg>
-              Reschedule
-            </a></div>
-            <div class="col-12 col-sm-6"><app-button class="tracking-return-button" variant="outline-danger" size="small" (clicked)="openReturnRequest()">
+            <!-- CHANGED: Reschedule only when the backend allows it (no reschedule API yet); Cancel / Return then takes
+                 the whole row. -->
+            @if (s.actions?.reschedule) {
+              <div class="col-12 col-sm-6"><a class="btn btn--outline w-100" [routerLink]="routes.support">
+                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5" /><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3" /></svg>
+                Reschedule
+              </a></div>
+            }
+            <div class="col-12" [class.col-sm-6]="s.actions?.reschedule"><app-button class="tracking-return-button" variant="outline-danger" size="small" (clicked)="openReturnRequest()">
               <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="8" cy="8" r="6" /><path d="m3.8 3.8 8.4 8.4" /></svg>
               Cancel / Return
             </app-button></div>
@@ -152,11 +249,22 @@
       </div>
     </div>
   } @else {
-    <section appCard class="tracking-empty" aria-label="Order not found">
-      <h2>We couldn't find that shipment</h2>
-      <p>Check the order number and try again from your orders.</p>
-      <a class="btn btn--accent btn-sm" [routerLink]="routes.orders">Go to my orders</a>
+    <!-- CHANGED: no tracking rows yet means the order has not been dispatched (an API failure is the error above). -->
+    <section appCard class="tracking-empty" aria-labelledby="tracking-empty-title">
+      <span class="tracking-empty__icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M2 6h11v10H2zM13 9.5h4.5l3 3.5V16H13M6.5 19a1.5 1.5 0 1 0 0-.01M17 19a1.5 1.5 0 1 0 0-.01" /></svg>
+      </span>
+      <h2 id="tracking-empty-title">Not shipped yet</h2>
+      <p>This order hasn't shipped yet. Tracking details will appear here once it is dispatched.</p>
+      <div class="tracking-empty__actions d-flex flex-wrap justify-content-center gap-2">
+        @if (orderNumber()) {
+          <a class="btn btn--accent btn-sm" [routerLink]="[routes.orders, orderNumber()]">View Order Details</a>
+        }
+        <a class="btn btn--outline btn-sm" [routerLink]="routes.orders">Back to My Orders</a>
+      </div>
     </section>
+  }
+    }
   }
 </div>
 
@@ -183,9 +291,14 @@
             <div class="return-product__details">
               <h3>{{ item.name }}</h3>
               <p class="return-product__variant">{{ item.sku }}</p>
-              <p class="return-product__quantity">Qty: {{ item.quantity }}</p>
+              <!-- CHANGED: quantity and price only when the API sends them. -->
+              @if (item.quantity !== null) {
+                <p class="return-product__quantity">Qty: {{ item.quantity }}</p>
+              }
             </div>
-            <strong class="return-product__price">{{ item.price | currency: 'INR' : 'symbol' : '1.0-0' }}</strong>
+            @if (item.price !== null) {
+              <strong class="return-product__price">{{ item.price | currency: 'INR' : 'symbol' : '1.0-0' }}</strong>
+            }
           </article>
         }
       }

@@ -61,6 +61,10 @@ describe('AdminLayout toolbar', () => {
     );
     expect(root.querySelector('.admin-icon-button[aria-label="Notifications"]')).toBeTruthy();
     expect(root.querySelector('.admin-sidebar')?.textContent).toContain('Seller Verification');
+    // CHANGED (new): the Admin menu, without My Orders (a customer screen); Order Management stays.
+    const topLevel = Array.from(root.querySelectorAll('.admin-sidebar nav > ul > li > a span'), (label) => label.textContent?.trim());
+    expect(topLevel).toEqual(['Dashboard', 'Products', 'Categories', 'Order Management', 'Return Request', 'Seller Verification']);
+    expect(root.querySelector('a[href="/admin/my-orders"]')).toBeNull();
   });
 
   it('shows the signed-in Seller\'s own name and role with the Seller menu', () => {

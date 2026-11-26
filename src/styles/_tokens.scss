@@ -8,6 +8,11 @@
   --color-primary-contrast: #ffffff;
   --color-accent: #ffca05;
   --color-accent-contrast: #173e67;
+  // CHANGED (new): soft accent tints (Shipment Tracking design): a tile background, its border, and the halo of the
+  // current timeline step.
+  --color-accent-subtle: #fffbe6;
+  --color-accent-border: #fff0a6;
+  --color-accent-ring: #fff3b0;
 
   // ---- Color: neutrals ----
   --color-bg: #f6f8fb;
@@ -17,11 +22,19 @@
   --color-text: #1c2738;
   --color-text-muted: #718096;
   --color-placeholder: #9ba8b9;
+  // CHANGED (new): the slate text on the Shipment Tracking design's yellow pill and button, and its location line.
+  --color-text-secondary: #475569;
+  // CHANGED (new): Shipment Tracking design. Inner boxes and icon tiles, and the map's background.
+  --color-surface-muted: #f8fafc;
+  --color-map-surface: #eff3f8;
 
   // ---- Color: feedback ----
   --color-success: #07815f;
   --color-success-subtle: #ECFDF5;
   --color-warning: #f3a812;
+  // CHANGED (new): the "On Schedule" text of the Shipment Tracking design: the same yellow as its Live Status pill and
+  // Live Map View button (it was a darker gold, from a half-size image).
+  --color-on-schedule: var(--color-accent);
   --color-danger: #b52d46;
   --color-document-verified: #059669;
   --color-document-not-verified: #e11d48;
@@ -57,15 +70,24 @@
   --space-6: 2rem;
   --space-7: 3rem;
   --space-8: 4rem;
+  // CHANGED (new): the 20px card padding and card gap of the Shipment Tracking design, and the 40px padding of its
+  // status card.
+  --space-card: 1.25rem;
+  --space-card-lg: 2.5rem;
 
   // ---- Shape & elevation ----
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 14px;
+  // CHANGED (new): the card radius of the Shipment Tracking design (16px measured at full size; it was 12px, measured
+  // on a half-size image).
+  --radius-card: 16px;
   --radius-pill: 999px;
 
   --shadow-sm: 0 1px 2px rgb(20 33 31 / 8%);
   --shadow-md: 0 4px 14px rgb(20 33 31 / 10%);
+  // CHANGED (new): the soft card shadow of the Shipment Tracking design.
+  --shadow-card: 0 2px 10px rgb(30 45 70 / 4%);
 
   // ---- Layout ----
   --container-max: 1200px;

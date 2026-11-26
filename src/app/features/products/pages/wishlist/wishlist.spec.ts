@@ -1,4 +1,5 @@
-// CHANGED (new): the Wishlist page with move_to_cart/get (signed-in customer) and the device wishlist (guest).
+// CHANGED: the Wishlist page with the wishlist APIs (GET wishlist/get, POST wishlist/manage) for a signed-in customer
+// (it used move_to_cart/get, move_to_cart/update and shopping_cart/delete), and the device wishlist (guest).
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
@@ -6,78 +7,56 @@ import { provideRouter } from '@angular/router';
 import { AuthService } from '@core/services/auth.service';
 import { CartService } from '@core/services/cart.service';
 import { ToastService } from '@core/services/toast.service';
+import { WishlistService } from '@core/services/wishlist.service';
 import { Wishlist } from './wishlist';
 
 const USER_ID = 3;
 const CUSTOMER_ID = 1;
-const WISHLIST_URL = (offset = 0): string => `/api/move_to_cart/get?CATEGORY_ID=-1&PRODUCT_ID=-1&LIMIT=10&OFFSET=${offset}`;
-const productUrl = (id: number): string => `/api/products/get?PRODUCT_ID=${id}`;
+const WISHLIST_URL = (offset = 0): string => `/api/wishlist/get?LIMIT=10&OFFSET=${offset}`;
+const MANAGE_URL = '/api/wishlist/manage';
+const INSERT_URL = '/api/shopping_cart/insert';
+const CART_URL = `/api/shopping_cart/get?CUSTOMER_ID=${CUSTOMER_ID}`;
 const variantUrl = (id: number): string => `/api/product_variant/get?PRODUCT_ID=${id}&VARIANT_ID=-1&LIMIT=10&OFFSET=0`;
 const BRANDS_URL = '/api/brand_management/get?BRAND_ID=-1';
-// CHANGED (new): Move to Cart (PUT move_to_cart/update) and the cart refresh after it.
-const MOVE_URL = '/api/move_to_cart/update';
-const CART_URL = `/api/shopping_cart/get?CUSTOMER_ID=1`;
-
-/** A shopping_cart/get row: by default the wallet (product 3, variant 9) as an active cart row (CART_ID 80). */
-function cartRowJson(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    CART_ID: 80, PRODUCT_ID: 3, SELLER_ID: 6, CART_QUANTITY: 1, UNIT_PRICE: '899.00', CUSTOMER_ID: 1, SAVE_FOR_LATER: 0,
-    PRODUCT_NAME: 'Leather Wallet', VARIANT_ID: 9, ...overrides,
-  };
-}
 
 function tokenWithClaims(claims: Record<string, unknown>): string {
   return `header.${btoa(JSON.stringify(claims)).replace(/=/g, '')}.signature`;
 }
 
 /**
- * A move_to_cart/get row like the sample response (with PRODUCT_NAME). Its UNIT_PRICE (750) is a stale stored price:
- * the cards show the product's current prices instead.
+ * A wishlist/get row, shaped like the sample response: by default the Leather Wallet (product 3) saved as variant 9,
+ * with the product's SELLING_PRICE / PRICE (MRP), stock, seller and S3 image.
  */
 function wishlistRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    CART_ID: 45, PRODUCT_ID: 3, PRODUCT_VARIANT_ID: 9, SELLER_ID: 6, SKU: 'CRT0045', QUANTITY: 1,
-    UNIT_PRICE: '750.00', DISCOUNT: '0.00', TAX: '0.00', TOTAL_AMOUNT: '750.00', CUSTOMER_ID, SAVE_FOR_LATER: 1,
-    PRODUCT_NAME: 'Leather Wallet',
+    WISHLIST_ID: 3, CUSTOMER_ID, PRODUCT_ID: 3, PRODUCT_VARIANT_ID: 9, CREATED_AT: '2026-11-19T10:31:27.000Z',
+    PRODUCT_NAME: 'Leather Wallet', PRODUCT_CODE_SKU: 'SKU0003', CATEGORY_ID: 1, SUB_CATEGORY_ID: 2, BRAND_ID: 2,
+    PRODUCT_IMAGE: 'products/wallet.png', PRODUCT_DESCRIPTION: 'Leather wallet', TAX_RATE: '18.00',
+    SELLING_PRICE: '899.00', PRICE: '1299.00', DISCOUNT: '0.00', STOCK_QUANTITY: 20, MINIMUM_ORDER_QUANTITY: 1,
+    MAXIMUM_ORDER_QUANTITY: 4, SELLER_ID: 6, IS_ACTIVE: 'ACTIVE', MATCHED_VARIANT_ID: 9,
     ...overrides,
   };
 }
 
-/** The saved Travel Mug row (product 4, which has no VARIANTS, and no variant 12 in product_variant/get). */
+/** The saved Travel Mug (product 4, variant 12): out of stock, and without variant details in product_variant/get. */
 const MUG_ROW = {
-  CART_ID: 46, PRODUCT_ID: 4, PRODUCT_VARIANT_ID: 12, SELLER_ID: 7, QUANTITY: 2,
-  UNIT_PRICE: '400.00', TOTAL_AMOUNT: '800.00', PRODUCT_NAME: 'Travel Mug',
+  WISHLIST_ID: 4, PRODUCT_ID: 4, PRODUCT_VARIANT_ID: 12, MATCHED_VARIANT_ID: 12, PRODUCT_NAME: 'Travel Mug',
+  PRODUCT_CODE_SKU: 'SKU0004', BRAND_ID: 3, CATEGORY_ID: 2, PRODUCT_IMAGE: null, SELLING_PRICE: '450.00',
+  PRICE: '500.00', STOCK_QUANTITY: 0, SELLER_ID: 7,
 };
 
-const wishlistResponse = (data: unknown[]) => ({
-  status: true, message: 'Saved for Later items retrieved successfully', data,
+const wishlistResponse = (data: unknown[]) => ({ status: true, message: 'WISHLIST DETAILS FETCHED SUCCESSFULLY', data });
+const managed = (productId: number, variantId: number, action: 'ADD' | 'REMOVE') => ({
+  status: true,
+  message: action === 'ADD' ? 'ADDED TO WISHLIST' : 'REMOVED FROM WISHLIST',
+  data: { CUSTOMER_ID, PRODUCT_ID: productId, PRODUCT_VARIANT_ID: variantId },
 });
 
-/**
- * products/get?PRODUCT_ID=<id> rows, shaped like the API's: the product's SELLING_PRICE / PRICE (MRP) / DISCOUNT and
- * its VARIANTS with their own prices. Variant 9 is on offer, variant 10 is not (PRICE = SELLING_PRICE).
- * Product 4 is out of stock.
- */
-const PRODUCTS: Record<number, Record<string, unknown>> = {
-  3: {
-    PRODUCT_ID: 3, SELLER_ID: 6, PRODUCT_NAME: 'Leather Wallet', PRICE: '1299.00', SELLING_PRICE: '999.00',
-    DISCOUNT: '300.00', STOCK_QUANTITY: 20, BRAND_ID: 2, CATEGORY_ID: 1, IS_ACTIVE: 'ACTIVE',
-    PRODUCT_IMAGE: 'products/wallet.png',
-    VARIANTS: [
-      { VARIANT_ID: 9, SELLING_PRICE: '899.00', PRICE: '1299.00', DISCOUNT: '400.00', STOCK_QUANTITY: 5 },
-      { VARIANT_ID: 10, SELLING_PRICE: '999.00', PRICE: '999.00', DISCOUNT: '0.00', STOCK_QUANTITY: 0 },
-    ],
-  },
-  4: {
-    PRODUCT_ID: 4, SELLER_ID: 7, PRODUCT_NAME: 'Travel Mug', PRICE: '500.00', SELLING_PRICE: '450.00',
-    DISCOUNT: '0.00', STOCK_QUANTITY: 0, BRAND_ID: 3, CATEGORY_ID: 2, IS_ACTIVE: 'ACTIVE',
-  },
-};
 /** The price row of a card, its parts (selling price, struck MRP, "% OFF") joined by spaces. */
 const priceRow = (card: HTMLElement): string =>
   Array.from(card.querySelectorAll('.product-card__price > *'), (part) => (part.textContent ?? '').trim()).join(' ');
 
-/** product_variant/get rows of product 3: the saved variant 9 (with its own image and price) and another one. */
+/** product_variant/get rows of product 3: the saved variant 9 (with its own image) and variant 10 (out of stock). */
 const PRODUCT_3_VARIANTS = [
   {
     VARIANT_ID: 9, VARIANT_NAME: 'Classic', PRODUCT_ID: 3, SELLER_ID: 6, PRICE: '949.00', STOCK_QUANTITY: 5,
@@ -104,6 +83,9 @@ describe('Wishlist', () => {
     await fixture.whenStable();
     fixture.detectChanges();
   };
+  const ignoreImages = (): void => {
+    http.match((request) => request.url.includes('/s3/images/'));
+  };
 
   function signInCustomer(): void {
     TestBed.inject(AuthService).setSession(
@@ -112,21 +94,20 @@ describe('Wishlist', () => {
     );
   }
 
-  /** Answers the product requests of a page: brand names, products/get and product_variant/get per new product. */
-  function flushProducts(ids: number[], { brands = true } = {}): void {
+  /** Answers what a page asks besides wishlist/get: the brand names and product_variant/get per new product. */
+  function flushDetails(ids: number[], { brands = true } = {}): void {
     if (brands) {
       http.expectOne(BRANDS_URL).flush({
         status: 'SUCCESS',
-        data: [{ BRAND_ID: 2, BRAND_NAME: 'Hidesign' }, { BRAND_ID: 3, BRAND_NAME: 'Milton' }],
+        data: [{ BRAND_ID: 2, BRAND_NAME: 'Hidesign' }, { BRAND_ID: 3, BRAND_NAME: 'Milton' }, { BRAND_ID: 4, BRAND_NAME: 'boAt' }],
       });
     }
     for (const id of ids) {
-      http.expectOne(productUrl(id)).flush({ status: 'SUCCESS', data: [PRODUCTS[id]] });
       http.expectOne(variantUrl(id)).flush({ status: 'SUCCESS', data: id === 3 ? PRODUCT_3_VARIANTS : [] });
     }
   }
 
-  /** Opens the page as a customer and answers the catalog (device wishlist) and the first move_to_cart/get page. */
+  /** Opens the page as a customer and answers the catalog (device wishlist) and the first wishlist/get page. */
   async function openAsCustomer(rows: unknown[]): Promise<void> {
     signInCustomer();
     fixture = TestBed.createComponent(Wishlist);
@@ -152,38 +133,34 @@ describe('Wishlist', () => {
     localStorage.clear();
   });
 
-  it('shows each saved row with its product, brand, variant, price and quantity', async () => {
+  it('shows each item with the row\'s name, SKU and prices, its brand and its saved variant', async () => {
     await openAsCustomer([wishlistRow(), wishlistRow(MUG_ROW)]);
     expect(root().querySelector('[role="status"]')?.textContent).toContain('Loading your wishlist');
-    flushProducts([3, 4]);
+    flushDetails([3, 4]);
     await settle();
 
     const [wallet, mug] = cards();
     expect(cards()).toHaveLength(2);
-    // Product 3 with its saved variant 9: the variant's current prices (not the row's stored 750), details and image.
     expect(text(wallet.querySelector('h2'))).toBe('Leather Wallet');
     expect(text(wallet)).toContain('Brand: Hidesign');
     expect(text(wallet)).toContain('Classic · Brown / M');
-    expect(text(wallet)).toContain('Qty: 1');
-    // Selling price, struck MRP, then round((1299 − 899) ÷ 1299 × 100) = 31% OFF.
-    expect(text(wallet.querySelector('.product-card__price strong'))).toBe('₹899');
-    expect(text(wallet.querySelector('.product-card__price del'))).toBe('₹1,299');
-    expect(text(wallet.querySelector('.product-card__price span'))).toBe('31% OFF');
-    expect(text(wallet)).not.toContain('₹750');
+    expect(text(wallet)).toContain('SKU: SKU0003');
+    // SELLING_PRICE, struck PRICE (MRP), then round((1299 − 899) ÷ 1299 × 100) = 31% OFF.
+    expect(priceRow(wallet)).toBe('₹899 ₹1,299 31% OFF');
     expect(wallet.querySelector('.product-card--unavailable')).toBeNull();
     expect(moveButton(wallet).textContent).toContain('Move to Cart');
     expect(moveButton(wallet).disabled).toBe(false);
     expect(wallet.querySelector('a')?.getAttribute('href')).toBe('/products/3');
 
-    // Product 4 has no VARIANTS and no variant 12: the product's own prices and stock.
+    // STOCK_QUANTITY 0 and no variant details: out of stock, from the row alone.
     expect(text(mug.querySelector('h2'))).toBe('Travel Mug');
     expect(text(mug)).toContain('Brand: Milton');
-    expect(text(mug)).toContain('Qty: 2');
+    expect(text(mug)).toContain('SKU: SKU0004');
     expect(text(mug)).toContain('Out of stock');
     expect(priceRow(mug)).toBe('₹450 ₹500 10% OFF');
     expect(moveButton(mug).disabled).toBe(true);
 
-    // Only the variant's S3 image is requested for the wallet.
+    // The saved variant's own S3 image is shown instead of the product's.
     http.expectNone((request) => request.url.endsWith('/s3/images/products/wallet.png'));
     http.expectOne((request) => request.url.endsWith('/s3/images/variants/brown.png')).flush({
       success: true, imageKey: 'variants/brown.png', imageUrl: 'https://bucket.s3.amazonaws.com/variants/brown.png?sig=1', expiresIn: 3600,
@@ -192,307 +169,223 @@ describe('Wishlist', () => {
     expect(wallet.querySelector('img')?.getAttribute('src')).toBe('https://bucket.s3.amazonaws.com/variants/brown.png?sig=1');
   });
 
-  it('prices each card like the product listing, from the variant\'s prices or else the product\'s', async () => {
+  it('shows the sample wishlist/get row with its name, SKU, legacy image and listing offer', async () => {
     await openAsCustomer([
-      // Variant 10: PRICE = SELLING_PRICE, so the selling price only. The row's DISCOUNT is not used.
-      wishlistRow({ PRODUCT_VARIANT_ID: 10, DISCOUNT: '100.00' }),
-      // No variant, and a variant missing from VARIANTS: the product's own prices.
-      wishlistRow({ CART_ID: 46, PRODUCT_VARIANT_ID: null }),
-      wishlistRow({ CART_ID: 47, PRODUCT_VARIANT_ID: 99 }),
+      wishlistRow({
+        PRODUCT_ID: 19, PRODUCT_VARIANT_ID: 31, MATCHED_VARIANT_ID: 31, PRODUCT_NAME: 'Ear Buds', PRODUCT_CODE_SKU: 'SKU0019',
+        BRAND_ID: 4, PRODUCT_IMAGE: 'uploads/products/earbuds.png', SELLING_PRICE: '3000.00', PRICE: '4000.00',
+        STOCK_QUANTITY: 67, SELLER_ID: 55,
+      }),
     ]);
-    flushProducts([3]);
+    flushDetails([19]);
     await settle();
-    http.match((request) => request.url.includes('/s3/images/'));
-    const [noOffer, noVariant, unknownVariant] = cards();
+    const [earBuds] = cards();
 
-    expect(priceRow(noOffer)).toBe('₹999');
-    expect(noOffer.querySelector('.product-card__price del')).toBeNull();
-    expect(noOffer.querySelector('.product-card__price span')).toBeNull();
-    expect(text(noOffer)).not.toContain('Discount');
-    // The badge is the product listing's: round((1299 − 999) ÷ 1299 × 100) = 23% OFF.
-    expect(priceRow(noVariant)).toBe('₹999 ₹1,299 23% OFF');
-    expect(priceRow(unknownVariant)).toBe('₹999 ₹1,299 23% OFF');
+    expect(text(earBuds.querySelector('h2'))).toBe('Ear Buds');
+    expect(text(earBuds)).toContain('Brand: boAt');
+    expect(text(earBuds)).toContain('SKU: SKU0019');
+    // round((4000 − 3000) ÷ 4000 × 100) = 25% OFF.
+    expect(priceRow(earBuds)).toBe('₹3,000 ₹4,000 25% OFF');
+    expect(earBuds.querySelector('img')?.getAttribute('src')).toBe('/uploads/products/earbuds.png');
+    expect(moveButton(earBuds).disabled).toBe(false);
   });
 
-  // CHANGED (new): the sample move_to_cart/get response: no PRODUCT_NAME and PRODUCT_VARIANT_ID null in both rows.
-  it('shows the move_to_cart/get records with their products\' name, image and listing offer, matched by PRODUCT_ID', async () => {
-    await openAsCustomer([
-      {
-        CART_ID: 33, PRODUCT_ID: 2, PRODUCT_VARIANT_ID: null, SELLER_ID: 1, SKU: 'CRT0033', QUANTITY: 5,
-        UNIT_PRICE: '3000.00', DISCOUNT: '0.00', TAX: '0.00', TOTAL_AMOUNT: '15000.00', CUSTOMER_ID, SAVE_FOR_LATER: 1,
-      },
-      {
-        CART_ID: 30, PRODUCT_ID: 3, PRODUCT_VARIANT_ID: null, SELLER_ID: 1, SKU: 'CRT0030', QUANTITY: 1,
-        UNIT_PRICE: '55000.00', DISCOUNT: '0.00', TAX: '0.00', TOTAL_AMOUNT: '55000.00', CUSTOMER_ID, SAVE_FOR_LATER: 1,
-      },
-    ]);
-    http.expectOne(BRANDS_URL).flush({ status: 'SUCCESS', data: [{ BRAND_ID: 4, BRAND_NAME: 'Dell' }] });
-    http.expectOne(productUrl(2)).flush({
-      status: true,
-      data: [{
-        PRODUCT_ID: 2, PRODUCT_NAME: 'Dell  ear Phones', BRAND_ID: 4, SELLER_ID: 1, SELLING_PRICE: '3000.00', PRICE: '4000.00',
-        DISCOUNT: '0.00', STOCK_QUANTITY: 45, IS_ACTIVE: 'ACTIVE', PRODUCT_IMAGE: 'uploads/products/earphones.png',
-        VARIANTS: [{ VARIANT_ID: 16, SELLING_PRICE: '3000.00', PRICE: '4000.00', STOCK_QUANTITY: 45 }],
-      }],
-    });
-    http.expectOne(variantUrl(2)).flush({ status: 'SUCCESS', data: [] });
-    http.expectOne(productUrl(3)).flush({
-      status: true,
-      data: [{
-        PRODUCT_ID: 3, PRODUCT_NAME: 'Dell Inspiron 15', BRAND_ID: 4, SELLER_ID: 1, SELLING_PRICE: '55000.00', PRICE: '60000.00',
-        DISCOUNT: '5000.00', STOCK_QUANTITY: 30, IS_ACTIVE: 'ACTIVE', PRODUCT_IMAGE: 'uploads/products/dell_inspiron15.png',
-      }],
-    });
-    http.expectOne(variantUrl(3)).flush({ status: 'SUCCESS', data: [] });
+  it('shows two saved variants of one product as two items, with one product_variant/get request', async () => {
+    await openAsCustomer([wishlistRow(), wishlistRow({ WISHLIST_ID: 5, PRODUCT_VARIANT_ID: 10, MATCHED_VARIANT_ID: 10 })]);
+    flushDetails([3]);
     await settle();
-
-    const [earPhones, laptop] = cards();
-    expect(cards()).toHaveLength(2);
-    // Names from products/get (the rows have no PRODUCT_NAME); no variant line for a null PRODUCT_VARIANT_ID.
-    expect(cards().map((card) => text(card.querySelector('h2')))).toEqual(['Dell ear Phones', 'Dell Inspiron 15']);
-    expect(text(earPhones)).toContain('Brand: Dell');
-    expect(text(earPhones)).toContain('Qty: 5');
-    expect(text(laptop)).toContain('Qty: 1');
-    // The product listing's offer: round((4000 − 3000) ÷ 4000 × 100) = 25, round((60000 − 55000) ÷ 60000 × 100) = 8.
-    expect(priceRow(earPhones)).toBe('₹3,000 ₹4,000 25% OFF');
-    expect(priceRow(laptop)).toBe('₹55,000 ₹60,000 8% OFF');
-    expect(earPhones.querySelector('img')?.getAttribute('src')).toBe('/uploads/products/earphones.png');
-    expect(laptop.querySelector('img')?.getAttribute('src')).toBe('/uploads/products/dell_inspiron15.png');
-    expect(text()).not.toContain('no longer available');
-    expect(cards().every((card) => !moveButton(card).disabled && card.querySelector('a') !== null)).toBe(true);
-
-    // Move to Cart for the row without a variant: PUT move_to_cart/update with its CART_ID.
-    moveButton(laptop).click();
-    await settle();
-    const move = http.expectOne(MOVE_URL);
-    expect(move.request.body).toEqual({ CART_ID: 30 });
-    move.flush(JSON.stringify({ status: true, message: 'Moved to cart' }));
-    http.expectOne(WISHLIST_URL()).flush(wishlistResponse([]));
-    http.expectOne(CART_URL).flush({
-      success: true,
-      data: [cartRowJson({ CART_ID: 30, SELLER_ID: 1, UNIT_PRICE: '55000.00', PRODUCT_NAME: 'Dell Inspiron 15', VARIANT_ID: null })],
-    });
-    // The cart looks up whether the product now in it is still listed.
-    http.expectOne(productUrl(3)).flush({ status: true, data: [] });
-    await settle();
-    expect(toast.current()).toEqual({ type: 'success', message: 'Dell Inspiron 15 was moved to your cart.' });
-  });
-
-  it('shows the three live records (two share PRODUCT_ID 3) by CART_ID; inactive products as no longer available', async () => {
-    // The live move_to_cart/get rows; products 2 and 3 are IS_ACTIVE "INACTIVE" in products/get, as on the dev backend.
-    await openAsCustomer([
-      wishlistRow({ CART_ID: 45, PRODUCT_ID: 3, SELLER_ID: 6, PRODUCT_VARIANT_ID: 9, UNIT_PRICE: '999.00', PRODUCT_NAME: 'Dell Inspiron 15' }),
-      wishlistRow({ CART_ID: 30, PRODUCT_ID: 3, SELLER_ID: 1, PRODUCT_VARIANT_ID: null, UNIT_PRICE: '55000.00', PRODUCT_NAME: 'Dell Inspiron 15' }),
-      wishlistRow({ CART_ID: 31, PRODUCT_ID: 2, SELLER_ID: 1, PRODUCT_VARIANT_ID: 16, UNIT_PRICE: '3000.00', PRODUCT_NAME: 'Dell ear Phones' }),
-    ]);
-    http.expectOne(BRANDS_URL).flush({ status: 'SUCCESS', data: [] });
-    // One request per product, although PRODUCT_ID 3 has two rows.
-    http.expectOne(productUrl(3)).flush({
-      status: true,
-      data: [{
-        PRODUCT_ID: 3, PRODUCT_NAME: 'Dell Inspiron 15', SELLER_ID: 1, SELLING_PRICE: '55000.00', PRICE: '60000.00',
-        DISCOUNT: '5000.00', STOCK_QUANTITY: 30, IS_ACTIVE: 'INACTIVE', PRODUCT_IMAGE: 'uploads/products/dell_inspiron15.png',
-        VARIANTS: [
-          { VARIANT_ID: 3, SELLING_PRICE: '55000.00', PRICE: '60000.00', STOCK_QUANTITY: 30 },
-          { VARIANT_ID: 9, SELLING_PRICE: '55000.00', PRICE: '60000.00', STOCK_QUANTITY: 30 },
-        ],
-      }],
-    });
-    http.expectOne(variantUrl(3)).flush({ status: 'SUCCESS', data: [] });
-    http.expectOne(productUrl(2)).flush({
-      status: true,
-      data: [{
-        PRODUCT_ID: 2, PRODUCT_NAME: 'Dell  ear Phones', SELLER_ID: 1, SELLING_PRICE: '3000.00', PRICE: '4000.00',
-        DISCOUNT: '0.00', STOCK_QUANTITY: 45, IS_ACTIVE: 'INACTIVE', PRODUCT_IMAGE: 'uploads/products/earphones.png',
-        VARIANTS: [{ VARIANT_ID: 16, SELLING_PRICE: '3000.00', PRICE: '4000.00', STOCK_QUANTITY: 45 }],
-      }],
-    });
-    http.expectOne(variantUrl(2)).flush({ status: 'SUCCESS', data: [] });
-    await settle();
-
-    expect(cards()).toHaveLength(3);
-    expect(cards().map((card) => text(card.querySelector('h2')))).toEqual(['Dell Inspiron 15', 'Dell Inspiron 15', 'Dell ear Phones']);
-    // Current listing prices (not the stored 999 / 55000 / 3000): round((60000 − 55000) ÷ 60000 × 100) = 8,
-    // round((4000 − 3000) ÷ 4000 × 100) = 25.
-    expect(cards().map(priceRow)).toEqual(['₹55,000 ₹60,000 8% OFF', '₹55,000 ₹60,000 8% OFF', '₹3,000 ₹4,000 25% OFF']);
-    // Both products are inactive (delisted): greyed out, "no longer available", no link to their page, and they
-    // cannot be moved to the cart; they can still be removed.
-    for (const card of cards()) {
-      expect(card.querySelector('.product-card--unavailable')).not.toBeNull();
-      expect(text(card)).toContain('This product is no longer available.');
-      expect(card.querySelector('a')).toBeNull();
-      expect(moveButton(card).disabled).toBe(true);
-      expect(removeButton(card).disabled).toBe(false);
-    }
-    // Each product's own image (legacy /uploads path).
-    expect(cards()[0].querySelector('img')?.getAttribute('src')).toBe('/uploads/products/dell_inspiron15.png');
-    expect(cards()[2].querySelector('img')?.getAttribute('src')).toBe('/uploads/products/earphones.png');
-
-    // Each record keeps its own CART_ID, SELLER_ID and variant: removing CART_ID 30 sends that row's IDs.
-    removeButton(cards()[1]).click();
-    await settle();
-    const remove = http.expectOne('/api/shopping_cart/delete');
-    expect(remove.request.body).toEqual({ CART_ID: 30, PRODUCT_ID: 3, SELLER_ID: 1, CUSTOMER_ID });
-    remove.flush('Cart item deleted successfully');
-    http.expectOne(WISHLIST_URL()).flush(wishlistResponse([]));
-    http.expectOne(`/api/shopping_cart/get?CUSTOMER_ID=${CUSTOMER_ID}`).flush({ success: true, data: [] });
-    await settle();
-  });
-
-  it('shows a row whose product products/get does not return from the record itself, without calling it unavailable', async () => {
-    await openAsCustomer([wishlistRow(MUG_ROW)]);
-    http.expectOne(BRANDS_URL).flush({ status: 'SUCCESS', data: [] });
-    http.expectOne(productUrl(4)).flush({ status: true, data: [] });
-    http.expectOne(variantUrl(4)).flush({ status: 'SUCCESS', data: [] });
-    await settle();
-    const [mug] = cards();
-
-    expect(text(mug.querySelector('h2'))).toBe('Travel Mug');
-    expect(priceRow(mug)).toBe('₹400');
-    expect(text(mug)).not.toContain('no longer available');
-    expect(mug.querySelector('.product-card--unavailable')).toBeNull();
-    expect(moveButton(mug).disabled).toBe(false);
-  });
-
-  it('shows an inactive variant of an active product as no longer available', async () => {
-    await openAsCustomer([wishlistRow()]);
-    http.expectOne(BRANDS_URL).flush({ status: 'SUCCESS', data: [] });
-    http.expectOne(productUrl(3)).flush({ status: 'SUCCESS', data: [PRODUCTS[3]] });
-    http.expectOne(variantUrl(3)).flush({
-      status: 'SUCCESS',
-      data: [{ ...PRODUCT_3_VARIANTS[0], STATUS: 'INACTIVE' }],
-    });
-    await settle();
-    http.match((request) => request.url.includes('/s3/images/'));
-    const [card] = cards();
-
-    expect(card.querySelector('.product-card--unavailable')).not.toBeNull();
-    expect(text(card)).toContain('This variant is no longer available.');
-    expect(moveButton(card).disabled).toBe(true);
-  });
-
-  it('names each card by the row\'s PRODUCT_NAME, also when the product cannot be loaded', async () => {
-    await openAsCustomer([wishlistRow({ PRODUCT_NAME: 'Dell Inspiron 15' }), wishlistRow({ ...MUG_ROW, PRODUCT_NAME: 'Steel Mug' })]);
-    http.expectOne(BRANDS_URL).flush({ status: 'SUCCESS', data: [] });
-    http.expectOne(productUrl(3)).flush({ status: 'SUCCESS', data: [PRODUCTS[3]] });
-    http.expectOne(variantUrl(3)).flush({ status: 'SUCCESS', data: PRODUCT_3_VARIANTS });
-    http.expectOne(variantUrl(4)).flush({ status: 'SUCCESS', data: [] });
-    http.expectOne(productUrl(4)).flush('Server error', { status: 500, statusText: 'Server Error' });
-    await settle();
-    http.match((request) => request.url.includes('/s3/images/'));
-
-    expect(cards().map((card) => text(card.querySelector('h2')))).toEqual(['Dell Inspiron 15', 'Steel Mug']);
-    expect(text(cards()[1])).toContain('Product details could not be loaded.');
-    // No product data: the row's stored price; the item can still be moved (the request failed, not the product).
-    expect(priceRow(cards()[1])).toBe('₹400');
-    expect(moveButton(cards()[1]).disabled).toBe(false);
-  });
-
-  it('requests a product once when several rows share it, and maps each row to its own variant', async () => {
-    await openAsCustomer([wishlistRow(), wishlistRow({ CART_ID: 47, PRODUCT_VARIANT_ID: 10 })]);
-    flushProducts([3]);
-    await settle();
-    http.match((request) => request.url.includes('/s3/images/'));
+    ignoreImages();
 
     const [classic, slim] = cards();
+    expect(cards()).toHaveLength(2);
     expect(text(classic)).toContain('Classic · Brown / M');
     expect(text(slim)).toContain('Slim · Black');
+    // Variant 10 has no stock: out of stock, although the product has.
     expect(text(slim)).toContain('Out of stock');
     expect(moveButton(slim).disabled).toBe(true);
+    expect(moveButton(classic).disabled).toBe(false);
   });
 
-  it('shows a row saved without a variant (PRODUCT_VARIANT_ID null) from its product, and can remove it', async () => {
-    await openAsCustomer([wishlistRow({ PRODUCT_VARIANT_ID: null }), wishlistRow({ CART_ID: 46 })]);
-    flushProducts([3]);
+  it('shows an inactive product, or an inactive variant, as no longer available', async () => {
+    await openAsCustomer([wishlistRow({ IS_ACTIVE: 'INACTIVE' }), wishlistRow({ PRODUCT_ID: 4, PRODUCT_VARIANT_ID: 12 })]);
+    http.expectOne(BRANDS_URL).flush({ status: 'SUCCESS', data: [] });
+    http.expectOne(variantUrl(3)).flush({ status: 'SUCCESS', data: [] });
+    http.expectOne(variantUrl(4)).flush({
+      status: 'SUCCESS',
+      data: [{ ...PRODUCT_3_VARIANTS[0], VARIANT_ID: 12, PRODUCT_ID: 4, VARIANT_IMAGE: null, STATUS: 'INACTIVE' }],
+    });
     await settle();
-    http.match((request) => request.url.includes('/s3/images/'));
+    ignoreImages();
+    const [product, variant] = cards();
 
-    const [plain, classic] = cards();
-    expect(cards()).toHaveLength(2);
-    expect(text(plain.querySelector('h2'))).toBe('Leather Wallet');
-    expect(text(plain)).toContain('Brand: Hidesign');
-    expect(text(plain)).not.toContain('Classic');
-    expect(priceRow(plain)).toBe('₹999 ₹1,299 23% OFF');
-    expect(moveButton(plain).disabled).toBe(false);
-    expect(text(classic)).toContain('Classic · Brown / M');
-
-    removeButton(plain).click();
-    await settle();
-    const remove = http.expectOne('/api/shopping_cart/delete');
-    expect(remove.request.body).toEqual({ CART_ID: 45, PRODUCT_ID: 3, SELLER_ID: 6, CUSTOMER_ID });
-    remove.flush('Cart item deleted successfully');
-    http.expectOne(WISHLIST_URL()).flush(wishlistResponse([wishlistRow({ CART_ID: 46 })]));
-    http.expectOne(`/api/shopping_cart/get?CUSTOMER_ID=${CUSTOMER_ID}`).flush({ success: true, data: [] });
-    await settle();
-
-    expect(cards()).toHaveLength(1);
-    expect(toast.current()).toEqual({ type: 'success', message: 'Leather Wallet was removed from your wishlist.' });
+    expect(text(product)).toContain('This product is no longer available.');
+    expect(text(variant)).toContain('This variant is no longer available.');
+    for (const card of cards()) {
+      expect(card.querySelector('.product-card--unavailable')).not.toBeNull();
+      expect(card.querySelector('a')).toBeNull();
+      expect(moveButton(card).disabled).toBe(true);
+      // They can still be removed.
+      expect(removeButton(card).disabled).toBe(false);
+    }
   });
 
-  // CHANGED: Move to Cart is PUT move_to_cart/update with the row's CART_ID.
-  describe('Move to Cart', () => {
-    /** Opens the wallet (variant 9, quantity 3) and the out-of-stock mug, with their products loaded. */
-    async function openWithWallet(): Promise<void> {
-      await openAsCustomer([wishlistRow({ QUANTITY: 3, TOTAL_AMOUNT: '2250.00' }), wishlistRow(MUG_ROW)]);
-      flushProducts([3, 4]);
+  it('shows an item from its row when its variant details cannot be loaded', async () => {
+    await openAsCustomer([wishlistRow()]);
+    http.expectOne(BRANDS_URL).flush({ status: 'SUCCESS', data: [] });
+    http.expectOne(variantUrl(3)).flush('Server error', { status: 500, statusText: 'Server Error' });
+    await settle();
+    ignoreImages();
+    const [wallet] = cards();
+
+    expect(text(wallet.querySelector('h2'))).toBe('Leather Wallet');
+    expect(priceRow(wallet)).toBe('₹899 ₹1,299 31% OFF');
+    expect(text(wallet)).not.toContain('Classic');
+    expect(moveButton(wallet).disabled).toBe(false);
+  });
+
+  describe('Remove', () => {
+    it('sends POST wishlist/manage REMOVE with the item\'s PRODUCT_ID and PRODUCT_VARIANT_ID, then drops the card', async () => {
+      await openAsCustomer([wishlistRow(), wishlistRow({ WISHLIST_ID: 5, PRODUCT_VARIANT_ID: 10 })]);
+      flushDetails([3]);
       await settle();
-      http.match((request) => request.url.includes('/s3/images/'));
+      ignoreImages();
+
+      removeButton(cards()[1]).click();
+      await settle();
+      const remove = http.expectOne(MANAGE_URL);
+      expect(remove.request.method).toBe('POST');
+      // The variant of this card (10), not the other saved variant of the product.
+      expect(remove.request.body).toEqual({ PRODUCT_ID: 3, PRODUCT_VARIANT_ID: 10, ACTION: 'REMOVE' });
+      // While the request is in flight: a spinner on this heart, and every card's buttons disabled.
+      expect(removeButton(cards()[1]).getAttribute('aria-busy')).toBe('true');
+      expect(cards().every((card) => moveButton(card).disabled && removeButton(card).disabled)).toBe(true);
+      remove.flush(managed(3, 10, 'REMOVE'));
+      await settle();
+
+      // Gone at once; the page is then read again to fill its place (no cart request).
+      expect(cards()).toHaveLength(1);
+      expect(text(cards()[0])).toContain('Classic');
+      expect(toast.current()).toEqual({ type: 'success', message: 'Leather Wallet was removed from your wishlist.' });
+      http.expectOne(WISHLIST_URL()).flush(wishlistResponse([wishlistRow()]));
+      http.expectNone(CART_URL);
+      await settle();
+      expect(cards()).toHaveLength(1);
+      // The hearts on other screens follow: variant 10 is no longer saved, variant 9 still is.
+      const wishlist = TestBed.inject(WishlistService);
+      expect(wishlist.has({ id: '3' }, 10)).toBe(false);
+      expect(wishlist.has({ id: '3' }, 9)).toBe(true);
+    });
+
+    it('shows the empty wishlist after the last item is removed', async () => {
+      await openAsCustomer([wishlistRow()]);
+      flushDetails([3]);
+      await settle();
+      ignoreImages();
+
+      removeButton(cards()[0]).click();
+      await settle();
+      http.expectOne(MANAGE_URL).flush(managed(3, 9, 'REMOVE'));
+      http.expectOne(WISHLIST_URL()).flush(wishlistResponse([]));
+      await settle();
+
+      expect(cards()).toHaveLength(0);
+      expect(text()).toContain('Your wishlist is empty');
+    });
+
+    it('keeps the card and shows the API error when the request fails', async () => {
+      await openAsCustomer([wishlistRow()]);
+      flushDetails([3]);
+      await settle();
+      ignoreImages();
+
+      removeButton(cards()[0]).click();
+      await settle();
+      http.expectOne(MANAGE_URL).flush({ status: false, message: 'ITEM NOT FOUND IN WISHLIST' });
+      await settle();
+
+      http.expectNone((request) => request.url.endsWith('/wishlist/get'));
+      expect(cards()).toHaveLength(1);
+      expect(toast.current()).toEqual({ type: 'error', message: 'ITEM NOT FOUND IN WISHLIST' });
+      expect(removeButton(cards()[0]).disabled).toBe(false);
+      expect(TestBed.inject(WishlistService).has({ id: '3' }, 9)).toBe(true);
+    });
+  });
+
+  // CHANGED: Move to Cart is shopping_cart/insert, then wishlist/manage REMOVE (it was PUT move_to_cart/update).
+  describe('Move to Cart', () => {
+    async function openWithWallet(): Promise<void> {
+      await openAsCustomer([wishlistRow(), wishlistRow(MUG_ROW)]);
+      flushDetails([3, 4]);
+      await settle();
+      ignoreImages();
     }
 
-    it('sends PUT move_to_cart/update with the CART_ID, then refreshes the wishlist and the cart', async () => {
+    it('adds the item to the cart, removes it from the wishlist, then refreshes the wishlist and the cart', async () => {
       await openWithWallet();
       const cart = TestBed.inject(CartService);
 
       moveButton(cards()[0]).click();
       await settle();
-      const move = http.expectOne(MOVE_URL);
-      expect(move.request.method).toBe('PUT');
-      expect(move.request.body).toEqual({ CART_ID: 45 });
-      // While the request is in flight: a spinner on this button, and every card's buttons disabled.
+      const insert = http.expectOne(INSERT_URL);
+      expect(insert.request.body).toEqual({
+        PRODUCT_ID: 3, SELLER_ID: 6, PRODUCT_VARIANT_ID: 9, QUANTITY: 1, UNIT_PRICE: 899, DISCOUNT: 0, TAX: 0,
+        TOTAL_AMOUNT: 899, CUSTOMER_ID, CREATED_BY: USER_ID,
+      });
       expect(moveButton(cards()[0]).getAttribute('aria-busy')).toBe('true');
       expect(cards().every((card) => moveButton(card).disabled && removeButton(card).disabled)).toBe(true);
-      move.flush(JSON.stringify({ status: true, message: 'Moved to cart' }));
+      insert.flush('Shopping cart item added successfully');
 
-      // The wishlist page is read again (products are cached: no new product requests), then the cart once.
+      const remove = http.expectOne(MANAGE_URL);
+      expect(remove.request.body).toEqual({ PRODUCT_ID: 3, PRODUCT_VARIANT_ID: 9, ACTION: 'REMOVE' });
+      remove.flush(managed(3, 9, 'REMOVE'));
+      await settle();
+      expect(cards()).toHaveLength(1);
+      expect(toast.current()).toEqual({ type: 'success', message: 'Leather Wallet was moved to your cart.' });
+
+      // The cart (header count) and the wishlist page are read again; products already seen make no new requests.
+      http.expectOne(CART_URL).flush({
+        success: true,
+        data: [{ CART_ID: 80, PRODUCT_ID: 3, SELLER_ID: 6, CART_QUANTITY: 1, UNIT_PRICE: '899.00', CUSTOMER_ID, SAVE_FOR_LATER: 0, PRODUCT_NAME: 'Leather Wallet', VARIANT_ID: 9 }],
+      });
+      // The cart looks up whether the product now in it is still listed.
+      http.expectOne('/api/products/get?PRODUCT_ID=3').flush({ status: 'SUCCESS', data: [] });
       http.expectOne(WISHLIST_URL()).flush(wishlistResponse([wishlistRow(MUG_ROW)]));
-      http.expectOne(CART_URL).flush({ success: true, data: [cartRowJson({ CART_ID: 45, CART_QUANTITY: 3 })] });
-      http.expectOne(productUrl(3)).flush({ status: 'SUCCESS', data: [PRODUCTS[3]] });
       await settle();
 
       expect(cards()).toHaveLength(1);
       expect(text(cards()[0].querySelector('h2'))).toBe('Travel Mug');
-      expect(toast.current()).toEqual({ type: 'success', message: 'Leather Wallet was moved to your cart.' });
-      expect(cart.count()).toBe(3);
+      expect(cart.count()).toBe(1);
     });
 
-    it('keeps the row and shows the API error when the request fails', async () => {
+    it('keeps the item and shows the API error when the cart insert fails (nothing is removed)', async () => {
       await openWithWallet();
 
       moveButton(cards()[0]).click();
       await settle();
-      http.expectOne(MOVE_URL).flush({ message: 'Product is out of stock' }, { status: 400, statusText: 'Bad Request' });
+      http.expectOne(INSERT_URL).flush({ message: 'Product is out of stock' }, { status: 400, statusText: 'Bad Request' });
       await settle();
 
-      http.expectNone((request) => request.url.endsWith('/move_to_cart/get'));
+      http.expectNone(MANAGE_URL);
       expect(cards()).toHaveLength(2);
       expect(toast.current()).toEqual({ type: 'error', message: 'Product is out of stock' });
       expect(moveButton(cards()[0]).disabled).toBe(false);
     });
 
-    it('reports a move the server did not apply when the row is still saved', async () => {
+    it('says so when the item reached the cart but could not be removed from the wishlist', async () => {
       await openWithWallet();
 
       moveButton(cards()[0]).click();
       await settle();
-      http.expectOne(MOVE_URL).flush('Updated');
-      http.expectOne(WISHLIST_URL()).flush(wishlistResponse([wishlistRow(), wishlistRow(MUG_ROW)]));
-      http.expectOne(CART_URL).flush({ success: true, data: [] });
+      http.expectOne(INSERT_URL).flush('Shopping cart item added successfully');
+      http.expectOne(MANAGE_URL).flush({ message: 'Server busy' }, { status: 503, statusText: 'Service Unavailable' });
       await settle();
 
       expect(cards()).toHaveLength(2);
       expect(toast.current()).toEqual({
-        type: 'error', message: 'Leather Wallet is still in your wishlist. It could not be moved to your cart.',
+        type: 'error', message: 'Leather Wallet was added to your cart, but is still in your wishlist. Server busy',
       });
+      // The cart is read again, so the header count shows the new row.
+      http.expectOne(CART_URL).flush({ success: true, data: [] });
     });
 
     it('does not offer Move to Cart for an out-of-stock item', async () => {
@@ -501,77 +394,28 @@ describe('Wishlist', () => {
       expect(moveButton(cards()[1]).disabled).toBe(true);
       moveButton(cards()[1]).click();
       await settle();
-      http.expectNone(MOVE_URL);
+      http.expectNone(INSERT_URL);
     });
   });
 
-  it('removes a row with DELETE shopping_cart/delete and shows the empty wishlist', async () => {
-    await openAsCustomer([wishlistRow()]);
-    flushProducts([3]);
-    await settle();
-    http.match((request) => request.url.includes('/s3/images/'));
-
-    removeButton(cards()[0]).click();
-    await settle();
-    const remove = http.expectOne('/api/shopping_cart/delete');
-    expect(remove.request.method).toBe('DELETE');
-    expect(remove.request.body).toEqual({ CART_ID: 45, PRODUCT_ID: 3, SELLER_ID: 6, CUSTOMER_ID, PRODUCT_VARIANT_ID: 9 });
-    remove.flush('Cart item deleted successfully');
-    http.expectOne(WISHLIST_URL()).flush(wishlistResponse([]));
-    http.expectOne(`/api/shopping_cart/get?CUSTOMER_ID=${CUSTOMER_ID}`).flush({ success: true, data: [] });
-    await settle();
-
-    expect(cards()).toHaveLength(0);
-    expect(text()).toContain('Your wishlist is empty');
-    expect(toast.current()).toEqual({ type: 'success', message: 'Leather Wallet was removed from your wishlist.' });
-  });
-
-  it('keeps the row and shows the API error when an action fails', async () => {
-    await openAsCustomer([wishlistRow()]);
-    flushProducts([3]);
-    await settle();
-    http.match((request) => request.url.includes('/s3/images/'));
-
-    removeButton(cards()[0]).click();
-    await settle();
-    http.expectOne('/api/shopping_cart/delete').flush({ message: 'Cart item not found' }, { status: 404, statusText: 'Not Found' });
-    await settle();
-
-    expect(cards()).toHaveLength(1);
-    expect(toast.current()).toEqual({ type: 'error', message: 'Cart item not found' });
-    expect(removeButton(cards()[0]).disabled).toBe(false);
-  });
-
   it('pages through the wishlist with LIMIT 10 and OFFSET', async () => {
-    const firstPage = Array.from({ length: 10 }, (_, index) => wishlistRow({ CART_ID: 100 + index }));
+    const firstPage = Array.from({ length: 10 }, (_, index) => wishlistRow({ WISHLIST_ID: 100 + index, PRODUCT_VARIANT_ID: 100 + index }));
     await openAsCustomer(firstPage);
-    flushProducts([3]);
+    flushDetails([3]);
     await settle();
-    http.match((request) => request.url.includes('/s3/images/'));
+    ignoreImages();
     expect(cards()).toHaveLength(10);
     expect(text(root().querySelector('app-pagination'))).toContain('Showing 1–10 items on this page');
 
     (root().querySelector('app-pagination button[aria-label="Next page"]') as HTMLButtonElement).click();
     await settle();
-    http.expectOne(WISHLIST_URL(10)).flush(wishlistResponse([wishlistRow({ CART_ID: 110 }), wishlistRow({ CART_ID: 111 })]));
+    http.expectOne(WISHLIST_URL(10)).flush(wishlistResponse([
+      wishlistRow({ WISHLIST_ID: 110, PRODUCT_VARIANT_ID: 110 }), wishlistRow({ WISHLIST_ID: 111, PRODUCT_VARIANT_ID: 111 }),
+    ]));
     await settle();
 
     expect(cards()).toHaveLength(2);
     expect(text(root().querySelector('app-pagination'))).toContain('Showing 11–12 of 12 items');
-  });
-
-  it('shows a row whose product failed to load, and says so (named by PRODUCT_ID without PRODUCT_NAME)', async () => {
-    await openAsCustomer([wishlistRow({ PRODUCT_NAME: undefined })]);
-    http.expectOne(BRANDS_URL).flush({ status: 'SUCCESS', data: [] });
-    http.expectOne(variantUrl(3)).flush({ status: 'SUCCESS', data: [] });
-    http.expectOne(productUrl(3)).flush('Server error', { status: 500, statusText: 'Server Error' });
-    await settle();
-
-    expect(text(cards()[0].querySelector('h2'))).toBe('Product #3');
-    expect(text(cards()[0])).toContain('Product details could not be loaded.');
-    expect(text(cards()[0])).not.toContain('no longer available');
-    expect(moveButton(cards()[0]).disabled).toBe(false);
-    expect(toast.current()?.type).toBe('error');
   });
 
   it('shows the empty state, and the API error with Try again', async () => {
@@ -581,9 +425,9 @@ describe('Wishlist', () => {
     fixture.destroy();
     fixture = TestBed.createComponent(Wishlist);
     fixture.detectChanges();
-    http.expectOne(WISHLIST_URL()).flush({ status: false, message: 'Unable to fetch saved items' });
+    http.expectOne(WISHLIST_URL()).flush({ status: false, message: 'Unable to fetch wishlist' });
     await settle();
-    expect(text(root().querySelector('[role="alert"]'))).toContain('Unable to fetch saved items');
+    expect(text(root().querySelector('[role="alert"]'))).toContain('Unable to fetch wishlist');
 
     (root().querySelector('.wishlist__retry') as HTMLButtonElement).click();
     await settle();
@@ -592,14 +436,17 @@ describe('Wishlist', () => {
     expect(text()).toContain('Your wishlist is empty');
   });
 
-  it('keeps the device wishlist for a guest and never calls move_to_cart/get', async () => {
+  it('keeps the device wishlist for a guest and never calls wishlist/get', async () => {
     localStorage.setItem('milex.wishlist', JSON.stringify(['3']));
     fixture = TestBed.createComponent(Wishlist);
     fixture.detectChanges();
-    http.expectOne('/api/products/get?STATUS=ACTIVE').flush({ status: 'SUCCESS', data: [PRODUCTS[3]] });
+    http.expectOne('/api/products/get?STATUS=ACTIVE').flush({
+      status: 'SUCCESS',
+      data: [{ PRODUCT_ID: 3, PRODUCT_NAME: 'Leather Wallet', SELLING_PRICE: '999.00', PRICE: '1299.00', STOCK_QUANTITY: 20, IS_ACTIVE: 'ACTIVE' }],
+    });
     await settle();
 
-    http.expectNone((request) => request.url.endsWith('/move_to_cart/get'));
+    http.expectNone((request) => request.url.endsWith('/wishlist/get'));
     expect(cards()).toHaveLength(1);
     expect(text(cards()[0].querySelector('h2'))).toBe('Leather Wallet');
     expect(moveButton(cards()[0]).textContent).toContain('Add to Cart');

@@ -106,7 +106,7 @@ export class ProductList {
 
   constructor() {
     this.loadCategories();
-    // CHANGED (new): a signed-in customer's saved items fill their hearts (one shopping_cart/get per session).
+    // CHANGED (new): a signed-in customer's saved items fill their hearts (one wishlist/get read per session).
     this.wishlist.sync();
     toObservable(this.pageRequest)
       .pipe(
@@ -181,7 +181,8 @@ export class ProductList {
     });
   }
 
-  // CHANGED: takes the product (the wishlist API with its cart row's CART_ID and VARIANT_ID; signed out: Login).
+  // CHANGED: takes the product (POST wishlist/manage with its PRODUCT_ID and default PRODUCT_VARIANT_ID; signed out:
+  // Login).
   protected toggleWishlist(product: Product): void {
     this.wishlist.toggleProduct(product);
   }

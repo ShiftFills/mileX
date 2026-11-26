@@ -4,7 +4,8 @@
     <!-- Gallery -->
     <!-- CHANGED: the product's and selected variant's own images (signed S3 URLs), with loading and error handling. -->
     <!-- CHANGED: the heart is off while the variants load (it saves the selected variant) and while its request runs. -->
-    <app-product-gallery [images]="images()" [name]="item.name" [wishlisted]="wishlist.has(item.id)"
+    <!-- CHANGED: filled when the selected variant (not just any variant of the product) is in the wishlist. -->
+    <app-product-gallery [images]="images()" [name]="item.name" [wishlisted]="wishlist.has(item, wishlistVariantId())"
       [wishlistDisabled]="wishlistBlocked()"
       [loading]="imagesLoading()" (imageError)="galleryImageFailed($event)" (wishlistToggle)="toggleWishlist()" />
 
@@ -156,7 +157,7 @@
       @for (other of related(); track other.id) {
       <div class="col-6 col-lg-3">
         <!-- CHANGED: each card shows its product's own image (signed S3 URL), or the placeholder. -->
-        <app-product-card [product]="other" [wishlisted]="wishlist.has(other.id)" [showAddToCart]="true"
+        <app-product-card [product]="other" [wishlisted]="wishlist.has(other)" [showAddToCart]="true"
           [imageSrc]="productImages.src(other)" [imageLoading]="productImages.loading(other)"
           (imageError)="productImages.failed(other, $event)"
           [pendingAction]="wishlist.isPending(other.id) ? 'wishlist' : null"

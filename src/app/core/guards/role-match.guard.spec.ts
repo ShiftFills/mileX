@@ -67,6 +67,58 @@ describe('storefrontHomeGuard', () => {
   });
 });
 
+// CHANGED (new): My Orders (/orders and its order details / tracking pages) is for customer logins only.
+describe('My Orders access (app routes)', () => {
+  let authenticated: boolean;
+  let userType: string | undefined;
+
+  beforeEach(() => {
+    authenticated = true;
+    userType = 'CUSTOMER';
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter(routes),
+        {
+          provide: AuthService,
+          useValue: {
+            isAuthenticated: () => authenticated,
+            user: () => (userType ? { userType } : null),
+          },
+        },
+      ],
+    });
+  });
+
+  async function navigate(url: string): Promise<string> {
+    const router = TestBed.inject(Router);
+    await router.navigateByUrl(url);
+    return router.url;
+  }
+
+  it('opens My Orders, an order and its tracking for a customer', async () => {
+    expect(await navigate('/orders')).toBe('/orders');
+    expect(await navigate('/orders/ORD0006')).toBe('/orders/ORD0006');
+    expect(await navigate('/orders/ORD0006/tracking')).toBe('/orders/ORD0006/tracking');
+  });
+
+  it('sends an Admin to the Admin dashboard, also from an order link', async () => {
+    userType = 'ADMIN';
+    expect(await navigate('/orders')).toBe('/admin/dashboard');
+    expect(await navigate('/orders/ORD0006/tracking')).toBe('/admin/dashboard');
+  });
+
+  it('sends a visitor to Login, back to the requested page afterwards', async () => {
+    authenticated = false;
+    userType = undefined;
+    expect(await navigate('/orders/ORD0006')).toBe('/auth/login?returnUrl=%2Forders%2FORD0006');
+  });
+
+  it('has no Admin My Orders page: /admin/my-orders opens Order Management', async () => {
+    userType = 'ADMIN';
+    expect(await navigate('/admin/my-orders')).toBe('/admin/orders');
+  });
+});
+
 describe('roleMatchGuard', () => {
   let authenticated: boolean;
   let userType: string | undefined;
@@ -164,9 +216,23 @@ describe('roleMatchGuard', () => {
       '/admin/sellers',
       '/admin/my-orders',
       '/admin/products/new/extra',
+      // CHANGED (new): Category Management is Admin only.
+      '/admin/categories',
     ]) {
       const result = runGuard('ADMIN', path) as UrlTree;
       expect(TestBed.inject(Router).serializeUrl(result), path).toBe('/seller/dashboard');
+    }
+  });
+
+  // CHANGED (new): the customer-only My Orders route (data.userType CUSTOMER).
+  it('lets only customers match the My Orders route', () => {
+    userType = 'CUSTOMER';
+    expect(runGuard('CUSTOMER', '/orders')).toBe(true);
+
+    for (const [role, home] of [['ADMIN', '/admin/dashboard'], ['SELLER', '/seller/dashboard']]) {
+      userType = role;
+      const result = runGuard('CUSTOMER', '/orders/ORD0006') as UrlTree;
+      expect(TestBed.inject(Router).serializeUrl(result), role).toBe(home);
     }
   });
 

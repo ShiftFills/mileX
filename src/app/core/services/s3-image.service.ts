@@ -25,6 +25,9 @@ export const VARIANT_IMAGE_FOLDER = 'variants';
 /** S3 folder for seller documents ("documents/<file name>"). */
 // CHANGED (new)
 export const SELLER_DOCUMENT_FOLDER = 'documents';
+/** S3 folder for category images ("categories/<file name>"), saved as CATEGORY_IMAGE. */
+// CHANGED (new)
+export const CATEGORY_IMAGE_FOLDER = 'categories';
 /** A signed URL is fetched again this long before it expires. */
 const URL_RENEW_MARGIN_MS = 5 * 60 * 1000;
 const IMAGE_EXTENSIONS: Readonly<Record<string, string>> = {

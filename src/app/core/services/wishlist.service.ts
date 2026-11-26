@@ -1,30 +1,62 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
+import { API_ENDPOINTS } from '@core/constants/api-endpoints';
 import { APP_ROUTES } from '@core/constants/app-routes';
 import { STORAGE_KEYS } from '@core/constants/storage-keys';
-import { ShoppingCartService } from '@features/cart/services/shopping-cart.service';
-import { CartItem, Product, WishlistRow } from '@shared/models';
-import { Observable, finalize, map, switchMap, throwError } from 'rxjs';
+import { Product, WishlistAction, WishlistItem, WishlistPage } from '@shared/models';
+import { EMPTY, Observable, expand, finalize, map, tap, throwError } from 'rxjs';
+import { ApiService } from './api.service';
 import { AuthService } from './auth.service';
-import { CartService } from './cart.service';
-import { ProductCatalogService } from './product-catalog.service';
+import { ProductCatalogService, mapProduct } from './product-catalog.service';
 import { StorageService } from './storage.service';
 import { ToastService } from './toast.service';
 
-/** The variant a cart row is for (its VARIANT_ID), or null. */
-function rowVariantId(item: CartItem): string | null {
-  return item.apiDetails?.variant?.id ?? null;
+// CHANGED: rewritten for the wishlist APIs (POST wishlist/manage, GET wishlist/get). The hearts used to save cart rows
+// for later (PUT wishlist/save_for_later, DELETE shopping_cart/delete) and read them from shopping_cart/get.
+
+/** Rows per wishlist/get request when the hearts read the customer's whole wishlist (sync). */
+const SYNC_PAGE_SIZE = 100;
+/** At most this many wishlist/get pages per sync, should the API ignore OFFSET and keep sending full pages. */
+const MAX_SYNC_PAGES = 20;
+const NO_KEYS: ReadonlySet<string> = new Set();
+
+/** The products a heart can be for: the product card's fields that name its default variant. */
+type HeartProduct = Pick<Product, 'id' | 'variantId' | 'variantOptions'>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function text(value: unknown): string | undefined {
+  if ((typeof value !== 'string' && typeof value !== 'number') || !String(value).trim()) return undefined;
+  return String(value).trim();
+}
+
+/** A positive whole number (number or numeric text), else undefined. */
+function positiveId(value: unknown): number | undefined {
+  const raw = text(value);
+  const parsed = raw === undefined ? NaN : Number(raw);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  const raw = text(value);
+  const parsed = raw === undefined ? NaN : Number(raw);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+/** The key of one wishlist item: its PRODUCT_ID and PRODUCT_VARIANT_ID (a product alone is not an item). */
+function itemKey(productId: string | number, variantId: string | number): string {
+  return `${Number(productId)}:${Number(variantId)}`;
 }
 
 /**
- * The VARIANT_ID a heart sends for a product that is not in the cart, when no variant was chosen (Home, Products
- * listing, related products, an offer's products; Product View without a variant list): the Product View's default,
- * i.e. the first of its VARIANTS in stock, else the first one (so its only variant when it has one); else the
- * VARIANT_ID of the product's own products/get row (the variant Add to Cart sends); null for a product without one.
+ * The VARIANT_ID a heart sends for a product card when no variant was chosen (Products listing, search, related
+ * products, an offer's products; Product View before its variants load): the Product View's default, i.e. the first of
+ * its VARIANTS in stock, else the first one; else the VARIANT_ID of the product's own products/get row (the variant
+ * Add to Cart sends); null for a product without one.
  */
-// CHANGED (new)
-// CHANGED: falls back to the product row's VARIANT_ID (it sent null when products/get had no VARIANTS list).
-function defaultVariantId(product: Product): string | null {
+function defaultVariantId(product: HeartProduct): string | null {
   const options = product.variantOptions ?? [];
   const option = options.find((candidate) => candidate.inStock) ?? options[0];
   if (option) return option.id;
@@ -32,58 +64,133 @@ function defaultVariantId(product: Product): string | null {
   return rowVariant !== undefined && Number.isSafeInteger(rowVariant) && rowVariant > 0 ? String(rowVariant) : null;
 }
 
-/** A cart row as the shopping_cart/delete call of a wishlist row needs it (its own IDs). */
-// CHANGED (new)
-function asWishlistRow(item: CartItem): WishlistRow | null {
-  const details = item.apiDetails;
-  if (!details) return null;
-  const variantId = Number(rowVariantId(item));
+/** True for a `status` / `success` value that reports success (true, 1, 200, "SUCCESS", …). */
+function isSuccessful(value: unknown): boolean {
+  return value === true || value === 1 || value === 200 || value === 201 ||
+    (typeof value === 'string' && ['SUCCESS', 'OK', '200', '201', 'TRUE', '1'].includes(value.trim().toUpperCase()));
+}
+
+/** Checks a wishlist response's `status` / `success` envelope; throws its message (or `fallback`) on failure. */
+function assertSuccessfulEnvelope(response: unknown, fallback: string): Record<string, unknown> {
+  if (!isRecord(response)) throw new Error('The wishlist API returned an invalid response.');
+  const status = response['status'] ?? response['STATUS'];
+  const success = response['success'] ?? response['SUCCESS'];
+  if (status === undefined && success === undefined) throw new Error('The wishlist API returned an invalid response.');
+  if ((status !== undefined && !isSuccessful(status)) || (success !== undefined && !isSuccessful(success))) {
+    throw new Error(text(response['message'] ?? response['MESSAGE']) ?? fallback);
+  }
+  return response;
+}
+
+/**
+ * One wishlist/get row. PRODUCT_ID and PRODUCT_VARIANT_ID (else MATCHED_VARIANT_ID) must be positive whole numbers:
+ * they identify the item, and Remove sends them back. The product is mapped from the row's own fields, like a
+ * products/get record. A row of another customer is rejected.
+ */
+function mapWishlistItem(value: unknown, customerId: number): WishlistItem {
+  if (!isRecord(value)) throw new Error('The wishlist API returned an invalid item.');
+  const productId = positiveId(value['PRODUCT_ID']);
+  const variantId = positiveId(value['PRODUCT_VARIANT_ID']) ?? positiveId(value['MATCHED_VARIANT_ID']);
+  if (productId === undefined || variantId === undefined) {
+    throw new Error('The wishlist API returned an item without a valid product or variant ID.');
+  }
+  const rowCustomerId = positiveId(value['CUSTOMER_ID']);
+  if (rowCustomerId !== undefined && rowCustomerId !== customerId) {
+    throw new Error('The wishlist API returned an item for a different customer.');
+  }
+  const product = mapProduct(value);
+  if (!product) throw new Error('The wishlist API returned an item without a product name or price.');
+  const wishlistId = text(value['WISHLIST_ID']);
   return {
-    cartId: details.cartId,
-    productId: Number(item.product.id),
-    ...(Number.isSafeInteger(variantId) && variantId > 0 ? { variantId } : {}),
-    sellerId: details.sellerId,
-    customerId: details.customerId,
-    quantity: item.quantity,
-    unitPrice: details.unitPrice,
-    discount: details.cartDiscount,
-    tax: details.tax,
-    totalAmount: details.totalAmount,
+    ...(wishlistId ? { wishlistId } : {}),
+    productId,
+    variantId,
+    product: { ...product, variantId },
   };
 }
 
 /**
- * The wishlist hearts.
- * - The hearts (`toggleProduct`) always use the server wishlist: a customer's cart rows saved for later
- *   (shopping_cart/get rows with SAVE_FOR_LATER = 1, kept in CartService). A heart saves with PUT
- *   wishlist/save_for_later `{ CART_ID, VARIANT_ID }`: the CART_ID of the product's row in the customer's cart (null
- *   for a product that has none) and the variant. The heart never calls shopping_cart/insert. A signed-out visitor is
- *   sent to Login first.
- * - Product IDs saved on this device earlier (`products`, `toggle`) are still shown, and can be removed, on the
- *   Wishlist screen; a signed-out visitor's hearts still show them filled.
+ * One wishlist/get page (`data: null` is an empty one). Without a reported total_records, the page is the last one
+ * when it has fewer rows than LIMIT, which also gives the total.
  */
-// CHANGED: the hearts use the server wishlist (they used to save on this device only, for everyone).
+function mapWishlistPage(response: unknown, customerId: number, limit: number, offset: number): WishlistPage {
+  const envelope = assertSuccessfulEnvelope(response, 'The wishlist could not be loaded.');
+  const data = envelope['data'] ?? envelope['DATA'];
+  if (data !== null && data !== undefined && !Array.isArray(data)) {
+    throw new Error('The wishlist API returned an invalid item list.');
+  }
+  const rows: unknown[] = Array.isArray(data) ? data : [];
+  const items = rows.map((row) => mapWishlistItem(row, customerId));
+  const reported = optionalNumber(envelope['total_records'] ?? envelope['TOTAL_RECORDS']);
+  const total = reported !== undefined && Number.isSafeInteger(reported) && reported >= 0
+    ? reported
+    : rows.length < limit
+      ? offset + rows.length
+      : undefined;
+  return {
+    items,
+    hasNext: total !== undefined ? offset + rows.length < total : rows.length === limit,
+    ...(total !== undefined ? { total } : {}),
+  };
+}
+
+/**
+ * Checks a POST wishlist/manage response (`{ status: true, message, data: { CUSTOMER_ID, PRODUCT_ID,
+ * PRODUCT_VARIANT_ID } }`): it must report success, for the product and variant that were sent.
+ */
+function assertManaged(response: unknown, productId: number, variantId: number, action: WishlistAction): void {
+  const envelope = assertSuccessfulEnvelope(
+    response,
+    action === 'ADD' ? 'The item could not be added to your wishlist.' : 'The item could not be removed from your wishlist.',
+  );
+  const data = envelope['data'] ?? envelope['DATA'];
+  if (!isRecord(data)) return;
+  const returnedProduct = positiveId(data['PRODUCT_ID']);
+  const returnedVariant = positiveId(data['PRODUCT_VARIANT_ID']);
+  if (
+    (returnedProduct !== undefined && returnedProduct !== productId) ||
+    (returnedVariant !== undefined && returnedVariant !== variantId)
+  ) {
+    throw new Error('The wishlist API returned a different product.');
+  }
+}
+
+/**
+ * The wishlist, shared by every screen with a heart (Products listing and search, Product View, related products,
+ * an offer's products, the Wishlist screen and the cart's Save for later):
+ * - Signed-in customers: the server wishlist. An item is a PRODUCT_ID with its PRODUCT_VARIANT_ID. POST
+ *   wishlist/manage adds or removes one (ACTION "ADD" / "REMOVE"); GET wishlist/get lists them a page at a time.
+ *   Which items are saved is kept here (`has`), from wishlist/get and from every successful add or remove, so all
+ *   hearts stay in step without asking the API again.
+ * - Signed-out visitors: a heart sends them to Login. Product IDs saved on this device earlier (`products`, `toggle`)
+ *   are still shown, and can be removed, on the Wishlist screen; a visitor's hearts show them filled.
+ */
 @Injectable({ providedIn: 'root' })
 export class WishlistService {
+  private readonly api = inject(ApiService);
   private readonly storage = inject(StorageService);
   private readonly catalog = inject(ProductCatalogService);
-  // CHANGED (new)
   private readonly auth = inject(AuthService);
-  private readonly cart = inject(CartService);
-  private readonly shoppingCart = inject(ShoppingCartService);
   private readonly toast = inject(ToastService);
   private readonly router = inject(Router);
   private readonly productIds = signal(this.readProductIds());
+  /** The saved items (PRODUCT_ID:PRODUCT_VARIANT_ID keys) and the customer they belong to. */
+  private readonly saved = signal<{ customerId: number; keys: ReadonlySet<string> } | null>(null);
   /** Products whose heart request is in flight (one at a time per product). */
   private readonly pendingIds = signal<ReadonlySet<string>>(new Set());
-  /** The customer whose cart rows were read for the hearts (once per signed-in customer). */
+  /** The customer whose whole wishlist was read for the hearts (once per signed-in customer). */
   private syncedCustomerId: number | null = null;
 
   /** True for a signed-in customer: the hearts use the server wishlist. */
-  // CHANGED (new)
   private readonly isCustomer = computed(
     () => this.auth.user()?.userType?.trim().toUpperCase() === 'CUSTOMER',
   );
+
+  /** The signed-in customer's saved items; none for anyone else (another customer's are never shown). */
+  private readonly savedKeys = computed(() => {
+    const saved = this.saved();
+    return saved && this.isCustomer() && saved.customerId === this.auth.customerId() ? saved.keys : NO_KEYS;
+  });
 
   /** Products saved on this device (the Wishlist screen's "Saved on this device" list, and guests). */
   readonly products = computed(() => {
@@ -91,15 +198,23 @@ export class WishlistService {
     return this.catalog.products().filter((product) => savedIds.has(product.id));
   });
 
-  /** A filled heart: saved on the server (customer, any variant of the product) or on this device (guest). */
-  // CHANGED: a customer's hearts follow their saved-for-later cart rows.
-  has(productId: string): boolean {
-    if (!this.isCustomer()) return this.productIds().includes(productId);
-    return this.cart.savedItems().some((item) => item.product.id === productId);
+  /**
+   * A filled heart. Customers: the product's variant the heart is for (`variantId`, else the product's default
+   * variant) is in their wishlist; another saved variant of the product does not fill it. Guests: the product is
+   * saved on this device.
+   */
+  has(product: HeartProduct, variantId?: string | number | null): boolean {
+    if (!this.isCustomer()) return this.productIds().includes(product.id);
+    const variant = this.heartVariant(product, variantId);
+    return variant !== null && this.savedKeys().has(itemKey(product.id, variant));
+  }
+
+  /** True when this product ID is saved on this device (the device wishlist). */
+  hasOnDevice(productId: string): boolean {
+    return this.productIds().includes(productId);
   }
 
   /** True while the heart request for this product is in flight. */
-  // CHANGED (new)
   isPending(productId: string): boolean {
     return this.pendingIds().has(productId);
   }
@@ -115,34 +230,80 @@ export class WishlistService {
   }
 
   /**
-   * Reads the signed-in customer's cart rows once (shopping_cart/get), so the hearts show what is saved after a
-   * page reload. Screens with hearts call it; later changes (cart, wishlist, hearts) keep CartService up to date.
+   * Reads the signed-in customer's whole wishlist once (GET wishlist/get, SYNC_PAGE_SIZE rows a page), so the hearts
+   * show what is saved after a page reload. Screens with hearts call it; later adds and removes keep it up to date.
    */
-  // CHANGED (new)
   sync(): void {
     const customerId = this.auth.customerId();
     if (!this.isCustomer() || customerId === undefined || this.syncedCustomerId === customerId) return;
     this.syncedCustomerId = customerId;
-    this.shoppingCart.getCart(customerId).subscribe({
-      next: (items) => this.cart.mergeFetchedItems(items),
-      // Read again on the next screen with hearts.
-      error: () => (this.syncedCustomerId = null),
-    });
+    this.loadPage(SYNC_PAGE_SIZE, 0)
+      .pipe(
+        expand((page, index) =>
+          page.hasNext && index + 1 < MAX_SYNC_PAGES
+            ? this.loadPage(SYNC_PAGE_SIZE, (index + 1) * SYNC_PAGE_SIZE)
+            : EMPTY,
+        ),
+      )
+      // Each page fills its hearts (loadPage); a failed read is tried again on the next screen with hearts.
+      .subscribe({ error: () => (this.syncedCustomerId = null) });
   }
 
   /**
-   * A heart was tapped; it always goes through the API, as Add to Cart does. Signed out: Login, then back to this
-   * page. Signed in but not as a customer: an error. Customers:
-   * - Filled heart: removes the product's saved row (DELETE shopping_cart/delete, the Wishlist screen's Remove).
-   * - Empty heart: PUT wishlist/save_for_later `{ CART_ID, VARIANT_ID }`, nothing else (no shopping_cart/insert):
-   *   - CART_ID: the product's row in the customer's cart (shopping_cart/get) for that variant, else its row without
-   *     a variant; null when the product is not in the cart.
-   *   - VARIANT_ID: `variantId` (the screen's selected variant), else the cart row's, else the product's default.
-   * It changes only after the API succeeded; a toast reports the result.
+   * One page of the signed-in customer's wishlist: GET wishlist/get?LIMIT=…&OFFSET=… (the access token identifies the
+   * customer). Its items fill their hearts.
    */
-  // CHANGED (new)
-  // CHANGED: only PUT wishlist/save_for_later (the shopping_cart/insert before it is removed); VARIANT_ID is always the
-  // selected variant.
+  loadPage(limit: number, offset: number): Observable<WishlistPage> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || !Number.isSafeInteger(offset) || offset < 0) {
+      return throwError(() => new RangeError('LIMIT must be a positive and OFFSET a non-negative safe integer.'));
+    }
+    const customerId = this.auth.customerId();
+    if (!this.isCustomer() || customerId === undefined) {
+      return throwError(() => new Error('Sign in as a customer to see your wishlist.'));
+    }
+    return this.api
+      .get<unknown>(API_ENDPOINTS.wishlist.get, { LIMIT: limit, OFFSET: offset })
+      .pipe(
+        map((response) => mapWishlistPage(response, customerId, limit, offset)),
+        tap((page) => this.updateKeys(customerId, (keys) => {
+          for (const item of page.items) keys.add(itemKey(item.productId, item.variantId));
+        })),
+      );
+  }
+
+  /**
+   * Adds or removes one product variant: POST wishlist/manage `{ PRODUCT_ID, PRODUCT_VARIANT_ID, ACTION }`. Only a
+   * response that reports success (for that product and variant) changes the saved state, and with it every heart
+   * for that variant. Used by the hearts, the Wishlist screen and the cart's Save for later.
+   */
+  manage(productId: string | number, variantId: string | number, action: WishlistAction): Observable<void> {
+    const product = positiveId(productId);
+    const variant = positiveId(variantId);
+    if (product === undefined || variant === undefined) {
+      return throwError(() => new RangeError('Product and variant IDs must be positive whole numbers.'));
+    }
+    const customerId = this.auth.customerId();
+    if (!this.isCustomer() || customerId === undefined) {
+      return throwError(() => new Error('Sign in as a customer to use your wishlist.'));
+    }
+    return this.api
+      .post<unknown>(API_ENDPOINTS.wishlist.manage, { PRODUCT_ID: product, PRODUCT_VARIANT_ID: variant, ACTION: action })
+      .pipe(
+        map((response) => assertManaged(response, product, variant, action)),
+        tap(() => this.updateKeys(customerId, (keys) => {
+          if (action === 'ADD') keys.add(itemKey(product, variant));
+          else keys.delete(itemKey(product, variant));
+        })),
+      );
+  }
+
+  /**
+   * A heart was tapped. Signed out: Login, then back to this page. Signed in but not as a customer: an error.
+   * Customers: POST wishlist/manage for the product's variant the heart is for (`variantId`, the screen's selected
+   * variant, else the product's default; without either, the product's saved variant): ACTION "REMOVE" for a filled
+   * heart, "ADD" for an empty one. One request at a time per product; the heart changes only after the API succeeded,
+   * and a toast reports the result.
+   */
   toggleProduct(product: Product, variantId?: string | null): void {
     if (!this.auth.isAuthenticated()) {
       void this.router.navigate([APP_ROUTES.login], { queryParams: { returnUrl: this.router.url } });
@@ -152,85 +313,53 @@ export class WishlistService {
       this.toast.showError('Only customer accounts can save items to the wishlist.');
       return;
     }
-    const customerId = this.auth.customerId();
-    if (customerId === undefined) {
+    if (this.auth.customerId() === undefined) {
       this.toast.showError('Sign in again to use your wishlist.');
       return;
     }
     if (this.isPending(product.id)) return;
 
-    const saved = this.rowFor(this.cart.savedItems(), product.id, variantId);
-    const inCart = saved ? undefined : this.rowFor(this.cart.items(), product.id, variantId);
-    const request = saved
-      ? this.removeSaved(product, saved)
-      : inCart
-        ? this.save(product, inCart, variantId)
-        : this.saveWithoutCartRow(product, variantId ?? defaultVariantId(product), customerId);
+    const variant = this.heartVariant(product, variantId);
+    if (variant === null) {
+      this.toast.showError(`${product.name} cannot be saved to your wishlist right now. Variant details are missing.`);
+      return;
+    }
+    const action: WishlistAction = this.savedKeys().has(itemKey(product.id, variant)) ? 'REMOVE' : 'ADD';
     this.setPending(product.id, true);
-    request.pipe(finalize(() => this.setPending(product.id, false))).subscribe({
-      next: (message) => this.toast.showSuccess(message),
-      error: (error: unknown) => this.toast.showError(this.catalog.getErrorMessage(error)),
+    this.manage(product.id, variant, action)
+      .pipe(finalize(() => this.setPending(product.id, false)))
+      .subscribe({
+        next: () =>
+          this.toast.showSuccess(
+            action === 'ADD'
+              ? `${product.name} was added to your wishlist.`
+              : `${product.name} was removed from your wishlist.`,
+          ),
+        error: (error: unknown) => this.toast.showError(this.catalog.getErrorMessage(error)),
+      });
+  }
+
+  /**
+   * The variant a heart is for: `variantId`, else the product's default variant; without either, the product's saved
+   * variant (so its filled heart can still remove it); null when there is none.
+   */
+  private heartVariant(product: HeartProduct, variantId: string | number | null | undefined): string | null {
+    const chosen = positiveId(variantId);
+    if (chosen !== undefined) return String(chosen);
+    const fallback = defaultVariantId(product);
+    if (fallback !== null) return fallback;
+    const prefix = `${Number(product.id)}:`;
+    const saved = [...this.savedKeys()].find((key) => key.startsWith(prefix));
+    return saved ? saved.slice(prefix.length) : null;
+  }
+
+  /** Changes this customer's saved items (another customer's are dropped first). */
+  private updateKeys(customerId: number, change: (keys: Set<string>) => void): void {
+    this.saved.update((saved) => {
+      const keys = new Set(saved?.customerId === customerId ? saved.keys : []);
+      change(keys);
+      return { customerId, keys };
     });
-  }
-
-  /**
-   * The product's row among these cart rows (API rows only, they have a CART_ID): the one for `variantId` when it is
-   * given, else its row without a variant (null: only that one); without `variantId`, the first row of the product.
-   * A row of another variant is never used.
-   */
-  // CHANGED: falls back to the product's row without a variant (its CART_ID is sent with the selected VARIANT_ID).
-  private rowFor(items: readonly CartItem[], productId: string, variantId: string | null | undefined): CartItem | undefined {
-    const rows = items.filter((item) => item.apiDetails && item.product.id === productId);
-    if (variantId === undefined) return rows[0];
-    return rows.find((item) => rowVariantId(item) === variantId) ?? rows.find((item) => rowVariantId(item) === null);
-  }
-
-  /**
-   * Saves the product's cart row: PUT wishlist/save_for_later with its CART_ID and VARIANT_ID (`variantId`, the
-   * screen's selected variant, else the row's own; null without a variant). The row moves from the cart to the
-   * wishlist, as Save for later does on the Cart page.
-   */
-  // CHANGED: optional `variantId` (the selected variant).
-  private save(product: Product, row: CartItem, variantId?: string | null): Observable<string> {
-    const cartId = row.apiDetails?.cartId ?? '';
-    return this.shoppingCart.saveForLater(cartId, variantId ?? rowVariantId(row)).pipe(
-      map(() => {
-        this.cart.moveToSavedForLater(cartId);
-        return `${product.name} was saved to your wishlist.`;
-      }),
-    );
-  }
-
-  /**
-   * A product with no row in the customer's cart: PUT wishlist/save_for_later with CART_ID null (there is none to
-   * send; none is invented and no cart row is created) and its VARIANT_ID. The cart is then read again
-   * (shopping_cart/get), and the heart fills only when the backend now has the product saved; a backend that refuses
-   * the request reports its own message.
-   */
-  // CHANGED: restored; it replaces the shopping_cart/insert + save flow (no insert from the heart).
-  private saveWithoutCartRow(product: Product, variantId: string | null, customerId: number): Observable<string> {
-    return this.shoppingCart.saveForLater(null, variantId).pipe(
-      switchMap(() => this.shoppingCart.getCart(customerId)),
-      map((items) => {
-        this.cart.mergeFetchedItems(items);
-        if (!this.has(product.id)) {
-          throw new Error(`${product.name} was not saved: it is not in your cart, so there is no CART_ID to save.`);
-        }
-        return `${product.name} was saved to your wishlist.`;
-      }),
-    );
-  }
-
-  /** Removes a saved row (DELETE shopping_cart/delete with its own IDs). */
-  private removeSaved(product: Product, saved: CartItem): Observable<string> {
-    const row = asWishlistRow(saved);
-    if (!row) return throwError(() => new Error(`${product.name} could not be removed from your wishlist.`));
-    return this.shoppingCart.removeSavedItem(row).pipe(
-      map(() => {
-        this.cart.dropSavedItem(row.cartId);
-        return `${product.name} was removed from your wishlist.`;
-      }),
-    );
   }
 
   private setPending(productId: string, pending: boolean): void {

@@ -82,7 +82,7 @@
       @for (product of products(); track product.id) {
         <app-product-card
           [product]="product"
-          [wishlisted]="wishlist.has(product.id)"
+          [wishlisted]="wishlist.has(product)"
           [pendingAction]="wishlist.isPending(product.id) ? 'wishlist' : null"
           (wishlistToggle)="toggleWishlist(product)"
         />

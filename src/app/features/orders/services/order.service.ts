@@ -1,6 +1,7 @@
+import { formatDate } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { EMPTY, Observable, defer, expand, last, map, throwError } from 'rxjs';
+import { EMPTY, Observable, catchError, defer, expand, last, map, of, shareReplay, switchMap, throwError } from 'rxjs';
 import { API_ENDPOINTS } from '@core/constants/api-endpoints';
 import { ApiService } from '@core/services/api.service';
 import {
@@ -16,11 +17,14 @@ import {
   ReturnRequestsQuery,
   ReturnRequestStatusUpdate,
   SellerReturnRequestsQuery,
+  ShipmentItem,
+  ShipmentStep,
+  ShipmentTotals,
   ShipmentTracking,
   StatusOption,
 } from '@shared/models';
-import { DEMO_SHIPMENT, DEMO_TRACKING_ORDER_ID } from '../data/shipment-tracking';
-import { ORDER_SUMMARIES } from '../data/order-summaries';
+// CHANGED: the demo shipment and order summaries (data/shipment-tracking.ts, data/order-summaries.ts) are removed;
+// Shipment Tracking reads the tracking API (getShipmentTracking).
 
 export interface OrderManagementFilters {
   DAYS: number;
@@ -52,6 +56,18 @@ export interface OrderManagementOrder {
   paymentStatusId: number | null;
   orderStatusId: number | null;
   shippingStatusId: number | null;
+}
+
+/**
+ * Request body for PUT place_order/update. Each status is an ID from its lookup API (all_status/get,
+ * payment_status/get, shipping_status/get), the same IDs order_dashboard/get returns for an order.
+ */
+// CHANGED (new): Order Management status update (Admin).
+export interface OrderStatusUpdate {
+  ORDER_ID: number;
+  ORDER_STATUS: number;
+  PAYMENT_STATUS: number;
+  SHIPPING_STATUS: number;
 }
 
 export interface OrderManagementCounts {
@@ -319,6 +335,40 @@ function mapReturnRequestUpdateResponse(
   return message || fallback;
 }
 
+const ORDER_UPDATE_DEFAULT_MESSAGE = 'Order updated successfully.';
+const ORDER_UPDATE_DEFAULT_ERROR = 'The order could not be updated.';
+
+/**
+ * PUT place_order/update (`{ status: true, message: "Order updated successfully" }`): its message, or an error when
+ * the body reports a failure. A non-2xx status already errors in HttpClient.
+ */
+// CHANGED (new)
+function mapOrderUpdateResponse(response: unknown): string {
+  if (response === null || response === undefined) return ORDER_UPDATE_DEFAULT_MESSAGE;
+  if (typeof response === 'string') {
+    const body = response.trim();
+    if (!body || ['SUCCESS', 'OK', '200', '201', 'TRUE', '1'].includes(body.toUpperCase())) {
+      return ORDER_UPDATE_DEFAULT_MESSAGE;
+    }
+    throw new Error(body);
+  }
+  if (!isRecord(response)) throw new Error('The order update API returned an invalid response.');
+
+  const success = response['success'] ?? response['SUCCESS'];
+  const status = response['status'] ?? response['STATUS'];
+  const message = readText(response, 'message') || readText(response, 'MESSAGE');
+  const isSuccessful = (value: unknown): boolean =>
+    value === true ||
+    value === 1 ||
+    value === 200 ||
+    value === 201 ||
+    (typeof value === 'string' && ['SUCCESS', 'OK', '200', '201', 'TRUE', '1'].includes(value.trim().toUpperCase()));
+  if ((success !== undefined && !isSuccessful(success)) || (status !== undefined && !isSuccessful(status))) {
+    throw new Error(message || ORDER_UPDATE_DEFAULT_ERROR);
+  }
+  return message || ORDER_UPDATE_DEFAULT_MESSAGE;
+}
+
 function mapReturnReasonsResponse(response: unknown): ReturnReasonOption[] {
   if (!isRecord(response)) {
     throw new Error('The return reasons API returned an invalid response.');
@@ -580,11 +630,15 @@ function mapCustomerOrdersResponse(response: unknown, customerId: number): Custo
   const { totalRecords, rows } = customerOrderRows(response);
   const orders = rows.map((row): OrderSummary => {
     const line = mapCustomerOrderLine(row, customerId);
+    // CHANGED (new): TRACKING_NUMBER, when the row has one, makes the card link to Shipment Tracking. NOTE:
+    // customer_orders/get does not send it today; until it does, tracking is opened from the Order Details page.
+    const trackingNo = isRecord(row) ? readText(row, 'TRACKING_NUMBER') : '';
     return {
       id: line.orderNumber,
       placedOn: line.orderDate,
       total: line.total,
       status: line.status,
+      ...(trackingNo ? { trackingNo } : {}),
       items: [{ productId: line.productId, productVariantId: line.productVariantId, quantity: line.quantity }],
       orderId: line.orderId,
     };
@@ -670,6 +724,311 @@ function mapPlaceOrderResponse(response: string): PlaceOrderResult {
   return { message: body.length <= 200 && !body.includes('<') ? body : PLACE_ORDER_DEFAULT_MESSAGE };
 }
 
+// ---- Shipment tracking (CHANGED (new)) ----
+
+/** Rows per tracking request: the API returns one row per product of the order. */
+const TRACKING_PAGE_SIZE = 10;
+/** Upper bound on the requests one tracking lookup makes. */
+const MAX_TRACKING_PAGES = 20;
+/** The carrier badge colour (the API sends none; this was the page's colour). */
+const DEFAULT_CARRIER_COLOR = '#e63946';
+/** A parcel, the icon of every package item (the API sends no product image). */
+const PACKAGE_ICON = 'M3.5 7.5 12 3l8.5 4.5v9L12 21l-8.5-4.5zM3.5 7.5 12 12l8.5-4.5M12 12v9';
+const TRACKING_SUCCESS_VALUES = ['SUCCESS', 'OK', '200', '201', 'TRUE', '1'];
+
+/**
+ * Carrier websites by SHIPPING_PROVIDER_NAME (the tracking API sends no URL). A carrier that is not listed gets no
+ * website, so the page shows no "Visit Site" button for it.
+ */
+const CARRIER_SITES: readonly { pattern: RegExp; url: string }[] = [
+  { pattern: /blue\s*dart/i, url: 'https://www.bluedart.com/tracking' },
+  { pattern: /delhivery/i, url: 'https://www.delhivery.com/tracking' },
+  { pattern: /\bdtdc\b/i, url: 'https://www.dtdc.in/' },
+  { pattern: /\bekart\b/i, url: 'https://ekartlogistics.com/' },
+  { pattern: /india\s*post|speed\s*post/i, url: 'https://www.indiapost.gov.in/' },
+  { pattern: /xpress\s*bees/i, url: 'https://www.xpressbees.com/' },
+  { pattern: /ecom\s*express/i, url: 'https://ecomexpress.in/' },
+];
+
+/**
+ * The progress steps of the design, always all five, with the stage each one stands for (see shipmentStage). An "out
+ * for delivery" status is shown on In Transit.
+ */
+// CHANGED: always the design's five steps (they were built from the shipping-status list, which has no "Packed").
+export const SHIPMENT_STEPS: readonly string[] = ['Order Placed', 'Packed', 'Shipped', 'In Transit', 'Delivered'];
+const SHIPMENT_STEP_STAGES: readonly number[] = [0, 1, 2, 3, 5];
+/** Stage of the "Shipped" step (see shipmentStage). */
+const SHIPPED_STAGE = 2;
+
+/**
+ * An ISO date or date-time ("2026-11-30", "2026-11-26T18:30:00.000Z") that is a real calendar date, else ''.
+ * JavaScript reads an impossible date such as "2026-11-31" as 1 Dec, so the day is checked against the month.
+ */
+export function validIsoDate(value: unknown): string {
+  const text = typeof value === 'string' ? value.trim() : '';
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/.exec(text);
+  if (!match || !Number.isFinite(Date.parse(text))) return '';
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? text : '';
+}
+
+/**
+ * Where a shipping status sits in a delivery: 0 ordered (not shipped yet), 1 packed, 2 shipped, 3 in transit,
+ * 4 out for delivery, 5 delivered; null for a status outside that path (cancelled, returned, …) or unknown.
+ */
+export function shipmentStage(status: string): number | null {
+  const key = ` ${status.toUpperCase().replace(/[^A-Z]+/g, ' ').trim()} `;
+  if (/ (CANCEL\w*|FAIL\w*|RETURN\w*|RTO|LOST|UNDELIVERED) /.test(key)) return null;
+  if (/ NOT (SHIPPED|DISPATCHED) | PENDING | ORDERED | PLACED | CONFIRMED | NEW /.test(key)) return 0;
+  if (/ OUT FOR DELIVERY /.test(key)) return 4;
+  if (/ DELIVERED /.test(key)) return 5;
+  if (/ TRANSIT /.test(key)) return 3;
+  if (/ (SHIPPED|DISPATCHED|PICKED UP) /.test(key)) return SHIPPED_STAGE;
+  if (/ (PACKED|PACKING|PROCESSING|READY) /.test(key)) return 1;
+  return null;
+}
+
+/** A shipping status for display: "IN TRANSIT" / "in_transit" -> "In Transit". */
+// CHANGED (new)
+export function shippingStatusLabel(status: string): string {
+  return status
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s-]+/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+/**
+ * DELIVERY_ADDRESS ("pooja, 9876543210, 13/5a, 2nd Street, Near Bus Stand, Chennai, Tamil Nadu, India, 600040"): the
+ * name, then the phone, then the address. The address is shown as two lines, the street part and the last four parts
+ * (city, state, country, PIN), or one line when it is shorter. Text in any other form is one line, with no name or
+ * phone. `city` is the city of an address that ends in city, state, country and a numeric PIN (else absent).
+ */
+// CHANGED: also returns the city (the destination shown in the Live Route GPS Tracking card).
+export function parseDeliveryAddress(value: unknown): { name: string; phone: string; lines: string[]; city?: string } {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text) return { name: '', phone: '', lines: [] };
+  const parts = text.split(',').map((part) => part.trim()).filter(Boolean);
+  const phone = parts[1] ?? '';
+  if (parts.length < 3 || !/^\+?\d{7,15}$/.test(phone.replace(/[\s-]/g, ''))) {
+    return { name: '', phone: '', lines: [text] };
+  }
+  const rest = parts.slice(2);
+  // City, state and country in words, then a numeric PIN (else no city: the parts mean something else).
+  const [cityPart = '', state = '', country = '', pin = ''] = rest.length >= 4 ? rest.slice(-4) : [];
+  const words = /^[A-Za-z][A-Za-z .'-]*$/;
+  const city =
+    /^\d{4,10}$/.test(pin.replace(/\s/g, '')) && [cityPart, state, country].every((part) => words.test(part)) ? cityPart : '';
+  return {
+    name: parts[0],
+    phone,
+    lines: rest.length > 4 ? [rest.slice(0, -4).join(', '), rest.slice(-4).join(', ')] : [rest.join(', ')],
+    ...(city ? { city } : {}),
+  };
+}
+
+/**
+ * The schedule state when the tracking API sends no STATUS, from its EXPECTED_DELIVERY_DATE: "On Schedule" up to and
+ * including that day, "Delayed" after it. '' without a valid date, and for a delivered, cancelled, failed or returned
+ * shipment (no schedule to keep).
+ */
+// CHANGED (new)
+export function derivedScheduleStatus(
+  expectedDelivery: string | null,
+  shippingStatus: string,
+  orderStatus: string,
+  today: Date,
+  locale = 'en-US',
+): string {
+  if (!expectedDelivery || /CANCEL|FAIL|RETURN/i.test(orderStatus)) return '';
+  const stage = shippingStatus ? shipmentStage(shippingStatus) : 0;
+  if (stage === null || stage === 5) return '';
+  const day = (value: string | Date): string => formatDate(value, 'yyyy-MM-dd', locale);
+  return day(today) <= day(expectedDelivery) ? 'On Schedule' : 'Delayed';
+}
+
+/** The dated fields the progress steps are built from. */
+type ShipmentStepSource = Pick<
+  ShipmentTracking,
+  'placedOn' | 'shippedOn' | 'estimatedDelivery' | 'shippingStatusId' | 'shippingStatus'
+>;
+
+/**
+ * The design's progress steps (SHIPMENT_STEPS) and the current one. The API sends only the current shipping status (no
+ * event history). The current status is the order's ORDER_SHIPPING_STATUS_ID in the shipping-status list
+ * (shipping_status/get), else its ORDER_SHIPPING_STATUS_NAME; the current step is the last step at or before the stage
+ * that status reads as (Order Placed for a status that is not on the delivery path or not known).
+ * Captions, as in the design ("22 Sep, 10:30 AM"), are only the dates the API sends: ORDER_DATE under "Order Placed",
+ * SHIPPING_DATE under "Shipped", and "Pending Arrival" under "Delivered" until it is reached. No date or place is
+ * made up (the API has no packing date and no current location).
+ */
+// CHANGED: always the design's five steps, the design's caption format, and "Pending Arrival" (it was "Expected
+// <date>" when there was a valid one; the design shows the expected date in the status card only).
+export function shipmentSteps(
+  source: ShipmentStepSource,
+  statuses: readonly StatusOption[] | null,
+  locale = 'en-US',
+): { steps: ShipmentStep[]; currentStep: number } {
+  const listed = statuses?.find((status) => status.id === source.shippingStatusId);
+  const name = listed?.label.trim() || source.shippingStatus?.trim() || '';
+  const stage = name ? shipmentStage(name) : null;
+  const currentStep = stage === null ? 0 : SHIPMENT_STEP_STAGES.filter((candidate) => candidate <= stage).length - 1;
+  const last = SHIPMENT_STEPS.length - 1;
+  // A date-time shows its time too ("22 Sep, 10:30 AM"). A plain date, or a date sent as local midnight (SHIPPING_DATE
+  // "2026-11-26T18:30:00.000Z" is 27 Nov 00:00 in India), shows the day only: it has no time of day to show.
+  const when = (value: string | null | undefined): string => {
+    if (!value) return '';
+    const hasTime = /[T ]\d{2}:\d{2}/.test(value) && formatDate(value, 'HH:mm:ss', locale) !== '00:00:00';
+    return formatDate(value, hasTime ? 'd MMM, hh:mm a' : 'd MMM', locale);
+  };
+
+  const steps = SHIPMENT_STEPS.map((label, index): ShipmentStep => {
+    if (index === 0) return { label, caption: when(source.placedOn) };
+    if (SHIPMENT_STEP_STAGES[index] === SHIPPED_STAGE) return { label, caption: when(source.shippedOn) };
+    if (index === last && currentStep < last) return { label, caption: 'Pending Arrival' };
+    return { label, caption: '' };
+  });
+  return { steps, currentStep };
+}
+
+/**
+ * SUBTOTAL, DISCOUNT, TAX and TOTAL_AMOUNT as the API sends them. Each order record (ORDER_ID) counts once: rows of
+ * one record repeat its amounts, rows of different records (one per product) are added up. An amount missing from
+ * any record is null. Shipping is what TOTAL_AMOUNT adds on top of SUBTOTAL + TAX − DISCOUNT, when that is more than 0.
+ */
+function shipmentTotals(rows: readonly Record<string, unknown>[]): ShipmentTotals {
+  const records = new Map<string, Record<string, unknown>>();
+  rows.forEach((row, index) => {
+    const key = readText(row, 'ORDER_ID') || `row-${index}`;
+    if (!records.has(key)) records.set(key, row);
+  });
+  const sum = (field: string): number | null => {
+    let total = 0;
+    for (const record of records.values()) {
+      const value = optionalOrderAmount(record[field]);
+      if (value === null) return null;
+      total += value;
+    }
+    return Math.round(total * 100) / 100;
+  };
+  const subtotal = sum('SUBTOTAL');
+  const discount = sum('DISCOUNT');
+  const tax = sum('TAX');
+  const total = sum('TOTAL_AMOUNT');
+  const shipping =
+    subtotal !== null && total !== null
+      ? Math.round((total - (subtotal + (tax ?? 0) - (discount ?? 0))) * 100) / 100
+      : null;
+  return { subtotal, discount, tax, total, shipping: shipping !== null && shipping > 0 ? shipping : null };
+}
+
+/** One tracking row as a package item (PRODUCT_NAME, SKU, QUANTITY, PRICE); a missing number is null, never 0. */
+function shipmentItem(row: Record<string, unknown>, index: number): ShipmentItem {
+  const quantity = readNumber(row['QUANTITY']);
+  const productId = readText(row, 'PRODUCT_ID');
+  return {
+    name: readText(row, 'PRODUCT_NAME') || (productId ? `Product #${productId}` : 'Product'),
+    sku: readText(row, 'SKU') || readText(row, 'PRODUCT_CODE_SKU'),
+    quantity: quantity !== null && Number.isSafeInteger(quantity) && quantity > 0 ? quantity : null,
+    price: optionalOrderAmount(row['PRICE']),
+    icon: PACKAGE_ICON,
+    tone: index === 0 ? 'accent' : 'neutral',
+  };
+}
+
+/**
+ * Every tracking row of one order as one shipment: the order, shipping and carrier fields from the first row, one
+ * package item per row, and the order totals. Null when there are no rows. The steps are built without the
+ * shipping-status list (see shipmentSteps); OrderService replaces them once that list is loaded.
+ * The schedule state is STATUS, or, when the API sends none, derivedScheduleStatus (`today` is for tests).
+ */
+export function mapShipmentTracking(rows: readonly unknown[], orderNumber = '', today = new Date()): ShipmentTracking | null {
+  const records = rows.filter(isRecord);
+  const first = records[0];
+  if (!first) return null;
+
+  const providerName = readText(first, 'SHIPPING_PROVIDER_NAME');
+  const siteUrl = providerName ? CARRIER_SITES.find(({ pattern }) => pattern.test(providerName))?.url : undefined;
+  const shippingStatusId = readNumber(first['ORDER_SHIPPING_STATUS_ID']);
+  const shippingStatus = readText(first, 'ORDER_SHIPPING_STATUS_NAME');
+  const orderStatus = readText(first, 'ORDER_STATUS_NAME');
+  // CHANGED: from EXPECTED_DELIVERY_DATE when the API sends no STATUS.
+  const scheduleStatus =
+    readText(first, 'STATUS') ||
+    derivedScheduleStatus(validIsoDate(first['EXPECTED_DELIVERY_DATE']) || null, shippingStatus, orderStatus, today);
+  const shipmentNumber = readText(first, 'SHIPMENT_NUMBER');
+  const shippedOn = validIsoDate(first['SHIPPING_DATE']);
+  // NOTE (backend dependency): no API sends live tracking data (current location, coordinates, distance, route,
+  // driver, vehicle, tracking events), so currentLocation, distanceKm and route stay unset and the Live Tracking UI
+  // says the live location is not available yet. Map them here once the backend defines those fields.
+  const source: ShipmentStepSource = {
+    placedOn: validIsoDate(first['ORDER_DATE']),
+    // NOTE: the backend must send a real date here; "2026-11-31" (the sample) is not one, so it is not shown.
+    estimatedDelivery: validIsoDate(first['EXPECTED_DELIVERY_DATE']) || null,
+    ...(shippedOn ? { shippedOn } : {}),
+    ...(shippingStatusId !== null && Number.isSafeInteger(shippingStatusId) && shippingStatusId > 0
+      ? { shippingStatusId }
+      : {}),
+    ...(shippingStatus ? { shippingStatus } : {}),
+  };
+
+  return {
+    orderId: readText(first, 'ORDER_NUMBER') || orderNumber.trim(),
+    ...source,
+    ...(orderStatus ? { orderStatus } : {}),
+    ...(shipmentNumber ? { shipmentNumber } : {}),
+    carrier: {
+      name: providerName,
+      code: providerName.replace(/[^a-z]/gi, '').slice(0, 3).toUpperCase(),
+      color: DEFAULT_CARRIER_COLOR,
+      trackingNo: readText(first, 'TRACKING_NUMBER'),
+      ...(siteUrl ? { siteUrl } : {}),
+    },
+    scheduleStatus,
+    onSchedule: !/delay|late/i.test(scheduleStatus),
+    ...shipmentSteps(source, null),
+    items: records.map(shipmentItem),
+    address: parseDeliveryAddress(first['DELIVERY_ADDRESS']),
+    totals: shipmentTotals(records),
+  };
+}
+
+/** The shipment with its steps built from the shipping-status list (see shipmentSteps). */
+export function withShipmentSteps(shipment: ShipmentTracking, statuses: readonly StatusOption[] | null): ShipmentTracking {
+  return { ...shipment, ...shipmentSteps(shipment, statuses) };
+}
+
+/** Checks the tracking envelope and returns its `count` (null when absent) and `data` rows. */
+function trackingRows(response: unknown): { count: number | null; rows: unknown[] } {
+  if (!isRecord(response)) throw new Error('The shipment tracking API returned an invalid response.');
+  const success = response['success'] ?? response['SUCCESS'];
+  const status = response['status'] ?? response['STATUS'];
+  const message = readText(response, 'message') || readText(response, 'MESSAGE');
+  const isSuccessful = (value: unknown): boolean =>
+    value === true ||
+    value === 1 ||
+    value === 200 ||
+    value === 201 ||
+    (typeof value === 'string' && TRACKING_SUCCESS_VALUES.includes(value.trim().toUpperCase()));
+  if (
+    (success !== undefined && !isSuccessful(success)) ||
+    (status !== undefined && !isSuccessful(status)) ||
+    (success === undefined && status === undefined)
+  ) {
+    throw new Error(message || 'Shipment tracking could not be loaded.');
+  }
+  const data = response['data'] ?? response['DATA'];
+  if (data !== null && data !== undefined && !Array.isArray(data)) {
+    throw new Error('The shipment tracking API returned an invalid list.');
+  }
+  const count = readNumber(response['count'] ?? response['total_records']);
+  return {
+    count: count !== null && Number.isSafeInteger(count) && count >= 0 ? count : null,
+    rows: Array.isArray(data) ? data : [],
+  };
+}
+
 /** The reason a payload cannot be sent, or null when it is valid. */
 function placeOrderPayloadProblem(payload: PlaceOrderPayload): string | null {
   const isId = (value: number): boolean => Number.isSafeInteger(value) && value > 0;
@@ -688,6 +1047,9 @@ function placeOrderPayloadProblem(payload: PlaceOrderPayload): string | null {
 @Injectable({ providedIn: 'root' })
 export class OrderService {
   private readonly api = inject(ApiService);
+  /** The shipping-status list for shipment tracking, loaded once (see trackingShippingStatuses). */
+  // CHANGED (new)
+  private trackingStatuses$?: Observable<StatusOption[]>;
 
   /**
    * The documented endpoint accepts LIMIT and OFFSET. The bearer-token interceptor supplies the
@@ -858,12 +1220,14 @@ export class OrderService {
       );
   }
 
+  // CHANGED: ORDER_STATUS defaults to -1 (every order status), like PAYMENT_STATUS and SHIPPING_STATUS; it was 1, so
+  // the Admin listing only showed orders with status 1 at first.
   getManagementOrders(
     filters: Partial<OrderManagementFilters> = {},
   ): Observable<OrderManagementOrder[]> {
     const params: OrderManagementFilters = {
       DAYS: filters.DAYS ?? 7,
-      ORDER_STATUS: filters.ORDER_STATUS ?? 1,
+      ORDER_STATUS: filters.ORDER_STATUS ?? -1,
       PAYMENT_STATUS: filters.PAYMENT_STATUS ?? -1,
       SHIPPING_STATUS: filters.SHIPPING_STATUS ?? -1,
     };
@@ -905,6 +1269,51 @@ export class OrderService {
       .pipe(map(mapSellerOrderManagementResponse));
   }
 
+  /**
+   * Admin: updates one order's statuses with PUT place_order/update `{ ORDER_ID, ORDER_STATUS, PAYMENT_STATUS,
+   * SHIPPING_STATUS }`. Every ID must be a positive whole number (status IDs come from the status lookups; -1 "all"
+   * is a filter value, never a status). Emits the API's message.
+   */
+  // CHANGED (new)
+  updateOrderStatus(payload: OrderStatusUpdate): Observable<string> {
+    for (const key of ['ORDER_ID', 'ORDER_STATUS', 'PAYMENT_STATUS', 'SHIPPING_STATUS'] as const) {
+      if (!Number.isSafeInteger(payload[key]) || payload[key] <= 0) {
+        return throwError(() => new RangeError(`${key} must be a positive safe integer.`));
+      }
+    }
+    return this.api
+      .put<unknown>(API_ENDPOINTS.placeOrder.update, {
+        ORDER_ID: payload.ORDER_ID,
+        ORDER_STATUS: payload.ORDER_STATUS,
+        PAYMENT_STATUS: payload.PAYMENT_STATUS,
+        SHIPPING_STATUS: payload.SHIPPING_STATUS,
+      })
+      .pipe(map(mapOrderUpdateResponse));
+  }
+
+  /** A readable message for a failed order update (the API's message when it sends one). */
+  // CHANGED (new)
+  orderUpdateErrorMessage(error: unknown): string {
+    if (error instanceof HttpErrorResponse) {
+      const raw: unknown = error.error;
+      let body: unknown = raw;
+      if (typeof raw === 'string' && raw.trim()) {
+        try {
+          body = JSON.parse(raw);
+        } catch {
+          if (raw.trim().length <= 200 && !raw.includes('<')) return raw.trim();
+        }
+      }
+      if (isRecord(body)) {
+        const message =
+          readText(body, 'message') || readText(body, 'MESSAGE') || readText(body, 'error') || readText(body, 'ERROR');
+        if (message) return message;
+      }
+      return error.status ? `${ORDER_UPDATE_DEFAULT_ERROR} (HTTP ${error.status})` : ORDER_UPDATE_DEFAULT_ERROR;
+    }
+    return error instanceof Error && error.message ? error.message : ORDER_UPDATE_DEFAULT_ERROR;
+  }
+
   getManagementCounts(days: number): Observable<OrderManagementCounts> {
     if (!Number.isSafeInteger(days) || days < 1) {
       throw new RangeError('The order count date filter must be a positive number of days.');
@@ -915,13 +1324,76 @@ export class OrderService {
       .pipe(map(mapOrderManagementCountsResponse));
   }
 
-  /** Demo order summaries retained only for the existing shipment-tracking preview. */
-  readonly orders: readonly OrderSummary[] = ORDER_SUMMARIES;
+  /**
+   * Shipment tracking of one order: GET tracking?ORDER_NUMBER=…&LIMIT=…&OFFSET=… (the access token identifies the
+   * customer). The API returns one row per product, so pages are read until `count` rows arrived (or a page is short
+   * or empty, or MAX_TRACKING_PAGES); OFFSET advances by the rows returned. Rows of another order number are left out.
+   * The current progress step is read from the shipping-status list (getShippingStatuses), or from the status name when
+   * it cannot be loaded. Null when the order has no tracking rows.
+   */
+  // CHANGED (new): replaces findTracking (demo data).
+  getShipmentTracking(orderNumber: string): Observable<ShipmentTracking | null> {
+    const wanted = orderNumber.trim();
+    if (!wanted) return throwError(() => new RangeError('Order number is required.'));
 
-  /** Shipment tracking for an order, or undefined when the order is unknown (demo data until the API is wired). */
-  findTracking(orderId: string): ShipmentTracking | undefined {
-    const known = orderId === DEMO_TRACKING_ORDER_ID || this.orders.some((order) => order.id === orderId);
-    return known ? { ...DEMO_SHIPMENT, orderId } : undefined;
+    return defer(() => {
+      const rows: unknown[] = [];
+      const loadPage = (pageIndex: number, offset: number) =>
+        this.api
+          .get<unknown>(API_ENDPOINTS.shipmentTracking.get, {
+            ORDER_NUMBER: wanted,
+            LIMIT: TRACKING_PAGE_SIZE,
+            OFFSET: offset,
+          })
+          .pipe(
+            map((response) => {
+              const page = trackingRows(response);
+              rows.push(...page.rows);
+              const nextOffset = offset + page.rows.length;
+              const done =
+                !page.rows.length ||
+                (page.count !== null ? nextOffset >= page.count : page.rows.length < TRACKING_PAGE_SIZE) ||
+                pageIndex + 1 >= MAX_TRACKING_PAGES;
+              return { pageIndex, nextOffset, done };
+            }),
+          );
+
+      return loadPage(0, 0).pipe(
+        expand(({ pageIndex, nextOffset, done }) => (done ? EMPTY : loadPage(pageIndex + 1, nextOffset))),
+        last(),
+        map(() =>
+          mapShipmentTracking(
+            rows.filter((row) => !isRecord(row) || !readText(row, 'ORDER_NUMBER') || readText(row, 'ORDER_NUMBER') === wanted),
+            wanted,
+          ),
+        ),
+        switchMap((shipment) =>
+          shipment
+            ? this.trackingShippingStatuses().pipe(
+                map((statuses) => withShipmentSteps(shipment, statuses)),
+                // Without the list the fixed steps stay.
+                catchError(() => of(shipment)),
+              )
+            : of(null),
+        ),
+      );
+    });
+  }
+
+  /**
+   * getShippingStatuses for shipment tracking, loaded once and shared, so loading the tracking again (the page's
+   * Refresh) requests only GET tracking. A failed load is not kept: the next tracking load asks again.
+   */
+  // CHANGED (new)
+  private trackingShippingStatuses(): Observable<StatusOption[]> {
+    this.trackingStatuses$ ??= this.getShippingStatuses().pipe(
+      catchError((error: unknown) => {
+        this.trackingStatuses$ = undefined;
+        return throwError(() => error);
+      }),
+      shareReplay({ bufferSize: 1, refCount: false }),
+    );
+    return this.trackingStatuses$;
   }
 
   /**

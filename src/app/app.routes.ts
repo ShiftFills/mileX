@@ -114,9 +114,12 @@ export const routes: Routes = [
         loadChildren: () => import('@features/refund/refund.routes').then((m) => m.REFUND_ROUTES),
       },
       // Full-width order history (no account sidebar).
-      // TODO: add `canActivate: [authGuard]` once sign-in is wired; open for now so the design can be reviewed.
+      // CHANGED: My Orders (the list, order details and shipment tracking) is for customer logins only. A visitor
+      // is sent to Login (and back here after it); an Admin or Seller is sent to their own dashboard.
       {
         path: 'orders',
+        canMatch: [roleMatchGuard],
+        data: { userType: 'CUSTOMER' },
         loadChildren: () => import('@features/orders/orders.routes').then((m) => m.ORDER_ROUTES),
       },
       // Signed-in area with sidebar (account)
