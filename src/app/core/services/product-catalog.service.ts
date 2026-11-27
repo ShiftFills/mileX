@@ -1079,6 +1079,20 @@ export class ProductCatalogService {
     this.invalidatePageCache();
   }
 
+  /**
+   * Call after a brand was added, changed or deleted (Admin Brand Management). The cached brand lists
+   * (brand_management/get: every brand, and per category and subcategory) and the product pages (whose rows carry
+   * brand names) are dropped, so Add/Edit Product, All Products and the Wishlist read them again when they next need
+   * them. Categories, subcategories, tax rates and product codes stay cached.
+   */
+  // CHANGED (new)
+  invalidateBrandLookups(): void {
+    for (const key of [...this.lookupRequests.keys()]) {
+      if (key.startsWith('brands:')) this.lookupRequests.delete(key);
+    }
+    this.invalidatePageCache();
+  }
+
   findById(id: string): Product | undefined {
     return this._products().find((product) => product.id === id);
   }

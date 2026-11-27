@@ -74,6 +74,8 @@
         <button type="button" class="btn btn-outline-danger btn-sm" (click)="retryRequests()">Try again</button>
       </div>
     } @else {
+      <!-- CHANGED (new): search and sorting work on the page's requests (the API pages them). -->
+      <p class="return-list-note">Search and sorting apply to the requests on this page.</p>
       <app-table
         class="admin-list-table returns-table"
         ariaLabel="Return requests"
@@ -84,56 +86,214 @@
       <app-pagination ariaLabel="Return request pages" itemLabel="requests" [page]="page()" [pageSize]="pageSize" [total]="totalRecords()" (pageChange)="setPage($event)" />
     }
 
-    <ng-template #selectAllHeader>
-      <app-checkbox [checked]="allVisibleSelected()" ariaLabel="Select all return requests on this page" (checkedChange)="toggleAllVisible($event)" />
+    <!-- CHANGED (new): a sortable column header (as in Order Management). -->
+    <ng-template #sortHeader let-column="column">
+      <button type="button" class="return-sort" [class.is-active]="sortDirection(column.key) !== null"
+        [attr.aria-label]="'Sort by ' + column.label + (sortDirection(column.key) === 'asc' ? ', sorted ascending' : sortDirection(column.key) === 'desc' ? ', sorted descending' : '')"
+        (click)="toggleSort(column.key)">
+        {{ column.label }}
+        <svg class="return-sort__icon" viewBox="0 0 10 12" aria-hidden="true">
+          <path d="M5 1.5 8 5H2z" [class.is-on]="sortDirection(column.key) === 'asc'" />
+          <path d="M5 10.5 2 7h6z" [class.is-on]="sortDirection(column.key) === 'desc'" />
+        </svg>
+      </button>
     </ng-template>
-    <ng-template #selectRowCell let-request>
-      <app-checkbox [checked]="selectedIds().has(request.returnId)" [ariaLabel]="'Select return for ' + (request.orderNumber ?? request.returnId)" (checkedChange)="toggleSelected(request.returnId, $event)" />
-    </ng-template>
+    <!-- CHANGED: the order number opens the request's details. -->
     <ng-template #orderNoCell let-request>
-      <span class="admin-order-link">{{ request.orderNumber ?? '—' }}</span>
-      <span class="return-request-detail">Return #{{ request.returnId }} · {{ formatDate(request.createdAt) }}</span>
+      <button type="button" class="admin-order-link return-order-link" [attr.title]="request.orderNumber" [attr.aria-label]="'Open return #' + request.returnId + ' of order ' + (request.orderNumber ?? '')"
+        (click)="openDetails(request, $event.currentTarget)">{{ request.orderNumber ?? '—' }}</button>
+      @if (request.customerName) { <span class="return-request-detail">{{ request.customerName }}</span> }
     </ng-template>
     <ng-template #productCell let-request>
       <span>{{ request.productName ?? '—' }}</span>
+      @if (request.variantId !== null) { <span class="return-request-detail">Variant #{{ request.variantId }}</span> }
+    </ng-template>
+    <ng-template #sellerCell let-request>
+      @if (sellerLabel(request); as seller) { <span>{{ seller }}</span> } @else { <span class="return-request-muted">—</span> }
+    </ng-template>
+    <ng-template #returnTypeCell let-request>
+      @if (returnTypeLabel(request); as type) {
+        <app-badge [tone]="returnTypeTone(request)" size="compact">{{ type }}</app-badge>
+      } @else {
+        <span class="return-request-muted">—</span>
+      }
     </ng-template>
     <ng-template #reasonCell let-request>
-      <span>{{ request.reason ?? '—' }}</span>
+      <span>{{ reasonLabel(request) ?? '—' }}</span>
       @if (request.description) { <span class="return-request-detail">{{ request.description }}</span> }
-    </ng-template>
-    <ng-template #imagesCell let-request>
-      <div class="return-images">
-        @for (image of request.images.slice(0, visibleImages); track $index) {
-          <img class="return-images__item" [src]="image" [alt]="'Return photo ' + ($index + 1) + ' for ' + (request.orderNumber ?? request.returnId)" />
-        }
-        @if (request.images.length > visibleImages) {
-          <span class="return-images__more">+{{ request.images.length - visibleImages }}</span>
-        }
-      </div>
     </ng-template>
     <ng-template #addressCell let-request>
       <span>{{ request.address ?? '—' }}</span>
-      @if (request.customerName || request.customerMobile) {
-        <span class="return-request-detail">{{ request.customerName ?? '—' }}@if (request.customerMobile) { · {{ request.customerMobile }} }</span>
-      }
+      @if (request.customerMobile) { <span class="return-request-detail">{{ request.customerMobile }}</span> }
     </ng-template>
     <ng-template #statusCell let-request><app-badge [tone]="statusTone(request.status)" size="compact">{{ statusLabel(request.status) }}</app-badge></ng-template>
+    <ng-template #dateCell let-request><span class="return-date">{{ formatDate(request.createdAt) }}</span></ng-template>
+    <!-- CHANGED: one three-dot action that opens the actions dialog (Return Status, Approve, Reject, Save Status); it
+         replaces View and Review (the order number still opens the details). -->
     <ng-template #actionCell let-request>
-      <div class="return-actions" appClickOutside (clickedOutside)="closeActionMenu(request.returnId)">
-        <button class="more-actions" type="button" aria-haspopup="menu" [attr.aria-expanded]="openActionMenuId() === request.returnId" [attr.aria-label]="'More actions for ' + (request.orderNumber ?? request.returnId)" (click)="toggleActionMenu(request.returnId)"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="3" r="1" /><circle cx="8" cy="8" r="1" /><circle cx="8" cy="13" r="1" /></svg></button>
-        @if (openActionMenuId() === request.returnId) {
-          <div class="return-action-menu" role="menu">
-            @if (actionInProgress() === request.returnId) {
-              <span class="d-flex align-items-center gap-2 px-2 py-1 small" role="status">
-                <app-loading-spinner /> Updating return request…
-              </span>
-            }
-            <button type="button" role="menuitem" [disabled]="!canReview(request) || actionInProgress() !== null" (click)="review(request, 'APPROVED')">Approve</button>
-            <button type="button" role="menuitem" class="is-danger" [disabled]="!canReview(request) || actionInProgress() !== null" (click)="review(request, 'REJECTED')">Reject</button>
-          </div>
-        }
-      </div>
+      <button type="button" class="return-icon-button return-more" title="Manage return" aria-haspopup="dialog"
+        [attr.aria-label]="'Manage return #' + request.returnId" (click)="openActions(request, $event.currentTarget)">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="3.25" r="1.25" /><circle cx="8" cy="8" r="1.25" /><circle cx="8" cy="12.75" r="1.25" /></svg>
+      </button>
     </ng-template>
 
   </section>
 </main>
+
+<!-- CHANGED (new): a request's details (read only; the status is updated from the actions dialog). -->
+@if (activeRequest(); as request) {
+  <app-dialog (closed)="closeDetails()">
+    <section #detailsDialog class="return-dialog" role="dialog" aria-modal="true" aria-labelledby="return-dialog-title"
+      aria-describedby="return-dialog-subtitle" tabindex="-1" (click)="$event.stopPropagation()" (keydown.escape)="closeDetails()">
+      <header class="return-dialog__heading">
+        <div>
+          <h2 id="return-dialog-title">Return #{{ request.returnId }}</h2>
+          <p id="return-dialog-subtitle">Order {{ request.orderNumber ?? '—' }} · Requested on {{ formatDate(request.createdAt) }}</p>
+        </div>
+        <button type="button" class="return-dialog__close" aria-label="Close" (click)="closeDetails()">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m3.5 3.5 9 9M12.5 3.5l-9 9" /></svg>
+        </button>
+      </header>
+
+      <ul class="return-dialog__statuses" aria-label="Current return">
+        <li><span>Return status</span><app-badge [tone]="statusTone(request.status)" size="compact">{{ statusLabel(request.status) }}</app-badge></li>
+        <li><span>Return type</span><app-badge [tone]="returnTypeTone(request)" size="compact">{{ returnTypeLabel(request) ?? '—' }}</app-badge></li>
+      </ul>
+
+      <h3 class="return-dialog__section">Return details</h3>
+      <dl class="return-info row g-0 row-cols-1 row-cols-sm-2 row-cols-lg-3">
+        @for (field of returnFields(); track field.label) {
+          <div class="col"><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></div>
+        }
+      </dl>
+      @if (request.images.length) {
+        <div class="return-gallery" aria-label="Return photos">
+          @for (image of request.images; track $index) {
+            <a class="return-gallery__item" [href]="image" target="_blank" rel="noopener noreferrer">
+              <img [src]="image" [alt]="'Return photo ' + ($index + 1)" />
+            </a>
+          }
+        </div>
+      }
+
+      <h3 class="return-dialog__section">Order &amp; product</h3>
+      <dl class="return-info row g-0 row-cols-1 row-cols-sm-2 row-cols-lg-3">
+        @for (field of productFields(); track field.label) {
+          <div class="col"><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></div>
+        }
+      </dl>
+
+      <h3 class="return-dialog__section">Pickup</h3>
+      <dl class="return-info row g-0 row-cols-1 row-cols-sm-2 row-cols-lg-3">
+        @for (field of pickupFields(); track field.label) {
+          <div class="col" [class.return-info__wide]="field.label === 'Pickup Address'"><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></div>
+        }
+      </dl>
+
+      <h3 class="return-dialog__section">Shipment</h3>
+      @if (tracking().status === 'loading') {
+        <p class="return-dialog__note" role="status"><app-loading-spinner /> Loading the order's shipment details…</p>
+      } @else if (shipmentFields().length) {
+        <dl class="return-info row g-0 row-cols-1 row-cols-sm-2 row-cols-lg-3">
+          @for (field of shipmentFields(); track field.label) {
+            <div class="col"><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></div>
+          }
+        </dl>
+      } @else {
+        <p class="return-dialog__note">
+          Shipment details are not available for this order.
+          @if (tracking().status === 'error' && request.orderNumber) {
+            <button type="button" class="btn btn-link btn-sm" (click)="retryTracking()">Try again</button>
+          }
+        </p>
+      }
+
+      <!-- CHANGED: the review section and Update Status are removed (the actions dialog replaces them). -->
+      <footer class="return-dialog__actions">
+        <app-button variant="outline" size="small" (clicked)="closeDetails()">Close</app-button>
+      </footer>
+    </section>
+  </app-dialog>
+}
+
+<!-- CHANGED (new): the actions dialog (the row's three-dot action): a required Return Status (the shipping statuses)
+     and Approve (ACTION APPROVED), Reject (REJECTED) and Save Status (null, the status only). -->
+@if (actionRequest(); as request) {
+  <app-dialog (closed)="closeActions()">
+    <section #actionsDialog class="return-dialog return-actions-dialog" role="dialog" aria-modal="true"
+      aria-labelledby="return-actions-title" aria-describedby="return-actions-subtitle" tabindex="-1"
+      [attr.aria-busy]="pendingAction() ? 'true' : null" (click)="$event.stopPropagation()" (keydown.escape)="closeActions()">
+      <header class="return-dialog__heading">
+        <div>
+          <h2 id="return-actions-title">Manage Return #{{ request.returnId }}</h2>
+          <p id="return-actions-subtitle">
+            Order {{ request.orderNumber ?? '—' }}@if (request.productName) { · {{ request.productName }}}
+          </p>
+        </div>
+        <button type="button" class="return-dialog__close" aria-label="Close" [disabled]="!!pendingAction()" (click)="closeActions()">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m3.5 3.5 9 9M12.5 3.5l-9 9" /></svg>
+        </button>
+      </header>
+
+      <ul class="return-dialog__statuses" aria-label="Current return">
+        <li><span>Current status</span><app-badge [tone]="statusTone(request.status)" size="compact">{{ statusLabel(request.status) }}</app-badge></li>
+        <li><span>Return type</span><app-badge [tone]="returnTypeTone(request)" size="compact">{{ returnTypeLabel(request) ?? '—' }}</app-badge></li>
+      </ul>
+
+      <div class="return-status-field">
+        <label class="return-field__label" for="action-return-status">Return Status <b aria-hidden="true">*</b></label>
+        <app-searchable-select
+          class="product-control return-status-select"
+          inputId="action-return-status"
+          name="actionReturnStatus"
+          [placeholder]="shippingStatusLoadStatus() === 'loading' ? 'Loading statuses…' : 'Select the return status'"
+          searchPlaceholder="Search statuses…"
+          [options]="actionStatusOptions()"
+          [value]="actionStatusValue()"
+          [searchable]="actionStatusOptions().length > 6"
+          [required]="true"
+          [disabled]="!!pendingAction() || shippingStatusLoadStatus() !== 'success' || !actionStatusOptions().length"
+          [ariaInvalid]="actionStatusError()"
+          ariaDescribedBy="action-return-status-error"
+          (valueChange)="setActionStatus($event)"
+        />
+        @if (actionStatusError()) {
+          <p class="return-dialog__error" id="action-return-status-error" role="alert">Select a return status to continue.</p>
+        }
+      </div>
+      @if (shippingStatusLoadStatus() === 'error') {
+        <div class="return-dialog__alert" role="alert">
+          <span>Return statuses could not be loaded, so the return cannot be updated right now.</span>
+          <button type="button" class="btn btn-link btn-sm" (click)="retryShippingStatuses()">Retry</button>
+        </div>
+      } @else if (shippingStatusLoadStatus() === 'success' && !actionStatusOptions().length) {
+        <p class="return-dialog__note">No return statuses are available.</p>
+      }
+
+      @if (isApproved() || isRejected()) {
+        <p class="return-dialog__hint return-actions-dialog__hint">
+          This request is already {{ isApproved() ? 'approved' : 'rejected' }}, so it cannot be {{ isApproved() ? 'approved' : 'rejected' }} again.
+        </p>
+      }
+      @if (actionError()) {
+        <div class="return-dialog__alert return-actions-dialog__alert" role="alert"><span>{{ actionError() }}</span></div>
+      }
+
+      <footer class="return-dialog__actions return-actions-dialog__actions">
+        <app-button variant="outline" size="small" [disabled]="!!pendingAction()" (clicked)="closeActions()">Cancel</app-button>
+        <app-button class="return-actions-dialog__save" variant="outline" size="small" [disabled]="!!pendingAction()"
+          [loading]="pendingAction() === 'STATUS'" (clicked)="submitAction(null)">
+          {{ pendingAction() === 'STATUS' ? 'Saving…' : 'Save Status' }}
+        </app-button>
+        <app-button class="return-actions-dialog__reject" variant="outline-danger" size="small" [disabled]="!!pendingAction() || isRejected()"
+          [loading]="pendingAction() === 'REJECTED'" (clicked)="submitAction('REJECTED')">
+          {{ pendingAction() === 'REJECTED' ? 'Rejecting…' : 'Reject' }}
+        </app-button>
+        <app-button class="return-actions-dialog__approve" variant="accent" size="small" [disabled]="!!pendingAction() || isApproved()"
+          [loading]="pendingAction() === 'APPROVED'" (clicked)="submitAction('APPROVED')">
+          {{ pendingAction() === 'APPROVED' ? 'Approving…' : 'Approve' }}
+        </app-button>
+      </footer>
+    </section>
+  </app-dialog>
+}

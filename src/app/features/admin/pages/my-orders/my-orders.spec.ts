@@ -30,8 +30,9 @@ describe('MyOrders', () => {
     expect(first.textContent).toContain('Tracking No: 732418563210');
   });
 
+  // CHANGED: through the card's arrow (View Details is removed).
   it('links each order to its detail page', () => {
-    const link = root.querySelector('.my-order__link') as HTMLAnchorElement;
+    const link = root.querySelector('.my-order__chevron') as HTMLAnchorElement;
     expect(link.getAttribute('href')).toBe('/orders/ORD-2408');
   });
 

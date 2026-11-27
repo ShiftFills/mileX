@@ -40,6 +40,12 @@ export const ADMIN_ROUTES: Routes = [
         loadComponent: () =>
           import('./pages/category-management/category-management').then((m) => m.CategoryManagement),
       },
+      // CHANGED (new): Admin only (roleMatchGuard does not let Sellers open it).
+      {
+        path: 'brands',
+        title: 'Brand Management',
+        loadComponent: () => import('./pages/brand-management/brand-management').then((m) => m.BrandManagement),
+      },
       {
         path: 'orders',
         title: 'Order Management',

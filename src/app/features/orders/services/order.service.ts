@@ -11,11 +11,15 @@ import {
   OrderSummary,
   PlaceOrderPayload,
   PlaceOrderResult,
+  ReturnProductOption,
   ReturnReasonOption,
+  ReturnRequestInsert,
+  ReturnRequestReview,
+  ReturnRequestResult,
   ReturnRequestRow,
   ReturnRequestsPage,
   ReturnRequestsQuery,
-  ReturnRequestStatusUpdate,
+  ReturnDecision,
   SellerReturnRequestsQuery,
   ShipmentItem,
   ShipmentStep,
@@ -99,6 +103,17 @@ function readNumber(value: unknown): number | null {
   if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** A positive whole-number ID, or null. */
+// CHANGED (new)
+function positiveId(value: unknown): number | null {
+  const id = readNumber(value);
+  return id !== null && Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+function isPositiveId(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 }
 
 function mapStatusLookup(
@@ -233,9 +248,22 @@ function mapReturnRequest(value: unknown): ReturnRequestRow {
     customerName: readNullableText(value, 'CUSTOMER_NAME'),
     customerMobile: readNullableText(value, 'CUSTOMER_MOBILE'),
     variantId: readNullableNumber(value, 'VARIANT_ID'),
-    status: readNullableText(value, 'RETURN_STATUS'),
+    // CHANGED: the status name when the API sends one (RETURN_STATUS_NAME), else RETURN_STATUS as before.
+    status: optionalText(value, 'RETURN_STATUS_NAME') ?? readNullableText(value, 'RETURN_STATUS'),
     createdAt: readNullableText(value, 'CREATED_AT'),
+    // CHANGED (new): IDs for the Admin screen (null when not sent).
+    statusId: positiveId(value['RETURN_STATUS_ID']) ?? positiveId(value['RETURN_STATUS']),
+    reasonId: positiveId(value['RETURN_REASON_ID'] ?? value['REASON_ID']),
+    returnOptionId: positiveId(value['RETURN_OPTION'] ?? value['RETURN_OPTION_ID']),
+    returnOptionName: optionalText(value, 'RETURN_OPTION_NAME'),
+    sellerName: optionalText(value, 'SELLER_NAME') ?? optionalText(value, 'BUSINESS_NAME'),
   };
+}
+
+/** A text field the API may or may not send (null when absent, empty or not text). */
+// CHANGED (new)
+function optionalText(record: Record<string, unknown>, key: string): string | null {
+  return readText(record, key) || null;
 }
 
 function mapReturnRequestsResponse(response: unknown): ReturnRequestsPage {
@@ -260,7 +288,9 @@ function mapReturnRequestsResponse(response: unknown): ReturnRequestsPage {
     throw new Error(message || 'Return requests could not be loaded.');
   }
 
-  const totalRecords = readNumber(response['total_records']);
+  // CHANGED: TOTAL_RECORDS / totalRecords are accepted too, as the envelope's other fields already are
+  // (status / STATUS, message / MESSAGE, data / DATA); the return_request APIs answer in upper case.
+  const totalRecords = readNumber(response['total_records'] ?? response['TOTAL_RECORDS'] ?? response['totalRecords']);
   if (totalRecords === null || !Number.isSafeInteger(totalRecords) || totalRecords < 0) {
     throw new Error('The return requests API returned an invalid total_records value.');
   }
@@ -299,11 +329,15 @@ function assertOrderManagementFilters(params: OrderManagementFilters): void {
   }
 }
 
-function mapReturnRequestUpdateResponse(
-  response: unknown,
-  decision: ReturnRequestStatusUpdate['RETURN_STATUS'],
-): string {
-  const action = decision === 'APPROVED' ? 'approval' : 'rejection';
+/** What a return_request/update does, for its messages: approval, rejection, or (ACTION null) status update. */
+// CHANGED (new)
+function returnUpdateNoun(decision: ReturnDecision | null): string {
+  return decision === 'APPROVED' ? 'approval' : decision === 'REJECTED' ? 'rejection' : 'status update';
+}
+
+// CHANGED: maps the Approve / Reject / status-only update (reviewReturnRequest); `decision` names it in the messages.
+function mapReturnRequestUpdateResponse(response: unknown, decision: ReturnDecision | null): string {
+  const action = returnUpdateNoun(decision);
   const fallback = `Return request ${action} completed successfully.`;
   if (response === null || response === undefined) return fallback;
   if (typeof response === 'string') {
@@ -409,6 +443,198 @@ function mapReturnReasonsResponse(response: unknown): ReturnReasonOption[] {
     reasons.push({ REASON_ID: id, REASON: label });
   }
   return reasons;
+}
+
+// ---- Cancel / Return Item request (CHANGED (new)) ----
+
+const RETURN_REQUEST_DEFAULT_MESSAGE = 'Your return request has been submitted.';
+const RETURN_REQUEST_DEFAULT_ERROR = 'The return request could not be submitted. Please try again.';
+/** The longest RETURN_DESCRIPTION the dialog takes. */
+export const RETURN_DESCRIPTION_MAX_LENGTH = 500;
+
+/**
+ * A status that is a return type, "RETURN/<kind>" ("RETURN/REFUND", "RETURN/REPLACE"): what a customer chooses
+ * between. CHANGED: used for the return_status list (the Cancel / Return Item dialog), and still for the shipping
+ * statuses the Admin Return Request screen names return types with.
+ */
+export function isReturnType(status: StatusOption): boolean {
+  return /^\s*RETURN\s*\/\s*\S/i.test(status.label);
+}
+
+const RETURN_PRODUCT_UNKNOWN = 'The product to return could not be identified. Please refresh the page and try again.';
+
+
+/** The reason a return request cannot be sent, or null when it is valid. */
+// CHANGED: checks every ID of the backend contract.
+function returnRequestProblem(payload: ReturnRequestInsert): string | null {
+  if (!payload.ORDER_NUMBER.trim()) return 'Order number is required.';
+  // CHANGED: the chosen product's order line (ORDER_ID) too.
+  if (!isPositiveId(payload.ORDER_ID)) return RETURN_PRODUCT_UNKNOWN;
+  if (!isPositiveId(payload.PRODUCT_ID)) return RETURN_PRODUCT_UNKNOWN;
+  if (payload.VARIANT_ID !== null && !isPositiveId(payload.VARIANT_ID)) return RETURN_PRODUCT_UNKNOWN;
+  if (!isPositiveId(payload.SELLER_ID)) return 'The seller of this product could not be found, so it cannot be returned here.';
+  if (!isPositiveId(payload.PICKUP_ADDRESS_ID)) {
+    return 'The pickup address of this order could not be found, so it cannot be returned here.';
+  }
+  if (!isPositiveId(payload.RETURN_OPTION)) return 'Select refund or replacement to continue.';
+  if (!isPositiveId(payload.REASON_ID)) return 'Select a reason to continue.';
+  // CHANGED (new): null for a replacement; the dialog requires one for a refund.
+  if (payload.REFUND_METHOD !== null && !isPositiveId(payload.REFUND_METHOD)) return 'Select a refund method to continue.';
+  if (payload.RETURN_DESCRIPTION.trim().length > RETURN_DESCRIPTION_MAX_LENGTH) {
+    return `Additional details must be ${RETURN_DESCRIPTION_MAX_LENGTH} characters or fewer.`;
+  }
+  return null;
+}
+
+/**
+ * The DATA rows of a successful `{ STATUS, MESSAGE, DATA }` lookup; a failed STATUS / success throws the API's
+ * message (else `fallback`). No DATA is an empty list.
+ */
+// CHANGED (new): the Cancel / Return Item dialog's product and refund method lookups.
+function returnLookupRows(response: unknown, subject: string, fallback: string): unknown[] {
+  if (!isRecord(response)) throw new Error(`The ${subject} API returned an invalid response.`);
+  const isSuccessful = (value: unknown): boolean =>
+    value === undefined ||
+    value === true ||
+    value === 1 ||
+    value === 200 ||
+    (typeof value === 'string' && RETURN_REQUEST_SUCCESS_VALUES.includes(value.trim().toUpperCase()));
+  if (!isSuccessful(response['status'] ?? response['STATUS']) || !isSuccessful(response['success'] ?? response['SUCCESS'])) {
+    throw new Error(readText(response, 'message') || readText(response, 'MESSAGE') || fallback);
+  }
+  const data = response['data'] ?? response['DATA'];
+  if (data === null || data === undefined) return [];
+  if (!Array.isArray(data)) throw new Error(`The ${subject} API returned an invalid list.`);
+  return data;
+}
+
+/**
+ * return_dropdown rows as the products a return can be requested for. Left out: rows of another order, rows without a
+ * valid ORDER_ID or PRODUCT_ID, rows without PRODUCT_VARIANT_ID (null is a product without a variant) or with an
+ * invalid one, and repeated rows of the same order line.
+ */
+// CHANGED (new)
+function mapReturnProducts(response: unknown, orderNumber: string): ReturnProductOption[] {
+  const rows = returnLookupRows(response, 'return product', 'The products of this order could not be loaded.');
+  const seen = new Set<string>();
+  const products: ReturnProductOption[] = [];
+  for (const row of rows) {
+    if (!isRecord(row)) continue;
+    const rowOrderNumber = readText(row, 'ORDER_NUMBER');
+    const orderId = positiveId(row['ORDER_ID']);
+    const productId = positiveId(row['PRODUCT_ID']);
+    const rawVariantId = row['PRODUCT_VARIANT_ID'];
+    const variantId = rawVariantId === null ? null : positiveId(rawVariantId);
+    if (
+      (rowOrderNumber && rowOrderNumber !== orderNumber) ||
+      orderId === null ||
+      productId === null ||
+      rawVariantId === undefined ||
+      (rawVariantId !== null && variantId === null)
+    ) {
+      continue;
+    }
+    const key = `${orderId}|${productId}|${variantId ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    products.push({
+      orderId,
+      orderNumber: rowOrderNumber || orderNumber,
+      productId,
+      variantId,
+      name: readText(row, 'PRODUCT_NAME') || `Product #${productId}`,
+    });
+  }
+  return products;
+}
+
+/** refund_method rows as options: only the ACTIVE ones with a valid REFUND_METHOD_ID and name, once each. */
+// CHANGED (new)
+function mapRefundMethods(response: unknown): StatusOption[] {
+  const rows = returnLookupRows(response, 'refund method', 'Refund methods could not be loaded.');
+  const seen = new Set<number>();
+  const methods: StatusOption[] = [];
+  for (const row of rows) {
+    if (!isRecord(row)) continue;
+    const id = positiveId(row['REFUND_METHOD_ID']);
+    const label = readText(row, 'REFUND_METHOD_NAME');
+    const active = row['IS_ACTIVE'];
+    const isActive = active === true || active === 1 || (typeof active === 'string' && active.trim().toUpperCase() === 'ACTIVE');
+    if (id === null || !label || !isActive || seen.has(id)) continue;
+    seen.add(id);
+    methods.push({ id, label });
+  }
+  return methods;
+}
+
+/**
+ * POST return_request (`{ STATUS: "SUCCESS", ORDER_NUMBER, RETURN_REASON_ID, RETURN_REASON, RETURN_REQUEST_COUNT,
+ * RETURN_STATUS_ID, RETURN_STATUS_NAME }`): the request as created, or an error when the body reports a failure.
+ * A non-2xx status already errors in HttpClient.
+ */
+function mapReturnRequestInsertResponse(response: unknown): ReturnRequestResult {
+  const empty: ReturnRequestResult = {
+    orderNumber: null, reasonId: null, reason: null, requestCount: null, statusId: null, statusName: null,
+    message: RETURN_REQUEST_DEFAULT_MESSAGE,
+  };
+  if (response === null || response === undefined) return empty;
+  if (typeof response === 'string') {
+    const body = response.trim();
+    if (!body || RETURN_REQUEST_SUCCESS_VALUES.includes(body.toUpperCase())) return empty;
+    throw new Error(body);
+  }
+  if (!isRecord(response)) throw new Error('The return request API returned an invalid response.');
+
+  const success = response['success'] ?? response['SUCCESS'];
+  const status = response['status'] ?? response['STATUS'];
+  const message = readText(response, 'message') || readText(response, 'MESSAGE');
+  const isSuccessful = (value: unknown): boolean =>
+    value === true ||
+    value === 1 ||
+    value === 200 ||
+    value === 201 ||
+    (typeof value === 'string' && RETURN_REQUEST_SUCCESS_VALUES.includes(value.trim().toUpperCase()));
+  if ((success !== undefined && !isSuccessful(success)) || (status !== undefined && !isSuccessful(status))) {
+    throw new Error(message || RETURN_REQUEST_DEFAULT_ERROR);
+  }
+
+  // The fields are at the top level (as documented), or in a `data` object.
+  const data = isRecord(response['data']) ? response['data'] : response;
+  const id = (key: string): number | null => {
+    const value = readNumber(data[key]);
+    return value !== null && Number.isSafeInteger(value) && value >= 0 ? value : null;
+  };
+  return {
+    orderNumber: readText(data, 'ORDER_NUMBER') || null,
+    reasonId: id('RETURN_REASON_ID') ?? id('REASON_ID'),
+    reason: readText(data, 'RETURN_REASON') || null,
+    requestCount: id('RETURN_REQUEST_COUNT'),
+    statusId: id('RETURN_STATUS_ID'),
+    statusName: readText(data, 'RETURN_STATUS_NAME') || null,
+    message: message || RETURN_REQUEST_DEFAULT_MESSAGE,
+  };
+}
+
+/** A readable message for a failed request: the API's message when it sends one, else `fallback` (with the HTTP status). */
+function httpErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof HttpErrorResponse) {
+    const raw: unknown = error.error;
+    let body: unknown = raw;
+    if (typeof raw === 'string' && raw.trim()) {
+      try {
+        body = JSON.parse(raw);
+      } catch {
+        if (raw.trim().length <= 200 && !raw.includes('<')) return raw.trim();
+      }
+    }
+    if (isRecord(body)) {
+      const message =
+        readText(body, 'message') || readText(body, 'MESSAGE') || readText(body, 'error') || readText(body, 'ERROR');
+      if (message) return message;
+    }
+    return error.status ? `${fallback} (HTTP ${error.status})` : fallback;
+  }
+  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 function mapOrder(value: unknown): OrderManagementOrder | null {
@@ -927,7 +1153,26 @@ function shipmentTotals(rows: readonly Record<string, unknown>[]): ShipmentTotal
 function shipmentItem(row: Record<string, unknown>, index: number): ShipmentItem {
   const quantity = readNumber(row['QUANTITY']);
   const productId = readText(row, 'PRODUCT_ID');
+  // CHANGED (new): this row's own IDs, which a Cancel / Return Item request sends (ORDER_ID, PRODUCT_ID,
+  // PRODUCT_VARIANT_ID, SELLER_ID, SHIPPING_ID, DELIVERY_ADDRESS_ID). A missing or invalid ID is left out; a
+  // PRODUCT_VARIANT_ID sent as null means the product was ordered without a variant.
+  const orderId = positiveId(row['ORDER_ID']);
+  const productIdValue = positiveId(row['PRODUCT_ID']);
+  const variantIdValue = positiveId(row['PRODUCT_VARIANT_ID']);
+  const sellerId = positiveId(row['SELLER_ID']);
+  const shippingId = positiveId(row['SHIPPING_ID']);
+  const deliveryAddressId = positiveId(row['DELIVERY_ADDRESS_ID']);
   return {
+    ...(orderId !== null ? { orderId } : {}),
+    ...(productIdValue !== null ? { productId: productIdValue } : {}),
+    ...(row['PRODUCT_VARIANT_ID'] === null
+      ? { variantId: null }
+      : variantIdValue !== null
+        ? { variantId: variantIdValue }
+        : {}),
+    ...(sellerId !== null ? { sellerId } : {}),
+    ...(shippingId !== null ? { shippingId } : {}),
+    ...(deliveryAddressId !== null ? { deliveryAddressId } : {}),
     name: readText(row, 'PRODUCT_NAME') || (productId ? `Product #${productId}` : 'Product'),
     sku: readText(row, 'SKU') || readText(row, 'PRODUCT_CODE_SKU'),
     quantity: quantity !== null && Number.isSafeInteger(quantity) && quantity > 0 ? quantity : null,
@@ -1127,6 +1372,75 @@ export class OrderService {
       .pipe(map(mapReturnReasonsResponse));
   }
 
+  /**
+   * The return types of the Cancel / Return Item dialog: the "RETURN/<kind>" return statuses ("RETURN/REPLACE",
+   * "RETURN/REFUND") of GET return_status (getReturnStatuses), each as `{ id: RETURN_STATUS_ID, label:
+   * RETURN_STATUS_NAME }`, in the API's order. The chosen one's RETURN_STATUS_ID is sent as RETURN_OPTION.
+   */
+  // CHANGED: from return_status (it was the "RETURN/…" entries of shipping_status/get, by SHIPPING_STATUS_ID).
+  getReturnTypes(): Observable<StatusOption[]> {
+    return this.getReturnStatuses().pipe(map((statuses) => statuses.filter(isReturnType)));
+  }
+
+  /**
+   * The products of one order a return can be requested for (the Cancel / Return Item dialog's Product): GET
+   * return_dropdown `?ORDER_NUMBER=…&LIMIT=…&OFFSET=…`, each with its ORDER_ID, PRODUCT_ID and PRODUCT_VARIANT_ID.
+   */
+  // CHANGED (new)
+  getReturnProducts(orderNumber: string, limit = 10, offset = 0): Observable<ReturnProductOption[]> {
+    const wanted = orderNumber.trim();
+    if (!wanted) return throwError(() => new RangeError('Order number is required.'));
+    assertPaging(limit, offset, 'Return product');
+    return this.api
+      .get<unknown>(API_ENDPOINTS.returnProducts.get, { ORDER_NUMBER: wanted, LIMIT: limit, OFFSET: offset })
+      .pipe(map((response) => mapReturnProducts(response, wanted)));
+  }
+
+  /**
+   * The active refund methods (the Cancel / Return Item dialog's Refund Method): GET refund_method
+   * `?REFUND_METHOD_ID=-1&LIMIT=…&OFFSET=…`, each as `{ id: REFUND_METHOD_ID, label: REFUND_METHOD_NAME }`.
+   */
+  // CHANGED (new)
+  getRefundMethods(limit = 10, offset = 0): Observable<StatusOption[]> {
+    assertPaging(limit, offset, 'Refund method');
+    return this.api
+      .get<unknown>(API_ENDPOINTS.refundMethods.get, { REFUND_METHOD_ID: -1, LIMIT: limit, OFFSET: offset })
+      .pipe(map(mapRefundMethods));
+  }
+
+  /**
+   * The customer's Cancel / Return Item request: POST return_request `{ ORDER_NUMBER, PRODUCT_ID, REASON_ID,
+   * RETURN_DESCRIPTION }` (the access token identifies the customer). Emits the request as the API created it.
+   */
+  // CHANGED (new)
+  // CHANGED: the backend contract's full body (RETURN_OPTION, PRODUCT_ID, VARIANT_ID, SELLER_ID, PICKUP_ADDRESS_ID).
+  createReturnRequest(payload: ReturnRequestInsert): Observable<ReturnRequestResult> {
+    const problem = returnRequestProblem(payload);
+    if (problem) return throwError(() => new RangeError(problem));
+    // CHANGED: with ORDER_ID and REFUND_METHOD, in the backend contract's order.
+    const body: ReturnRequestInsert = {
+      ORDER_NUMBER: payload.ORDER_NUMBER.trim(),
+      ORDER_ID: payload.ORDER_ID,
+      REASON_ID: payload.REASON_ID,
+      RETURN_DESCRIPTION: payload.RETURN_DESCRIPTION.trim(),
+      RETURN_OPTION: payload.RETURN_OPTION,
+      PRODUCT_ID: payload.PRODUCT_ID,
+      VARIANT_ID: payload.VARIANT_ID,
+      SELLER_ID: payload.SELLER_ID,
+      PICKUP_ADDRESS_ID: payload.PICKUP_ADDRESS_ID,
+      REFUND_METHOD: payload.REFUND_METHOD,
+    };
+    return this.api
+      .post<unknown>(API_ENDPOINTS.returnRequests.insert, body)
+      .pipe(map(mapReturnRequestInsertResponse));
+  }
+
+  /** A readable message for a failed return request (the API's message when it sends one). */
+  // CHANGED (new)
+  returnRequestErrorMessage(error: unknown): string {
+    return httpErrorMessage(error, RETURN_REQUEST_DEFAULT_ERROR);
+  }
+
   getReturnRequests(filters: ReturnRequestsQuery): Observable<ReturnRequestsPage> {
     if (!Number.isSafeInteger(filters.DAYS) || filters.DAYS < 1) {
       throw new RangeError('The return request date filter must be a positive number of days.');
@@ -1167,17 +1481,51 @@ export class OrderService {
       .pipe(map(mapReturnRequestsResponse));
   }
 
-  updateReturnRequestStatus(payload: ReturnRequestStatusUpdate): Observable<string> {
-    if (!Number.isSafeInteger(payload.RETURN_ID) || payload.RETURN_ID <= 0) {
-      throw new RangeError('Return ID must be a positive safe integer.');
+  /**
+   * Approves, rejects or only moves a return request to another status (the Return Request screen's actions dialog):
+   * PUT return_request/update `{ RETURN_ID, RETURN_STATUS, ACTION }`, where RETURN_STATUS is the Return Status picked (a
+   * SHIPPING_STATUS_ID) and ACTION is APPROVED or REJECTED, or null for a status-only update.
+   * Emits the API's message.
+   */
+  // CHANGED (new): replaces updateReturnRequestStatus, whose `{ RETURN_ID, RETURN_STATUS: 'APPROVED' | 'REJECTED' }`
+  // the backend refuses ("ACTION must be APPROVE or REJECT").
+  reviewReturnRequest(payload: ReturnRequestReview): Observable<string> {
+    if (!isPositiveId(payload.RETURN_ID)) {
+      return throwError(() => new RangeError('Return ID must be a positive safe integer.'));
     }
-    if (!['APPROVED', 'REJECTED'].includes(payload.RETURN_STATUS)) {
-      throw new RangeError('Return status must be APPROVED or REJECTED.');
+    if (!isPositiveId(payload.RETURN_STATUS)) {
+      return throwError(() => new RangeError('Return status must be a positive status ID.'));
+    }
+    // CHANGED: APPROVED / REJECTED (it was APPROVE / REJECT), or null to update the return status only.
+    if (payload.ACTION !== 'APPROVED' && payload.ACTION !== 'REJECTED' && payload.ACTION !== null) {
+      return throwError(() => new RangeError('Action must be APPROVED, REJECTED or null.'));
     }
 
     return this.api
-      .put<unknown>(API_ENDPOINTS.returnRequests.update, payload)
-      .pipe(map((response) => mapReturnRequestUpdateResponse(response, payload.RETURN_STATUS)));
+      .put<unknown>(API_ENDPOINTS.returnRequests.update, {
+        RETURN_ID: payload.RETURN_ID,
+        RETURN_STATUS: payload.RETURN_STATUS,
+        ACTION: payload.ACTION,
+      })
+      .pipe(map((response) => mapReturnRequestUpdateResponse(response, payload.ACTION)));
+  }
+
+  /**
+   * The return statuses: GET return_status `?RETURN_STATUS_ID=-1&LIMIT=…&OFFSET=…`, each as `{ id: RETURN_STATUS_ID,
+   * label: RETURN_STATUS_NAME }`. The Cancel / Return Item dialog's Return Type options (getReturnTypes).
+   */
+  // CHANGED (new)
+  getReturnStatuses(limit = 10, offset = 0): Observable<StatusOption[]> {
+    assertPaging(limit, offset, 'Return status');
+    return this.api
+      .get<unknown>(API_ENDPOINTS.returnStatuses.get, { RETURN_STATUS_ID: -1, LIMIT: limit, OFFSET: offset })
+      .pipe(map((response) => mapStatusLookup(response, 'RETURN_STATUS_ID', 'RETURN_STATUS_NAME', 'return')));
+  }
+
+  /** A readable message for a failed approval, rejection or status update (the API's message when it sends one). */
+  // CHANGED: also the status-only update (action null).
+  returnReviewErrorMessage(error: unknown, action: ReturnDecision | null): string {
+    return httpErrorMessage(error, `Return request ${returnUpdateNoun(action)} failed.`);
   }
 
   getOrderStatuses(limit?: number, offset?: number): Observable<StatusOption[]> {
@@ -1293,25 +1641,9 @@ export class OrderService {
 
   /** A readable message for a failed order update (the API's message when it sends one). */
   // CHANGED (new)
+  // CHANGED: shares httpErrorMessage with the other order requests (same messages).
   orderUpdateErrorMessage(error: unknown): string {
-    if (error instanceof HttpErrorResponse) {
-      const raw: unknown = error.error;
-      let body: unknown = raw;
-      if (typeof raw === 'string' && raw.trim()) {
-        try {
-          body = JSON.parse(raw);
-        } catch {
-          if (raw.trim().length <= 200 && !raw.includes('<')) return raw.trim();
-        }
-      }
-      if (isRecord(body)) {
-        const message =
-          readText(body, 'message') || readText(body, 'MESSAGE') || readText(body, 'error') || readText(body, 'ERROR');
-        if (message) return message;
-      }
-      return error.status ? `${ORDER_UPDATE_DEFAULT_ERROR} (HTTP ${error.status})` : ORDER_UPDATE_DEFAULT_ERROR;
-    }
-    return error instanceof Error && error.message ? error.message : ORDER_UPDATE_DEFAULT_ERROR;
+    return httpErrorMessage(error, ORDER_UPDATE_DEFAULT_ERROR);
   }
 
   getManagementCounts(days: number): Observable<OrderManagementCounts> {
@@ -1410,25 +1742,9 @@ export class OrderService {
   }
 
   /** A readable message for a failed place_order call. */
+  // CHANGED: shares httpErrorMessage with the other order requests (same messages).
   placeOrderErrorMessage(error: unknown): string {
-    if (error instanceof HttpErrorResponse) {
-      const raw: unknown = error.error;
-      let body: unknown = raw;
-      if (typeof raw === 'string' && raw.trim()) {
-        try {
-          body = JSON.parse(raw);
-        } catch {
-          if (raw.trim().length <= 200 && !raw.includes('<')) return raw.trim();
-        }
-      }
-      if (isRecord(body)) {
-        const message =
-          readText(body, 'message') || readText(body, 'MESSAGE') || readText(body, 'error') || readText(body, 'ERROR');
-        if (message) return message;
-      }
-      return error.status ? `${PLACE_ORDER_DEFAULT_ERROR} (HTTP ${error.status})` : PLACE_ORDER_DEFAULT_ERROR;
-    }
-    return error instanceof Error && error.message ? error.message : PLACE_ORDER_DEFAULT_ERROR;
+    return httpErrorMessage(error, PLACE_ORDER_DEFAULT_ERROR);
   }
 
   /** A readable message for a failed customer_orders/get call. `subject` starts the fallback ("Orders"). */

@@ -14,6 +14,14 @@ const USER_ID = 3;
 const TOKEN = `header.${btoa(JSON.stringify({ USER_ID, CUSTOMER_ID })).replace(/=/g, '')}.signature`;
 const ORDERS_URL = '/api/customer_orders/get?LIMIT=50&OFFSET=0';
 const PAYMENT_METHODS_URL = '/api/payment_method/get?PAYMENT_METHOD_ID=-1';
+// CHANGED (new): the order's tracking rows, read only for the delivery address, and the shipping statuses that
+// OrderService.getShipmentTracking reads with them.
+const TRACKING_URL = '/api/tracking?ORDER_NUMBER=ORD0005&LIMIT=10&OFFSET=0';
+const SHIPPING_STATUSES_URL = '/api/shipping_status/get?SHIPPING_STATUS_ID=-1';
+const DELIVERY_ADDRESS = 'pooja, 9876543210, 13/5a, 2nd Street, Near Bus Stand, Chennai, Tamil Nadu, India, 600040';
+
+/** How the tracking request (the delivery address) is answered. */
+type TrackingReply = 'address' | 'none' | 'error';
 
 function orderRow(orderId: number, orderNumber: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -43,10 +51,30 @@ function productResponse(id: number, name: string, image: string | null = null):
   return { success: true, data: [{ PRODUCT_ID: id, PRODUCT_NAME: name, PRODUCT_IMAGE: image }] };
 }
 
+function trackingResponse(data: Record<string, unknown>[]): Record<string, unknown> {
+  return { success: true, message: 'Shipment tracking details fetched successfully', count: data.length, data };
+}
+
+const trackingRow = (): Record<string, unknown> => ({
+  ORDER_ID: 15, ORDER_NUMBER: 'ORD0005', ORDER_DATE: '2026-11-16T01:59:01.000Z', PRODUCT_ID: 1, QUANTITY: 1,
+  ORDER_SHIPPING_STATUS_ID: 3, ORDER_SHIPPING_STATUS_NAME: 'IN TRANSIT', DELIVERY_ADDRESS_ID: 1,
+  DELIVERY_ADDRESS, TRACKING_NUMBER: 'TRK001', SHIPPING_PROVIDER_NAME: 'BlueDart',
+});
+
 describe('OrderDetail', () => {
   let fixture: ComponentFixture<OrderDetail>;
   let http: HttpTestingController;
   let root: HTMLElement;
+
+  const text = (element: Element | null | undefined): string => (element?.textContent ?? '').replace(/\s+/g, ' ').trim();
+  const card = (titleId: string): HTMLElement | null => root.querySelector(`section[aria-labelledby="${titleId}"]`);
+  /** label → value of a card's rows. */
+  const fields = (titleId: string): Record<string, string> =>
+    Object.fromEntries(
+      Array.from(card(titleId)?.querySelectorAll('dl > div') ?? [], (row) => [text(row.querySelector('dt')), text(row.querySelector('dd'))]),
+    );
+  const tableRows = (): HTMLElement[] => Array.from(root.querySelectorAll<HTMLElement>('.od-products-table tbody tr'));
+  const cells = (row: HTMLElement): string[] => Array.from(row.querySelectorAll('td'), (cell) => text(cell));
 
   function signIn(token = TOKEN): void {
     localStorage.clear();
@@ -69,13 +97,27 @@ describe('OrderDetail', () => {
     fixture.detectChanges();
   }
 
+  /** CHANGED (new): answers the tracking request (and, with rows, the shipping statuses read with it). */
+  async function answerTracking(reply: TrackingReply): Promise<void> {
+    const request = http.expectOne(TRACKING_URL);
+    if (reply === 'error') {
+      request.flush('down', { status: 500, statusText: 'Server Error' });
+    } else {
+      request.flush(trackingResponse(reply === 'address' ? [trackingRow()] : []));
+      if (reply === 'address') http.expectOne(SHIPPING_STATUSES_URL).flush({ status: 'SUCCESS', data: [] });
+    }
+    await settle();
+  }
+
   /**
-   * Opens ORD0005 with the given rows and answers the product, variant and payment lookups.
-   * CHANGED: `images` sets PRODUCT_IMAGE per product ID and VARIANT_IMAGE of variant 13.
+   * Opens ORD0005 with the given rows and answers the product, variant, tracking and payment lookups.
+   * CHANGED: `images` sets PRODUCT_IMAGE per product ID and VARIANT_IMAGE of variant 13; `tracking` answers the
+   * delivery address request.
    */
   async function renderOrder(
     rows: Record<string, unknown>[],
     images: { products?: Record<number, string | null>; variant?: string | null } = {},
+    tracking: TrackingReply = 'address',
   ): Promise<void> {
     const productImages = images.products ?? { 1: 'uploads/products/headset.png' };
     signIn();
@@ -92,6 +134,7 @@ describe('OrderDetail', () => {
       });
     }
     await settle();
+    await answerTracking(tracking);
     http.match(PAYMENT_METHODS_URL).forEach((request) =>
       request.flush({ success: true, data: [{ PAYMENT_METHOD_ID: 2, PAYMENT_METHOD_NAME: 'Cash on Delivery' }] }),
     );
@@ -131,9 +174,9 @@ describe('OrderDetail', () => {
       const requests = http.match((request) => request.url.startsWith('/api/s3/images/'));
       expect(requests.map((request) => request.request.url).sort())
         .toEqual([`/api/s3/images/${PRODUCT_KEY}`, `/api/s3/images/${VARIANT_KEY}`]);
-      const items = root.querySelectorAll('.od-item');
+      const items = tableRows();
       expect(items[0].querySelector('img')).toBeNull();
-      expect(items[0].querySelector('.od-item__thumb')?.getAttribute('aria-busy')).toBe('true');
+      expect(items[0].querySelector('.od-product__thumb')?.getAttribute('aria-busy')).toBe('true');
       expect(root.querySelector('img[src^="/products/"], img[src^="/images/"]')).toBeNull();
 
       for (const request of requests) {
@@ -150,14 +193,15 @@ describe('OrderDetail', () => {
       http.expectOne(`/api/s3/images/${PRODUCT_KEY}`).flush({ message: 'Not found' }, { status: 404, statusText: 'Not Found' });
       await settle();
 
-      const thumb = root.querySelectorAll('.od-item')[1].querySelector('.od-item__thumb');
+      const thumb = tableRows()[1].querySelector('.od-product__thumb');
       expect(thumb?.querySelector('img')).toBeNull();
       expect(thumb?.querySelector('svg')).not.toBeNull();
       expect(thumb?.hasAttribute('aria-busy')).toBe(false);
     });
   });
 
-  it('shows the order summary, items, price breakdown and payment method from the APIs', async () => {
+  // CHANGED: the order page's sections (it was a summary, a progress tracker, an item list and price details).
+  it('shows the order information, customer, payment, products, delivery address and summary from the APIs', async () => {
     await renderOrder([
       orderRow(15, 'ORD0005'),
       orderRow(14, 'ORD0005', {
@@ -168,26 +212,41 @@ describe('OrderDetail', () => {
     ]);
 
     expect(root.querySelector('h1')?.textContent).toContain('Order Details');
+    expect(text(root.querySelector('app-page-heading p'))).toBe(
+      `Order #ORD0005 · Placed on ${formatDate('2026-11-16T01:59:01.000Z', 'd MMM y', 'en-US')}`,
+    );
     expect(root.querySelector('.order-detail__back')?.getAttribute('href')).toBe('/orders');
-    expect(root.querySelector('.od-summary__number')?.textContent).toBe('#ORD0005');
-    expect(root.querySelector('.od-summary__status')?.textContent?.trim()).toBe('Ordered');
-    const facts = root.querySelector('.od-summary__facts')?.textContent ?? '';
-    expect(facts).toContain('3 items');
-    expect(facts).toContain('Cash on Delivery');
-    expect(facts).toContain('₹3,440.00');
+    expect(root.querySelector('.order-detail__help')?.getAttribute('href')).toBe('/help');
 
-    const items = root.querySelectorAll('.od-item');
-    expect(items.length).toBe(2);
-    expect(items[0].querySelector('.od-item__name')?.textContent).toContain('Head Set');
-    expect(items[0].querySelector('.od-item__name')?.getAttribute('href')).toBe('/products/1');
-    expect(items[0].querySelector('img')?.getAttribute('src')).toBe('/uploads/products/headset.png');
-    expect(items[0].querySelector('.od-item__meta')?.textContent).toContain('Black / M');
-    expect(items[0].querySelector('.od-item__price')?.textContent).toContain('₹2,000.00');
-    expect(items[1].querySelector('.od-item__name')?.textContent).toContain('Wireless Mouse');
-    expect(items[1].querySelector('.od-item__meta')?.textContent?.trim()).toBe('Qty: 2');
-    expect(items[1].querySelector('img')).toBeNull();
-    // Every item has the same status, so it is shown once (summary), not per item.
-    expect(root.querySelector('.od-item__status')).toBeNull();
+    expect(fields('info-title')).toEqual({
+      'Order Number': '#ORD0005',
+      'Order Date': formatDate('2026-11-16T01:59:01.000Z', 'd MMM y, h:mm a', 'en-US'),
+      'Order Status': 'Ordered',
+      'Total Items': '3 items',
+    });
+    // The recipient's name and phone from the delivery address (the login API sends no email).
+    expect(fields('customer-title')).toEqual({ Name: 'pooja', Mobile: '9876543210' });
+    expect(fields('payment-title')).toEqual({ 'Payment Method': 'Cash on Delivery', 'Total Amount': '₹3,440.00' });
+
+    expect(Array.from(root.querySelectorAll('.od-products-table thead th'), (th) => text(th))).toEqual([
+      'Product', 'Unit Price', 'Quantity', 'Amount',
+    ]);
+    const [first, second] = tableRows();
+    expect(tableRows().length).toBe(2);
+    expect(cells(first).slice(1)).toEqual(['₹2,000.00', '1', '₹2,000.00']);
+    expect(text(first.querySelector('.od-product__name'))).toBe('Head Set');
+    expect(text(first.querySelector('.od-product__variant'))).toBe('Black / M');
+    expect(first.querySelector('.od-product__name')?.getAttribute('href')).toBe('/products/1');
+    expect(first.querySelector('img')?.getAttribute('src')).toBe('/uploads/products/headset.png');
+    expect(cells(second)).toEqual(['Wireless Mouse', '₹500.00', '2', '₹1,000.00']);
+    expect(second.querySelector('img')).toBeNull();
+    // Every item has the same status, so it is shown once (Order Information), not per item.
+    expect(root.querySelector('.od-product__status')).toBeNull();
+
+    const address = card('address-title')?.querySelector('address');
+    expect(Array.from(address?.children ?? [], (line) => text(line))).toEqual([
+      'pooja', '13/5a, 2nd Street, Near Bus Stand', 'Chennai, Tamil Nadu, India, 600040', 'Phone: 9876543210',
+    ]);
 
     const price = root.querySelector('.od-price')?.textContent ?? '';
     expect(price).toContain('Items Subtotal₹3,000.00');
@@ -195,12 +254,36 @@ describe('OrderDetail', () => {
     expect(price).toContain('Tax₹540.00');
     expect(price).toContain('ShippingFree');
     expect(price).toContain('Order Total₹3,440.00');
-
-    const current = root.querySelector('.od-progress [aria-current="step"]');
-    expect(current?.textContent).toContain('Ordered');
-    expect(current?.textContent).toContain(formatDate('2026-11-16T01:59:01.000Z', 'd MMM y', 'en-US'));
-    expect(root.querySelector('.od-help a')?.getAttribute('href')).toBe('/help');
   });
+
+  // CHANGED (new): phones get a list of the same products instead of the table.
+  it('lists the same products, with their prices, for phones', async () => {
+    await renderOrder([
+      orderRow(15, 'ORD0005'),
+      orderRow(14, 'ORD0005', { PRODUCT_ID: 2, PRODUCT_VARIANT_ID: null, QUANTITY: 2, SUBTOTAL: '1000.00' }),
+    ]);
+
+    expect(root.querySelector('.od-products-table')?.classList).toContain('d-md-block');
+    const list = root.querySelector('.od-product-list');
+    expect(list?.classList).toContain('d-md-none');
+    const items = Array.from(list?.querySelectorAll('li') ?? []);
+    expect(items.map((item) => text(item.querySelector('.od-product__name')))).toEqual(['Head Set', 'Wireless Mouse']);
+    expect(
+      Array.from(items[1].querySelectorAll('dl > div'), (row) => `${text(row.querySelector('dt'))}: ${text(row.querySelector('dd'))}`),
+    ).toEqual(['Unit Price: ₹500.00', 'Quantity: 2', 'Amount: ₹1,000.00']);
+  });
+
+  // CHANGED: no tracking UI for any status (the progress tracker and Track Shipment are removed).
+  for (const status of ['ORDERED', 'APPROVED', 'SHIPPED', 'IN_TRANSIT', 'DELIVERED']) {
+    it(`shows no tracking timeline, steps or Track Shipment for a ${status} order`, async () => {
+      await renderOrder([orderRow(15, 'ORD0005', { STATUS: status })]);
+
+      expect(root.querySelector('app-stepper, .stepper, [aria-current="step"]')).toBeNull();
+      expect(root.querySelector('a[href$="/tracking"]')).toBeNull();
+      expect(root.textContent).not.toContain('Track');
+      expect(root.textContent).not.toContain('Timeline');
+    });
+  }
 
   it('does not show charges or actions the API does not provide', async () => {
     await renderOrder([orderRow(15, 'ORD0005', { SUBTOTAL: null, TAX: null, SHIPPING_CHARGES: null })]);
@@ -211,54 +294,18 @@ describe('OrderDetail', () => {
     expect(price).not.toContain('Shipping');
     expect(price).not.toContain('Discount');
     expect(price).toContain('Order Total₹2,360.00');
-    expect(root.querySelector('.od-item__price')).toBeNull();
+    // No SUBTOTAL: no unit price or amount for the item.
+    expect(cells(tableRows()[0]).slice(1)).toEqual(['—', '1', '—']);
     expect(root.textContent).not.toContain('Invoice');
     expect(root.textContent).not.toContain('Cancel Order');
-    expect(root.textContent).not.toContain('Tracking');
   });
 
-  it('marks every stage done for a delivered order', async () => {
-    await renderOrder([orderRow(15, 'ORD0005', { STATUS: 'DELIVERED' })]);
-
-    expect(root.querySelector('.od-summary__status')?.textContent?.trim()).toBe('Delivered');
-    expect(root.querySelectorAll('.od-progress .stepper__step.is-done').length).toBe(4);
-    expect(root.querySelector('.od-progress [aria-current]')).toBeNull();
-  });
-
-  it('shows a note instead of the progress tracker for a cancelled order', async () => {
+  it('shows a note above the order for a cancelled order', async () => {
     await renderOrder([orderRow(15, 'ORD0005', { STATUS: 'CANCELLED' })]);
 
-    expect(root.querySelector('app-stepper')).toBeNull();
-    expect(root.textContent).toContain('This order was cancelled.');
-    // CHANGED (new): no Track Shipment for a cancelled order.
-    expect(root.querySelector('.od-progress__track')).toBeNull();
+    expect(text(root.querySelector('.order-detail__content > app-alert'))).toBe('This order was cancelled.');
+    expect(fields('info-title')['Order Status']).toBe('Cancelled');
   });
-
-  // CHANGED: Track Shipment opens /orders/<order number>/tracking for every open order (the STATUS of
-  // customer_orders/get does not follow the shipment, so it stays "ORDERED" while the order is in transit).
-  for (const status of ['ORDERED', 'APPROVED', 'SHIPPED', 'IN_TRANSIT']) {
-    it(`offers Track Shipment in the Order Status card for a ${status} order`, async () => {
-      await renderOrder([orderRow(15, 'ORD0005', { STATUS: status })]);
-      const track = root.querySelector('.od-progress .od-progress__head .od-progress__track');
-      expect(track?.getAttribute('href')).toBe('/orders/ORD0005/tracking');
-      expect(track?.textContent?.trim()).toBe('Track Shipment');
-      expect(track?.getAttribute('aria-label')).toBe('Track shipment of order ORD0005');
-    });
-  }
-
-  it('shows the status as text, with Track Shipment, for a status the tracker has no stage for', async () => {
-    await renderOrder([orderRow(15, 'ORD0005', { STATUS: 'APPROVED' })]);
-    expect(root.querySelector('.od-progress app-stepper')).toBeNull();
-    expect(root.querySelector('.od-progress__status')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Status: Approved');
-  });
-
-  for (const status of ['CANCELLED', 'FAILED']) {
-    it(`does not offer Track Shipment for a ${status} order`, async () => {
-      await renderOrder([orderRow(15, 'ORD0005', { STATUS: status })]);
-      expect(root.querySelector('.od-progress__track')).toBeNull();
-      expect(root.querySelector('app-stepper')).toBeNull();
-    });
-  }
 
   it('shows each item status when the items of one order differ', async () => {
     await renderOrder([
@@ -266,12 +313,34 @@ describe('OrderDetail', () => {
       orderRow(14, 'ORD0005', { PRODUCT_ID: 2, PRODUCT_VARIANT_ID: null, STATUS: 'IN_TRANSIT' }),
     ]);
 
-    expect(root.querySelector('.od-summary__status')?.textContent?.trim()).toBe('Multiple statuses');
-    expect(Array.from(root.querySelectorAll('.od-item__status')).map((badge) => badge.textContent?.trim())).toEqual([
-      'Shipped',
-      'In Transit',
-    ]);
-    expect(root.querySelector('app-stepper')).toBeNull();
+    expect(fields('info-title')['Order Status']).toBe('Multiple statuses');
+    expect(tableRows().map((row) => text(row.querySelector('.od-product__status')))).toEqual(['Shipped', 'In Transit']);
+  });
+
+  // CHANGED (new): the delivery address is optional; the rest of the page does not depend on it.
+  it('says the delivery address is not available when the order has no tracking rows', async () => {
+    await renderOrder([orderRow(15, 'ORD0005')], {}, 'none');
+
+    expect(text(card('address-title')?.querySelector('.od-note'))).toBe('The delivery address is not available for this order.');
+    expect(card('address-title')?.querySelector('.order-detail__retry')).toBeNull();
+    // The account name stands in for the recipient; there is no phone.
+    expect(fields('customer-title')).toEqual({ Name: 'customer', Mobile: 'Not available' });
+    expect(tableRows().length).toBe(1);
+  });
+
+  it('offers Try again when the delivery address cannot be loaded, and shows it once it loads', async () => {
+    await renderOrder([orderRow(15, 'ORD0005')], {}, 'error');
+
+    expect(text(card('address-title'))).toContain('The delivery address is not available for this order.');
+    expect(TestBed.inject(ToastService).current()).toBeFalsy();
+    card('address-title')?.querySelector<HTMLButtonElement>('.order-detail__retry')?.click();
+    await settle();
+    expect(text(card('address-title')?.querySelector('[role="status"]'))).toBe('Loading the delivery address…');
+    expect(fields('customer-title')['Mobile']).toBe('Loading…');
+    await answerTracking('address');
+
+    expect(text(card('address-title')?.querySelector('address strong'))).toBe('pooja');
+    expect(fields('customer-title')['Mobile']).toBe('9876543210');
   });
 
   it('keeps an item with its product ID when the product lookup fails', async () => {
@@ -280,12 +349,13 @@ describe('OrderDetail', () => {
     http.expectOne(ORDERS_URL).flush(ordersResponse([orderRow(15, 'ORD0005', { PRODUCT_VARIANT_ID: null })]));
     http.expectOne('/api/products/get?PRODUCT_ID=1').flush('down', { status: 500, statusText: 'Server Error' });
     await settle();
+    await answerTracking('none');
     http.expectOne(PAYMENT_METHODS_URL).flush({ success: true, data: [] });
     await settle();
 
-    expect(root.querySelector('.od-item__name')?.textContent).toContain('Product ID: 1');
-    expect(root.querySelector('a.od-item__name')).toBeNull();
-    expect(root.querySelector('.od-summary__facts')?.textContent).toContain('Not available');
+    expect(text(tableRows()[0].querySelector('.od-product__name'))).toBe('Product ID: 1');
+    expect(root.querySelector('a.od-product__name')).toBeNull();
+    expect(fields('payment-title')['Payment Method']).toBe('Not available');
     expect(TestBed.inject(ToastService).current()?.message).toBe(
       'Some product details could not be loaded. Order totals are still available.',
     );
@@ -309,6 +379,7 @@ describe('OrderDetail', () => {
 
     expect(root.textContent).toContain("We couldn't find order #ORD0099");
     expect(root.querySelector('.order-detail__empty a')?.getAttribute('href')).toBe('/orders');
+    expect(root.querySelector('.order-detail__help')).toBeNull();
   });
 
   it('shows the API error with a retry that loads the order again', async () => {

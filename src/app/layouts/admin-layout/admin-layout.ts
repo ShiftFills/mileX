@@ -75,6 +75,8 @@ export class AdminLayout {
     this.productLinks,
     // CHANGED (new): Admin only (not in the Seller menu).
     { label: 'Categories', path: '/admin/categories', icon: 'categories' },
+    // CHANGED (new): Admin only (not in the Seller menu).
+    { label: 'Brands', path: '/admin/brands', icon: 'brands' },
     // { label: 'Shopping Cart', path: '/cart', icon: 'cart' },/
     this.orderManagementLink,
     this.returnRequestLink,

@@ -152,6 +152,28 @@ describe('ProductCatalogService', () => {
     http.expectNone((request) => request.url.endsWith('/tax_rate/get'));
   });
 
+  // CHANGED (new): Brand Management drops the cached brand lists after a change.
+  it('reads every brand list again after invalidateBrandLookups, keeping the other lookups cached', () => {
+    const subscribeAll = (): void => {
+      catalog.loadAllBrands().subscribe();
+      catalog.loadBrands('3', '2').subscribe();
+      catalog.loadCategories().subscribe();
+    };
+    const flushAll = (urls: string[]): number =>
+      http.match((request) => urls.some((url) => request.url.endsWith(url)))
+        .map((request) => request.flush({ status: 'SUCCESS', data: [] })).length;
+
+    subscribeAll();
+    expect(flushAll(['/brand_management/get', '/all_category/get'])).toBe(3);
+    subscribeAll();
+    expect(flushAll(['/brand_management/get', '/all_category/get'])).toBe(0);
+
+    catalog.invalidateBrandLookups();
+    subscribeAll();
+    expect(flushAll(['/brand_management/get'])).toBe(2);
+    http.expectNone((request) => request.url.endsWith('/all_category/get'));
+  });
+
   // CHANGED (new): the category lists are top-level categories; a row with a PARENT_CATEGORY_ID is a subcategory.
   it('leaves rows with a PARENT_CATEGORY_ID out of the category list', () => {
     let categories: unknown;

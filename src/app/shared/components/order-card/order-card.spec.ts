@@ -72,36 +72,36 @@ describe('OrderCard', () => {
     // CHANGED: the Track Order link is checked below.
     const hrefs = Array.from(root.querySelectorAll('a:not(.my-order__tracking-link):not(.my-order__link--track)'))
       .map((a) => a.getAttribute('href'));
-    expect(hrefs).toEqual(['/orders/ORD-2408', '/orders/ORD-2408']);
+    // CHANGED: the arrow only (View Details is removed).
+    expect(hrefs).toEqual(['/orders/ORD-2408']);
   });
 
-  // CHANGED (new): Track Order opens Shipment Tracking for every order but a cancelled or failed one.
-  it('offers Track Order next to View Details, also without a tracking number', async () => {
+  // CHANGED: Track Order opens Shipment Tracking for every order but a cancelled or failed one; there is no View
+  // Details link.
+  it('offers Track Order, also without a tracking number, and no View Details link', async () => {
     await render({ ...ORDER, id: 'ORD0016', status: 'ORDERED', trackingNo: undefined });
     const links = Array.from(root.querySelectorAll('.my-order__links a'), (a) => [a.textContent?.trim(), a.getAttribute('href')]);
-    expect(links).toEqual([
-      ['View Details →', '/orders/ORD0016'],
-      ['Track Order →', '/orders/ORD0016/tracking'],
-    ]);
+    expect(links).toEqual([['Track Order →', '/orders/ORD0016/tracking']]);
     expect(root.querySelector('.my-order__link--track')?.getAttribute('aria-label')).toBe('Track order ORD0016');
+    expect(root.textContent).not.toContain('View Details');
   });
 
   it('hides Track Order for a cancelled or failed order', async () => {
     for (const status of ['CANCELLED', 'Failed']) {
       await render({ ...ORDER, status });
-      expect(root.querySelector('.my-order__link--track'), status).toBeNull();
-      expect(root.querySelector('.my-order__link')?.textContent).toContain('View Details');
+      expect(root.querySelector('.my-order__links'), status).toBeNull();
+      expect(root.querySelector('.my-order__chevron')?.getAttribute('href'), status).toBe('/orders/ORD-2408');
     }
   });
 
-  it('keeps one keyboard/screen-reader link per order; the arrow is an extra pointer target', async () => {
+  // CHANGED: the arrow is the one link to the order's details, for pointer, keyboard and screen readers.
+  it('opens the order details from the arrow, which is a labelled, focusable link', async () => {
     await render(ORDER);
-    const details = root.querySelector('.my-order__link');
     const arrow = root.querySelector('.my-order__chevron');
-    expect(details?.getAttribute('aria-label')).toBe('View details for order ORD-2408');
-    expect(arrow?.getAttribute('href')).toBe(details?.getAttribute('href'));
-    expect(arrow?.getAttribute('tabindex')).toBe('-1');
-    expect(arrow?.getAttribute('aria-hidden')).toBe('true');
+    expect(arrow?.getAttribute('href')).toBe('/orders/ORD-2408');
+    expect(arrow?.getAttribute('aria-label')).toBe('View details for order ORD-2408');
+    expect(arrow?.hasAttribute('tabindex')).toBe(false);
+    expect(arrow?.hasAttribute('aria-hidden')).toBe(false);
   });
 
   it('links the tracking number to the shipment tracking page', async () => {

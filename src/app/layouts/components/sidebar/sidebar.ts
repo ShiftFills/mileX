@@ -4,8 +4,8 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
 export interface SidebarLink {
   label: string;
   path: string;
-  // CHANGED: 'categories' (Category Management).
-  icon?: 'dashboard' | 'products' | 'categories' | 'cart' | 'orders' | 'returns' | 'sellers' | 'my-orders';
+  // CHANGED: 'categories' (Category Management), 'brands' (Brand Management).
+  icon?: 'dashboard' | 'products' | 'categories' | 'brands' | 'cart' | 'orders' | 'returns' | 'sellers' | 'my-orders';
   children?: SidebarLink[];
 }
 

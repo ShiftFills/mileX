@@ -189,6 +189,11 @@
     list-style: none;
   }
 
+  // CHANGED (new): without the search box the list starts at the top of the panel.
+  &__panel--plain ul {
+    padding-top: 0.25rem;
+  }
+
   &__option {
     width: 100%;
     padding: 0.5rem 0.6rem;

@@ -27,15 +27,18 @@
   </button>
 
   @if (isOpen()) {
-    <div class="searchable-select__panel">
-      <input
-        class="searchable-select__search"
-        type="search"
-        [placeholder]="searchPlaceholder()"
-        [value]="query()"
-        [attr.aria-label]="searchPlaceholder()"
-        (input)="setQuery($event)"
-      />
+    <!-- CHANGED: the search box only when `searchable` (the default). -->
+    <div class="searchable-select__panel" [class.searchable-select__panel--plain]="!searchable()">
+      @if (searchable()) {
+        <input
+          class="searchable-select__search"
+          type="search"
+          [placeholder]="searchPlaceholder()"
+          [value]="query()"
+          [attr.aria-label]="searchPlaceholder()"
+          (input)="setQuery($event)"
+        />
+      }
       <ul [id]="listboxId()" role="listbox" [attr.aria-label]="ariaLabel() ?? placeholder()">
         @for (option of filteredOptions(); track option.value) {
           <li role="presentation">

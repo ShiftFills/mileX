@@ -80,6 +80,25 @@ describe('SearchableSelect', () => {
     expect(fixture.nativeElement.textContent).toContain('No matching options');
   });
 
+  // CHANGED (new)
+  it('shows the options without a search box when not searchable', async () => {
+    fixture.componentRef.setInput('options', [
+      { label: 'Return/Refund', value: '28' },
+      { label: 'Return/Replace', value: '27' },
+    ]);
+    fixture.componentRef.setInput('searchable', false);
+    await fixture.whenStable();
+
+    (
+      fixture.nativeElement.querySelector('.searchable-select__trigger') as HTMLButtonElement
+    ).click();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.searchable-select__search')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.searchable-select__panel--plain')).not.toBeNull();
+    expect(fixture.nativeElement.querySelectorAll('[role="option"]')).toHaveLength(2);
+  });
+
   it('closes the option panel when the user clicks outside', async () => {
     fixture.componentRef.setInput('options', [{ label: 'Retail Business', value: '13' }]);
     await fixture.whenStable();

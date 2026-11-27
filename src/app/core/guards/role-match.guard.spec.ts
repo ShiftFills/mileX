@@ -218,6 +218,8 @@ describe('roleMatchGuard', () => {
       '/admin/products/new/extra',
       // CHANGED (new): Category Management is Admin only.
       '/admin/categories',
+      // CHANGED (new): Brand Management is Admin only.
+      '/admin/brands',
     ]) {
       const result = runGuard('ADMIN', path) as UrlTree;
       expect(TestBed.inject(Router).serializeUrl(result), path).toBe('/seller/dashboard');

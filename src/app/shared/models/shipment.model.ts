@@ -17,6 +17,19 @@ export interface ShipmentStep {
 }
 
 export interface ShipmentItem {
+  /**
+   * The IDs of this product's tracking row, which a Cancel / Return Item request sends: ORDER_ID, PRODUCT_ID,
+   * PRODUCT_VARIANT_ID, SELLER_ID, SHIPPING_ID and DELIVERY_ADDRESS_ID (the pickup address). Each is set only when
+   * the row has a valid one; variantId is null when the row says the product was ordered without a variant. They are
+   * kept per product, so a return never mixes the IDs of two products of one order.
+   */
+  // CHANGED (new)
+  orderId?: number;
+  productId?: number;
+  variantId?: number | null;
+  sellerId?: number;
+  shippingId?: number;
+  deliveryAddressId?: number;
   name: string;
   /** SKU, or '' when the API sends none. */
   sku: string;

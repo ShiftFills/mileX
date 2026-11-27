@@ -63,7 +63,10 @@ describe('AdminLayout toolbar', () => {
     expect(root.querySelector('.admin-sidebar')?.textContent).toContain('Seller Verification');
     // CHANGED (new): the Admin menu, without My Orders (a customer screen); Order Management stays.
     const topLevel = Array.from(root.querySelectorAll('.admin-sidebar nav > ul > li > a span'), (label) => label.textContent?.trim());
-    expect(topLevel).toEqual(['Dashboard', 'Products', 'Categories', 'Order Management', 'Return Request', 'Seller Verification']);
+    // CHANGED: Brands (Brand Management) follows Categories.
+    expect(topLevel).toEqual([
+      'Dashboard', 'Products', 'Categories', 'Brands', 'Order Management', 'Return Request', 'Seller Verification',
+    ]);
     expect(root.querySelector('a[href="/admin/my-orders"]')).toBeNull();
   });
 
@@ -78,6 +81,8 @@ describe('AdminLayout toolbar', () => {
     const sidebar = root.querySelector('.admin-sidebar')?.textContent ?? '';
     expect(sidebar).toContain('Order Management');
     expect(sidebar).not.toContain('Seller Verification');
+    // CHANGED (new): Brand Management is Admin only.
+    expect(sidebar).not.toContain('Brands');
   });
 
   it('derives initials from user names that are not two plain words', () => {

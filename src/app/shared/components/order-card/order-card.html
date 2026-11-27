@@ -7,13 +7,13 @@
       <h2 class="my-order__id" [title]="order().id">#{{ order().id }}</h2>
       <p class="my-order__meta">{{ order().placedOn | date: 'mediumDate' }} <span aria-hidden="true">&bull;</span> {{ itemCount() }} items</p>
       <p class="my-order__total">{{ order().total | currency: 'INR' : 'symbol' : '1.0-0' }}</p>
-      <!-- CHANGED: "Track Order" next to "View Details" (not for a cancelled or failed order). -->
-      <p class="my-order__links">
-        <a class="my-order__link" [routerLink]="detailsLink()" [attr.aria-label]="'View details for order ' + order().id">View Details &rarr;</a>
-        @if (canTrack()) {
+      <!-- CHANGED: "Track Order" (not for a cancelled or failed order); "View Details" is removed, the arrow opens the
+           order's details. -->
+      @if (canTrack()) {
+        <p class="my-order__links">
           <a class="my-order__link my-order__link--track" [routerLink]="trackingLink()" [attr.aria-label]="'Track order ' + order().id">Track Order &rarr;</a>
-        }
-      </p>
+        </p>
+      }
     </div>
   </div>
 
@@ -52,8 +52,9 @@
         </p>
       }
     </div>
-    <!-- Larger pointer/touch target for the same Order Details page; "View Details" is the one keyboard/screen-reader link. -->
-    <a class="my-order__chevron" [routerLink]="detailsLink()" tabindex="-1" aria-hidden="true">
+    <!-- CHANGED: the link to the Order Details page (for keyboard and screen readers too, now that "View Details" is
+         removed). -->
+    <a class="my-order__chevron" [routerLink]="detailsLink()" title="View details" [attr.aria-label]="'View details for order ' + order().id">
       <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>
     </a>
   </div>

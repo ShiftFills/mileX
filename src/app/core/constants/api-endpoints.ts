@@ -10,6 +10,8 @@ export const API_ENDPOINTS = {
     // Listing, Header Menu). Admin changes made through categoryManagement below invalidate its cached response.
     categories: 'all_category/get',
     subCategories: 'sub_category/get',
+    // The brand dropdowns (Add/Edit Product, All Products, Wishlist). Admin changes made through brandManagement
+    // below invalidate its cached responses. (brand/get is not used: the backend has no such route.)
     brands: 'brand_management/get',
     taxRates: 'tax_rate/get',
     productCodes: 'product_code/get',
@@ -24,6 +26,17 @@ export const API_ENDPOINTS = {
     update: 'category_management/update',
     /** DELETE with body `{ CATEGORY_ID }`. */
     delete: 'category_management/delete',
+  },
+  // CHANGED (new): Admin Brand Management (requires an Admin access token). STATUS is "ACTIVE" / "INACTIVE".
+  brandManagement: {
+    /** GET `?BRAND_ID=-1&CATEGORY_ID=…&SUB_CATEGORY_ID=…&LIMIT=…&OFFSET=…` (-1: every brand / category / subcategory). */
+    get: 'brand_management/get',
+    /** POST `{ BRAND_NAME, BRAND_LOGO, DESCRIPTION, STATUS, CATEGORY_ID, SUB_CATEGORY_ID, CREATED_BY }`. */
+    insert: 'brand_management/insert',
+    /** PUT `{ BRAND_ID, BRAND_NAME, BRAND_LOGO, DESCRIPTION, STATUS, CATEGORY_ID, SUB_CATEGORY_ID, UPDATED_BY }`. */
+    update: 'brand_management/update',
+    /** DELETE with body `{ BRAND_ID, CATEGORY_ID, SUB_CATEGORY_ID }`. */
+    delete: 'brand_management/delete',
   },
   productVariants: {
     get: 'product_variant/get',
@@ -104,9 +117,28 @@ export const API_ENDPOINTS = {
   returnReasons: {
     get: 'return_reason/get',
   },
+  // CHANGED (new): the Return Request Review's Return status options. GET `?RETURN_STATUS_ID=-1&LIMIT=…&OFFSET=…`
+  // (-1: every return status): DATA `[{ RETURN_STATUS_ID, RETURN_STATUS_NAME, CREATED_AT }]`.
+  returnStatuses: {
+    get: 'return_status',
+  },
+  // CHANGED (new): the customer's Cancel / Return Item dialog. GET `?ORDER_NUMBER=…&LIMIT=…&OFFSET=…`: the order's
+  // products a return can be requested for, DATA `[{ ORDER_ID, ORDER_NUMBER, PRODUCT_ID, PRODUCT_VARIANT_ID,
+  // PRODUCT_NAME }]`.
+  returnProducts: {
+    get: 'return_dropdown',
+  },
+  // CHANGED (new): the Cancel / Return Item dialog's Refund Method. GET `?REFUND_METHOD_ID=-1&LIMIT=…&OFFSET=…` (-1:
+  // every method): DATA `[{ REFUND_METHOD_ID, REFUND_METHOD_NAME, IS_ACTIVE }]`.
+  refundMethods: {
+    get: 'refund_method',
+  },
   returnRequests: {
     get: 'return_request/get',
     update: 'return_request/update',
+    // CHANGED (new): the customer's Cancel / Return Item request. POST `{ ORDER_NUMBER, REASON_ID, RETURN_DESCRIPTION }`
+    // (the access token identifies the customer); REASON_ID from return_reason/get.
+    insert: 'return_request',
   },
   paymentMethod: {
     get: 'payment_method/get',

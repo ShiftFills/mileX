@@ -28,6 +28,9 @@ export const SELLER_DOCUMENT_FOLDER = 'documents';
 /** S3 folder for category images ("categories/<file name>"), saved as CATEGORY_IMAGE. */
 // CHANGED (new)
 export const CATEGORY_IMAGE_FOLDER = 'categories';
+/** S3 folder for brand logos ("brands/<file name>"), saved as BRAND_LOGO. */
+// CHANGED (new)
+export const BRAND_LOGO_FOLDER = 'brands';
 /** A signed URL is fetched again this long before it expires. */
 const URL_RENEW_MARGIN_MS = 5 * 60 * 1000;
 const IMAGE_EXTENSIONS: Readonly<Record<string, string>> = {

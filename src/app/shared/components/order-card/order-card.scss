@@ -95,7 +95,7 @@
     white-space: nowrap;
   }
 
-  // CHANGED (new): View Details and Track Order side by side; they wrap onto two lines on a narrow card.
+  // CHANGED: Track Order only (View Details is removed; the arrow opens the order's details).
   &__links {
     display: flex;
     flex-wrap: wrap;
@@ -295,6 +295,12 @@
     &:hover {
       background: var(--color-border-subtle);
       color: var(--color-text);
+    }
+
+    // CHANGED (new): it is the keyboard link to the order's details now.
+    &:focus-visible {
+      outline: 2px solid var(--color-focus-ring);
+      outline-offset: 2px;
     }
   }
 }

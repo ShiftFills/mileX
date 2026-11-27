@@ -12,12 +12,24 @@ import { Card } from '@shared/components/card/card';
 import { Dialog } from '@shared/components/dialog/dialog';
 import { LoadingSpinner } from '@shared/components/loading-spinner/loading-spinner';
 import { PageHeading } from '@shared/components/page-heading/page-heading';
-import { Select } from '@shared/components/select/select';
+import { SearchableSelect, SearchableSelectOption } from '@shared/components/searchable-select/searchable-select';
 import { Stepper, StepperStep } from '@shared/components/stepper/stepper';
 import { Textarea } from '@shared/components/textarea/textarea';
-import { ReturnReasonOption, ShipmentTracking } from '@shared/models';
+import {
+  ReturnProductOption,
+  ReturnReasonOption,
+  ReturnRequestResult,
+  ShipmentItem,
+  ShipmentTracking,
+  StatusOption,
+} from '@shared/models';
 import { ShipmentMap } from '../../components/shipment-map/shipment-map';
-import { OrderService, shipmentStage, shippingStatusLabel } from '../../services/order.service';
+import {
+  OrderService,
+  RETURN_DESCRIPTION_MAX_LENGTH,
+  shipmentStage,
+  shippingStatusLabel,
+} from '../../services/order.service';
 
 /** 24x24 icon paths for the timeline markers. */
 const TRUCK_ICON = 'M2 6h11v10H2zM13 9.5h4.5l3 3.5V16H13M6.5 19a1.5 1.5 0 1 0 0-.01M17 19a1.5 1.5 0 1 0 0-.01';
@@ -36,9 +48,77 @@ function statusKey(status: string | undefined): string {
   return (status ?? '').trim().toUpperCase().replace(/[\s-]+/g, '_');
 }
 
+/** A dropdown value as a positive ID, or null for '' (nothing chosen). */
+// CHANGED (new): shared by the return type and reason dropdowns.
+function selectedId(value: string): number | null {
+  const id = Number(value);
+  return value && Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+type LookupStatus = 'idle' | 'loading' | 'success' | 'error';
+
+/** The dialog's product card icon when the product has no tracking row (a parcel, as the tracking rows use). */
+const PRODUCT_ICON = 'M3.5 7.5 12 3l8.5 4.5v9L12 21l-8.5-4.5zM3.5 7.5 12 12l8.5-4.5M12 12v9';
+
+/** A return request this page created, with what the customer chose (shown once the dialog closes). */
+// CHANGED (new)
+interface SubmittedReturn {
+  orderNumber: string;
+  result: ReturnRequestResult;
+  /** The returned product, and the chosen return type ("Return/Refund") and reason, as the dialog showed them. */
+  productName: string;
+  typeLabel: string;
+  reasonLabel: string;
+  /** CHANGED (new): the chosen refund method ("Wallet"), '' for a replacement. */
+  refundMethodLabel: string;
+}
+
+/** A product's order line ("<ORDER_ID>|<PRODUCT_ID>|<PRODUCT_VARIANT_ID>"): the Product dropdown's value. */
+// CHANGED (new): the products come from return_dropdown (they were the tracking rows).
+function productLineKey(product: ReturnProductOption): string {
+  return `${product.orderId}|${product.productId}|${product.variantId ?? ''}`;
+}
+
+/** The Product dropdown's options: PRODUCT_NAME; products of the same name also show their variant (or order line). */
+// CHANGED (new)
+function productSelectOptions(products: readonly ReturnProductOption[]): SearchableSelectOption[] {
+  const counts = new Map<string, number>();
+  for (const product of products) counts.set(product.name, (counts.get(product.name) ?? 0) + 1);
+  return products.map((product) => ({
+    value: productLineKey(product),
+    label:
+      (counts.get(product.name) ?? 0) > 1
+        ? `${product.name} · ${product.variantId ? `Variant ${product.variantId}` : `Order line ${product.orderId}`}`
+        : product.name,
+  }));
+}
+
+/**
+ * The chosen product's tracking row (its SKU, quantity and price, and the SELLER_ID and DELIVERY_ADDRESS_ID a request
+ * sends): the row of the same order line (ORDER_ID and PRODUCT_ID), else a row without an ORDER_ID of the same product
+ * and variant. Null when the tracking has no such row.
+ */
+// CHANGED (new)
+function trackingItemFor(product: ReturnProductOption, items: readonly ShipmentItem[]): ShipmentItem | null {
+  return (
+    items.find((item) => item.orderId === product.orderId && item.productId === product.productId) ??
+    items.find(
+      (item) =>
+        item.orderId === undefined && item.productId === product.productId && (item.variantId ?? null) === product.variantId,
+    ) ??
+    null
+  );
+}
+
+/** A lookup's own failure message; a generic one for an HTTP error (not raw HTTP details). */
+function lookupErrorMessage(error: unknown, fallback: string): string {
+  return !(error instanceof HttpErrorResponse) && error instanceof Error && error.message ? error.message : fallback;
+}
+
 @Component({
   selector: 'app-shipment-tracking',
-  imports: [Alert, Button, Card, CurrencyPipe, DatePipe, Dialog, LoadingSpinner, PageHeading, RouterLink, Select, ShipmentMap, Stepper, Textarea],
+  // CHANGED: SearchableSelect (the dialog's dropdowns) instead of Select.
+  imports: [Alert, Button, Card, CurrencyPipe, DatePipe, Dialog, LoadingSpinner, PageHeading, RouterLink, SearchableSelect, ShipmentMap, Stepper, Textarea],
   templateUrl: './shipment-tracking.html',
   styleUrl: './shipment-tracking.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -124,10 +204,124 @@ export class ShipmentTrackingPage {
     return reasonId === null ? '' : String(reasonId);
   });
   protected readonly returnDetails = signal('');
+  // CHANGED: the limit is the service's (the request is checked against it too).
+  protected readonly returnDetailsMaxLength = RETURN_DESCRIPTION_MAX_LENGTH;
   protected readonly returnReasonError = signal(false);
   protected readonly returnReasons = signal<ReturnReasonOption[]>([]);
   protected readonly returnReasonsStatus = signal<'idle' | 'loading' | 'success' | 'error'>('idle');
   protected readonly returnReasonsError = signal('');
+  /** Return Type: refund or replacement, the RETURN_STATUS_ID of a "RETURN/…" return status (sent as RETURN_OPTION). */
+  // CHANGED (new)
+  protected readonly returnType = signal<number | null>(null);
+  protected readonly returnTypeValue = computed(() => {
+    const typeId = this.returnType();
+    return typeId === null ? '' : String(typeId);
+  });
+  protected readonly returnTypeError = signal(false);
+  protected readonly returnTypes = signal<StatusOption[]>([]);
+  protected readonly returnTypesStatus = signal<'idle' | 'loading' | 'success' | 'error'>('idle');
+  protected readonly returnTypesError = signal('');
+  /** "RETURN/REFUND" -> "Return/Refund" (as the page shows its other shipping statuses). */
+  protected readonly returnTypeLabel = shippingStatusLabel;
+  /** The dropdowns' options: the API IDs as values. */
+  // CHANGED (new): for SearchableSelect (the native select's list could not be styled and covered the dialog).
+  protected readonly returnTypeOptions = computed<SearchableSelectOption[]>(() =>
+    this.returnTypes().map((type) => ({ value: String(type.id), label: shippingStatusLabel(type.label) })),
+  );
+  protected readonly returnReasonOptions = computed<SearchableSelectOption[]>(() =>
+    this.returnReasons().map((reason) => ({ value: String(reason.REASON_ID), label: reason.REASON })),
+  );
+  /**
+   * CHANGED: the products a return can be requested for come from return_dropdown (by the order number), read when the
+   * dialog first opens for the order; each keeps its ORDER_ID, PRODUCT_ID and PRODUCT_VARIANT_ID. A return sends the
+   * IDs of the product chosen, never another product's (it was the tracking rows).
+   */
+  private readonly returnProductsState = signal<{
+    orderNumber: string;
+    status: LookupStatus;
+    products: ReturnProductOption[];
+    error: string;
+  }>({ orderNumber: '', status: 'idle', products: [], error: '' });
+  protected readonly returnProductsStatus = computed<LookupStatus>(() => {
+    const state = this.returnProductsState();
+    return state.orderNumber === this.orderNumber() ? state.status : 'idle';
+  });
+  protected readonly returnProductsError = computed(() => this.returnProductsState().error);
+  /** Order lines already requested on this page ("<order number>|<order line key>"). */
+  private readonly requestedReturns = signal<ReadonlySet<string>>(new Set());
+  /** The products the dialog offers: those not yet requested on this page. */
+  protected readonly returnProducts = computed(() => {
+    const state = this.returnProductsState();
+    const order = this.orderNumber();
+    if (state.orderNumber !== order) return [];
+    const requested = this.requestedReturns();
+    return state.products.filter((product) => !requested.has(`${order}|${productLineKey(product)}`));
+  });
+  protected readonly returnProductOptions = computed(() => productSelectOptions(this.returnProducts()));
+  /** The Product dropdown's choice ('' until one is chosen). */
+  protected readonly returnProductKey = signal('');
+  protected readonly returnProductError = signal(false);
+  /** The chosen product; an order with only one product to return has it chosen. */
+  // CHANGED: nothing is chosen for an order with several products (it chose the first).
+  protected readonly selectedReturn = computed(() => {
+    const products = this.returnProducts();
+    return (
+      products.find((product) => productLineKey(product) === this.returnProductKey()) ??
+      (products.length === 1 ? products[0] : null)
+    );
+  });
+  protected readonly returnProductValue = computed(() => {
+    const product = this.selectedReturn();
+    return product ? productLineKey(product) : '';
+  });
+  /** The chosen product's tracking row (card details, SELLER_ID and the pickup address); null without one. */
+  protected readonly returnItem = computed(() => {
+    const product = this.selectedReturn();
+    return product ? trackingItemFor(product, this.shipment()?.items ?? []) : null;
+  });
+  protected readonly productIcon = PRODUCT_ICON;
+  /** Every product of this order was requested on this page: Cancel / Return is then done. */
+  // CHANGED: from the return_dropdown products (read when the dialog first opened).
+  protected readonly allReturnsRequested = computed(
+    () =>
+      this.returnProductsStatus() === 'success' &&
+      this.returnProductsState().products.length > 0 &&
+      this.returnProducts().length === 0,
+  );
+
+  /**
+   * CHANGED (new): Refund Method (refund_method, the active ones), shown and required for a refund only. It is read the
+   * first time a refund is chosen, and kept.
+   */
+  protected readonly refundMethods = signal<StatusOption[]>([]);
+  protected readonly refundMethodsStatus = signal<LookupStatus>('idle');
+  protected readonly refundMethodsError = signal('');
+  protected readonly refundMethod = signal<number | null>(null);
+  protected readonly refundMethodValue = computed(() => {
+    const methodId = this.refundMethod();
+    return methodId === null ? '' : String(methodId);
+  });
+  protected readonly refundMethodError = signal(false);
+  protected readonly refundMethodOptions = computed<SearchableSelectOption[]>(() =>
+    this.refundMethods().map((method) => ({ value: String(method.id), label: method.label })),
+  );
+  /** The chosen Return Type is a refund ("RETURN/REFUND"), so a refund method is required. */
+  protected readonly isRefund = computed(() => {
+    const typeId = this.returnType();
+    const type = typeId === null ? undefined : this.returnTypes().find((candidate) => candidate.id === typeId);
+    return !!type && /REFUND/i.test(type.label);
+  });
+  /** True while POST return_request is in flight: the form is locked and Submit shows its spinner. */
+  // CHANGED (new)
+  protected readonly submittingReturn = signal(false);
+  protected readonly returnSubmitError = signal('');
+  private readonly submittedReturn = signal<SubmittedReturn | null>(null);
+  /** The latest return request made for this order on this page. */
+  // CHANGED (new)
+  protected readonly currentReturn = computed(() => {
+    const submitted = this.submittedReturn();
+    return submitted && submitted.orderNumber === this.orderNumber() ? submitted : null;
+  });
   private readonly toast = inject(ToastService);
   private readonly timers: ReturnType<typeof setTimeout>[] = [];
 
@@ -205,26 +399,149 @@ export class ShipmentTrackingPage {
     map?.focus({ preventScroll: true });
   }
 
+  // CHANGED: also resets and loads the Product (return_dropdown), the Return Type and the Refund Method; not offered
+  // once every product of the order was requested.
   protected openReturnRequest(): void {
+    if (this.allReturnsRequested()) return;
+    this.returnProductKey.set('');
+    this.returnProductError.set(false);
+    this.returnType.set(null);
+    this.returnTypeError.set(false);
+    this.refundMethod.set(null);
+    this.refundMethodError.set(false);
     this.returnReason.set(null);
     this.returnDetails.set('');
     this.returnReasonError.set(false);
+    this.returnSubmitError.set('');
     this.returnRequestOpen.set(true);
+    this.loadReturnProducts();
+    this.loadReturnTypes();
     this.loadReturnReasons();
   }
 
+  // CHANGED: stays open while the request is being sent.
   protected closeReturnRequest(): void {
+    if (this.submittingReturn()) return;
     this.returnRequestOpen.set(false);
+    this.returnProductError.set(false);
+    this.returnTypeError.set(false);
+    this.refundMethodError.set(false);
     this.returnReasonError.set(false);
   }
 
-  protected setReturnReason(event: Event): void {
-    const value = (event.target as HTMLSelectElement).value;
-    const reasonId = Number(value);
-    this.returnReason.set(
-      value && Number.isSafeInteger(reasonId) && reasonId > 0 ? reasonId : null,
-    );
+  /** Which product of the order is returned (its IDs are the ones sent). */
+  // CHANGED (new)
+  protected setReturnProduct(value: string): void {
+    this.returnProductKey.set(value);
+    if (value) this.returnProductError.set(false);
+    this.returnSubmitError.set('');
+  }
+
+  // CHANGED (new): a refund also asks for the refund method (loaded the first time); a replacement clears it.
+  protected setReturnType(value: string): void {
+    this.returnType.set(selectedId(value));
+    if (this.returnType() !== null) this.returnTypeError.set(false);
+    if (this.isRefund()) {
+      this.loadRefundMethods();
+    } else {
+      this.refundMethod.set(null);
+      this.refundMethodError.set(false);
+    }
+    this.returnSubmitError.set('');
+  }
+
+  // CHANGED (new)
+  protected setRefundMethod(value: string): void {
+    this.refundMethod.set(selectedId(value));
+    if (this.refundMethod() !== null) this.refundMethodError.set(false);
+    this.returnSubmitError.set('');
+  }
+
+  /**
+   * The Product options: the order's products (OrderService.getReturnProducts, GET return_dropdown by ORDER_NUMBER),
+   * read once per order. A failed load offers Try again.
+   */
+  // CHANGED (new)
+  protected loadReturnProducts(): void {
+    const orderNumber = this.orderNumber();
+    const state = this.returnProductsState();
+    if (!orderNumber || (state.orderNumber === orderNumber && (state.status === 'loading' || state.status === 'success'))) {
+      return;
+    }
+    this.returnProductsState.set({ orderNumber, status: 'loading', products: [], error: '' });
+    this.orders
+      .getReturnProducts(orderNumber)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (products) => this.returnProductsState.set({ orderNumber, status: 'success', products, error: '' }),
+        error: (error: unknown) => {
+          const message = lookupErrorMessage(error, 'The products of this order could not be loaded. Please try again.');
+          this.returnProductsState.set({ orderNumber, status: 'error', products: [], error: message });
+          this.toast.showError(message);
+        },
+      });
+  }
+
+  /** The Refund Method options (OrderService.getRefundMethods, the active ones), read once. Try again on a failure. */
+  // CHANGED (new)
+  protected loadRefundMethods(): void {
+    const status = this.refundMethodsStatus();
+    if (status === 'loading' || status === 'success') return;
+
+    this.refundMethodsStatus.set('loading');
+    this.refundMethodsError.set('');
+    this.orders
+      .getRefundMethods()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (methods) => {
+          this.refundMethods.set(methods);
+          this.refundMethodsStatus.set('success');
+        },
+        error: (error: unknown) => {
+          const message = lookupErrorMessage(error, 'Refund methods could not be loaded. Please try again.');
+          this.refundMethodsError.set(message);
+          this.refundMethodsStatus.set('error');
+          this.toast.showError(message);
+        },
+      });
+  }
+
+  // CHANGED: takes the dropdown's value (SearchableSelect emits it); same ID rule.
+  protected setReturnReason(value: string): void {
+    this.returnReason.set(selectedId(value));
     if (this.returnReason() !== null) this.returnReasonError.set(false);
+    this.returnSubmitError.set('');
+  }
+
+  /**
+   * The Return Type options: the "RETURN/…" return statuses (OrderService.getReturnTypes, GET return_status), read
+   * once. A failed load offers Try again.
+   */
+  // CHANGED: from return_status (it was the shipping-status list the tracking loads).
+  protected loadReturnTypes(): void {
+    const status = this.returnTypesStatus();
+    if (status === 'loading' || status === 'success') return;
+
+    this.returnTypesStatus.set('loading');
+    this.returnTypesError.set('');
+    this.orders
+      .getReturnTypes()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (types) => {
+          this.returnTypes.set(types);
+          this.returnTypesStatus.set('success');
+        },
+        error: (error: unknown) => {
+          // As for the reasons: the API's own failure message, else a generic one (not raw HTTP details).
+          const message =
+            error instanceof Error && error.message ? error.message : 'Return types could not be loaded. Please try again.';
+          this.returnTypesError.set(message);
+          this.returnTypesStatus.set('error');
+          this.toast.showError(message);
+        },
+      });
   }
 
   protected loadReturnReasons(): void {
@@ -256,17 +573,86 @@ export class ShipmentTrackingPage {
   }
 
   protected setReturnDetails(event: Event): void {
-    this.returnDetails.set((event.target as HTMLTextAreaElement).value.slice(0, 500));
+    this.returnDetails.set((event.target as HTMLTextAreaElement).value.slice(0, RETURN_DESCRIPTION_MAX_LENGTH));
   }
 
+  /**
+   * Submit: the Product, the Return Type and the reason are required, and the Refund Method for a refund. POST
+   * return_request then sends `{ ORDER_NUMBER, ORDER_ID, REASON_ID, RETURN_DESCRIPTION, RETURN_OPTION, PRODUCT_ID,
+   * VARIANT_ID, SELLER_ID, PICKUP_ADDRESS_ID, REFUND_METHOD }` for the chosen product only, one request at a time:
+   * ORDER_ID, PRODUCT_ID and VARIANT_ID (PRODUCT_VARIANT_ID) are the chosen product's (return_dropdown); SELLER_ID and
+   * PICKUP_ADDRESS_ID (DELIVERY_ADDRESS_ID) come from that product's own tracking row; RETURN_OPTION is the chosen
+   * Return Type (RETURN_STATUS_ID), REASON_ID the chosen reason, and REFUND_METHOD the chosen REFUND_METHOD_ID (null
+   * for a replacement). A product without a tracking row, seller or pickup address is not sent. On success the dialog
+   * closes, a toast and the page confirm the request with the status the API gave it, that product is not offered
+   * again, and the tracking details are read again (the order's status may have changed). On failure the dialog stays
+   * open with the reason.
+   */
+  // CHANGED: sends the request (it only showed a notice).
+  // CHANGED: the chosen return_dropdown product's ORDER_ID, PRODUCT_ID and VARIANT_ID, and REFUND_METHOD.
   protected submitReturnRequest(event: Event): void {
     event.preventDefault();
-    if (!this.returnReason()) {
-      this.returnReasonError.set(true);
+    if (this.submittingReturn()) return;
+    const product = this.selectedReturn();
+    const typeId = this.returnType();
+    const reasonId = this.returnReason();
+    const refund = this.isRefund();
+    const refundMethodId = refund ? this.refundMethod() : null;
+    this.returnProductError.set(product === null);
+    this.returnTypeError.set(typeId === null);
+    this.refundMethodError.set(refund && refundMethodId === null);
+    this.returnReasonError.set(reasonId === null);
+    const orderNumber = this.orderNumber();
+    if (!product || typeId === null || (refund && refundMethodId === null) || reasonId === null || !orderNumber) return;
+    const item = this.returnItem();
+    if (!item || item.sellerId === undefined) {
+      this.returnSubmitError.set('This product could not be identified, so it cannot be returned here. Please refresh the page and try again.');
       return;
     }
-    this.notice.set('Your cancel / return request has been submitted for review.');
-    this.closeReturnRequest();
+    // The product was delivered there, so it is picked up there.
+    const pickupAddressId = item.deliveryAddressId;
+    if (pickupAddressId === undefined) {
+      this.returnSubmitError.set('The pickup address of this order could not be found, so it cannot be returned here.');
+      return;
+    }
+
+    const typeLabel = shippingStatusLabel(this.returnTypes().find((type) => type.id === typeId)?.label ?? '');
+    const reasonLabel = this.returnReasons().find((reason) => reason.REASON_ID === reasonId)?.REASON ?? '';
+    const refundMethodLabel = this.refundMethods().find((method) => method.id === refundMethodId)?.label ?? '';
+    this.submittingReturn.set(true);
+    this.returnSubmitError.set('');
+    this.orders
+      .createReturnRequest({
+        ORDER_NUMBER: this.shipment()?.orderId || orderNumber,
+        ORDER_ID: product.orderId,
+        REASON_ID: reasonId,
+        RETURN_DESCRIPTION: this.returnDetails(),
+        RETURN_OPTION: typeId,
+        PRODUCT_ID: product.productId,
+        VARIANT_ID: product.variantId,
+        SELLER_ID: item.sellerId,
+        PICKUP_ADDRESS_ID: pickupAddressId,
+        REFUND_METHOD: refundMethodId,
+      })
+      .pipe(
+        finalize(() => this.submittingReturn.set(false)),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe({
+        next: (result) => {
+          this.requestedReturns.update((requested) => new Set(requested).add(`${orderNumber}|${productLineKey(product)}`));
+          this.submittedReturn.set({ orderNumber, result, productName: product.name, typeLabel, reasonLabel, refundMethodLabel });
+          this.toast.showSuccess(result.message);
+          this.submittingReturn.set(false);
+          this.closeReturnRequest();
+          this.refreshTracking();
+        },
+        error: (error: unknown) => {
+          const message = this.orders.returnRequestErrorMessage(error);
+          this.returnSubmitError.set(message);
+          this.toast.showError(message);
+        },
+      });
   }
 
   protected async copyTrackingNo(): Promise<void> {

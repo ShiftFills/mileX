@@ -3,7 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { API_BASE_URL } from '@core/config/api.config';
-import { ShipmentTracking } from '@shared/models';
+import { ReturnRequestsPage, ShipmentTracking } from '@shared/models';
 import {
   OrderService,
   SHIPMENT_STEPS,
@@ -55,7 +55,12 @@ describe('shipment tracking mapping', () => {
       carrier: { name: 'BlueDart', code: 'BLU', color: '#e63946', trackingNo: 'TRK001', siteUrl: 'https://www.bluedart.com/tracking' },
       scheduleStatus: 'On schedule',
       onSchedule: true,
-      items: [{ name: 'Wireless Mosue', sku: 'SKU0017', quantity: 4, price: 56666, tone: 'accent' }],
+      // CHANGED: with the row's own IDs (a return request sends them): ORDER_ID, PRODUCT_ID, SHIPPING_ID and
+      // DELIVERY_ADDRESS_ID.
+      items: [{
+        orderId: 33, productId: 17, shippingId: 1, deliveryAddressId: 1,
+        name: 'Wireless Mosue', sku: 'SKU0017', quantity: 4, price: 56666, tone: 'accent',
+      }],
       address: {
         name: 'pooja',
         phone: '9876543210',
@@ -65,11 +70,36 @@ describe('shipment tracking mapping', () => {
       // TOTAL_AMOUNT − (SUBTOTAL + TAX − DISCOUNT) = 50 is the shipping.
       totals: { subtotal: 226664, discount: 0, tax: 0, shipping: 50, total: 226714 },
     });
+    // CHANGED (new): this sample row has no PRODUCT_VARIANT_ID or SELLER_ID.
+    expect(shipment.items[0].variantId).toBeUndefined();
+    expect(shipment.items[0].sellerId).toBeUndefined();
     // Nothing the API does not send.
     expect(shipment.currentLocation).toBeUndefined();
     expect(shipment.distanceKm).toBeUndefined();
     expect(shipment.route).toBeUndefined();
     expect(shipment.payment).toBeUndefined();
+  });
+
+  // CHANGED (new): each product keeps its own row's IDs (the documented tracking row has PRODUCT_VARIANT_ID and
+  // SELLER_ID), so a return request never mixes the IDs of two products.
+  it('keeps each row\'s own IDs on its item (a null PRODUCT_VARIANT_ID: ordered without a variant)', () => {
+    const shipment = mapShipmentTracking([
+      trackingRow({ PRODUCT_VARIANT_ID: 13, SELLER_ID: 24 }),
+      trackingRow({
+        ORDER_ID: 30, PRODUCT_ID: 16, PRODUCT_VARIANT_ID: 25, SELLER_ID: 49, SHIPPING_ID: 5, DELIVERY_ADDRESS_ID: 10,
+      }),
+      trackingRow({ PRODUCT_ID: 18, PRODUCT_VARIANT_ID: null, SELLER_ID: '25' }),
+      trackingRow({ PRODUCT_ID: 19, PRODUCT_VARIANT_ID: 'n/a', SELLER_ID: 0, SHIPPING_ID: null }),
+    ], 'ORD0016') as ShipmentTracking;
+
+    expect(shipment.items.map(({ orderId, productId, variantId, sellerId, shippingId, deliveryAddressId }) => ({
+      orderId, productId, variantId, sellerId, shippingId, deliveryAddressId,
+    }))).toEqual([
+      { orderId: 33, productId: 17, variantId: 13, sellerId: 24, shippingId: 1, deliveryAddressId: 1 },
+      { orderId: 30, productId: 16, variantId: 25, sellerId: 49, shippingId: 5, deliveryAddressId: 10 },
+      { orderId: 33, productId: 18, variantId: null, sellerId: 25, shippingId: 1, deliveryAddressId: 1 },
+      { orderId: 33, productId: 19, variantId: undefined, sellerId: undefined, shippingId: undefined, deliveryAddressId: 1 },
+    ]);
   });
 
   it('shows no expected delivery for the impossible EXPECTED_DELIVERY_DATE "2026-11-31"', () => {
@@ -603,6 +633,204 @@ describe('OrderService', () => {
     ]);
   });
 
+  // CHANGED (new): the Cancel / Return Item dialog's Return Type and request.
+  describe('return requests', () => {
+    const SHIPPING_STATUSES_URL = 'https://api.example.test/api/shipping_status/get';
+    const RETURN_REQUEST_URL = 'https://api.example.test/api/return_request';
+
+    // CHANGED: the return types come from return_status, by RETURN_STATUS_ID (they were the RETURN/… shipping statuses).
+    it('offers the RETURN/… return statuses as return types, by RETURN_STATUS_ID and RETURN_STATUS_NAME', () => {
+      let types: unknown;
+      service.getReturnTypes().subscribe((result) => (types = result));
+
+      http
+        .expectOne(
+          (candidate) =>
+            candidate.url === 'https://api.example.test/api/return_status' &&
+            candidate.params.get('RETURN_STATUS_ID') === '-1' &&
+            candidate.params.get('LIMIT') === '10' &&
+            candidate.params.get('OFFSET') === '0',
+        )
+        .flush({
+          STATUS: 'SUCCESS',
+          MESSAGE: 'Return status retrieved successfully',
+          DATA: [
+            { RETURN_STATUS_ID: 1, RETURN_STATUS_NAME: 'RETURN/REPLACE', CREATED_AT: '2026-11-26T12:03:32.000Z' },
+            { RETURN_STATUS_ID: 2, RETURN_STATUS_NAME: 'RETURN/REFUND', CREATED_AT: '2026-11-26T12:03:32.000Z' },
+            // Not a return type the customer chooses.
+            { RETURN_STATUS_ID: 6, RETURN_STATUS_NAME: 'PENDING', CREATED_AT: '2026-11-26T12:03:32.000Z' },
+          ],
+        });
+
+      expect(types).toEqual([{ id: 1, label: 'RETURN/REPLACE' }, { id: 2, label: 'RETURN/REFUND' }]);
+      http.expectNone(SHIPPING_STATUSES_URL);
+    });
+
+    /** The backend contract's sample body. */
+    // CHANGED: with ORDER_ID and REFUND_METHOD.
+    const VALID = {
+      ORDER_NUMBER: 'ORD0014', ORDER_ID: 30, REASON_ID: 1, RETURN_DESCRIPTION: 'Product damaged', RETURN_OPTION: 2,
+      PRODUCT_ID: 16, VARIANT_ID: 25, SELLER_ID: 49, PICKUP_ADDRESS_ID: 1, REFUND_METHOD: 3,
+    };
+
+    // CHANGED: the backend contract's full body, with ORDER_ID and REFUND_METHOD.
+    it('POSTs the full return request body (trimmed) and maps the created request', () => {
+      let result: unknown;
+      service
+        .createReturnRequest({ ...VALID, ORDER_NUMBER: ' ORD0014 ', RETURN_DESCRIPTION: ' Product damaged ' })
+        .subscribe((created) => (result = created));
+
+      const request = http.expectOne(RETURN_REQUEST_URL);
+      expect(request.request.method).toBe('POST');
+      expect(request.request.body).toEqual({
+        ORDER_NUMBER: 'ORD0014', ORDER_ID: 30, REASON_ID: 1, RETURN_DESCRIPTION: 'Product damaged', RETURN_OPTION: 2,
+        PRODUCT_ID: 16, VARIANT_ID: 25, SELLER_ID: 49, PICKUP_ADDRESS_ID: 1, REFUND_METHOD: 3,
+      });
+      request.flush({
+        STATUS: 'SUCCESS', ORDER_NUMBER: 'ORD0001', RETURN_REASON_ID: 2, RETURN_REASON: 'Poor product quality',
+        RETURN_REQUEST_COUNT: 1, RETURN_STATUS_ID: 6, RETURN_STATUS_NAME: 'PENDING',
+      });
+
+      expect(result).toEqual({
+        orderNumber: 'ORD0001', reasonId: 2, reason: 'Poor product quality', requestCount: 1, statusId: 6,
+        statusName: 'PENDING', message: 'Your return request has been submitted.',
+      });
+    });
+
+    it('reports a failure the body sends, and the API message of an HTTP error', () => {
+      const payload = { ...VALID, RETURN_DESCRIPTION: '' };
+      let error: unknown;
+      service.createReturnRequest(payload).subscribe({ error: (value: unknown) => (error = value) });
+      http.expectOne(RETURN_REQUEST_URL).flush({ STATUS: 'FAILED', message: 'Order is not eligible for return' });
+      expect(service.returnRequestErrorMessage(error)).toBe('Order is not eligible for return');
+
+      service.createReturnRequest(payload).subscribe({ error: (value: unknown) => (error = value) });
+      http.expectOne(RETURN_REQUEST_URL).flush({ message: 'Access token is required' }, { status: 401, statusText: 'Unauthorized' });
+      expect(service.returnRequestErrorMessage(error)).toBe('Access token is required');
+
+      service.createReturnRequest(payload).subscribe({ error: (value: unknown) => (error = value) });
+      http.expectOne(RETURN_REQUEST_URL).flush('', { status: 500, statusText: 'Server Error' });
+      expect(service.returnRequestErrorMessage(error)).toBe(
+        'The return request could not be submitted. Please try again. (HTTP 500)',
+      );
+    });
+
+    // CHANGED: also REFUND_METHOD null (a replacement).
+    it('sends VARIANT_ID null for a product ordered without a variant, and REFUND_METHOD null for a replacement', () => {
+      service.createReturnRequest({ ...VALID, VARIANT_ID: null, REFUND_METHOD: null }).subscribe();
+      const request = http.expectOne(RETURN_REQUEST_URL);
+      expect(request.request.body).toMatchObject({ PRODUCT_ID: 16, VARIANT_ID: null, REFUND_METHOD: null });
+      request.flush({ STATUS: 'SUCCESS' });
+    });
+
+    // CHANGED: also ORDER_ID and REFUND_METHOD.
+    it('refuses a request with a missing ID or over-long details before sending it', () => {
+      const messages: string[] = [];
+      const collect = { error: (error: Error) => messages.push(error.message) };
+      for (const invalid of [
+        { ORDER_NUMBER: '  ' },
+        { ORDER_ID: 0 },
+        { PRODUCT_ID: 0 },
+        { VARIANT_ID: -1 },
+        { SELLER_ID: 0 },
+        { PICKUP_ADDRESS_ID: 0 },
+        { RETURN_OPTION: 0 },
+        { REASON_ID: 0 },
+        { REFUND_METHOD: 0 },
+        { RETURN_DESCRIPTION: 'x'.repeat(501) },
+      ]) {
+        service.createReturnRequest({ ...VALID, ...invalid }).subscribe(collect);
+      }
+
+      expect(messages).toEqual([
+        'Order number is required.',
+        'The product to return could not be identified. Please refresh the page and try again.',
+        'The product to return could not be identified. Please refresh the page and try again.',
+        'The product to return could not be identified. Please refresh the page and try again.',
+        'The seller of this product could not be found, so it cannot be returned here.',
+        'The pickup address of this order could not be found, so it cannot be returned here.',
+        'Select refund or replacement to continue.',
+        'Select a reason to continue.',
+        'Select a refund method to continue.',
+        'Additional details must be 500 characters or fewer.',
+      ]);
+      http.expectNone(RETURN_REQUEST_URL);
+    });
+
+    // CHANGED (new): the Cancel / Return Item dialog's Product (return_dropdown).
+    it('loads the order\'s products to return by ORDER_NUMBER, with each product\'s order line IDs', () => {
+      let products: unknown;
+      service.getReturnProducts(' ORD0014 ').subscribe((result) => (products = result));
+
+      const request = http.expectOne(
+        (candidate) =>
+          candidate.url === 'https://api.example.test/api/return_dropdown' &&
+          candidate.params.get('ORDER_NUMBER') === 'ORD0014' &&
+          candidate.params.get('LIMIT') === '10' &&
+          candidate.params.get('OFFSET') === '0',
+      );
+      request.flush({
+        STATUS: 'SUCCESS',
+        MESSAGE: 'Return request dropdown retrieved successfully',
+        DATA: [
+          { ORDER_ID: 30, ORDER_NUMBER: 'ORD0014', PRODUCT_ID: 16, PRODUCT_VARIANT_ID: 25, PRODUCT_NAME: 'Lenovo IdeaPad Slim 57' },
+          { ORDER_ID: 29, ORDER_NUMBER: 'ORD0014', PRODUCT_ID: 19, PRODUCT_VARIANT_ID: 31, PRODUCT_NAME: 'Ear Buds' },
+          { ORDER_ID: 28, ORDER_NUMBER: 'ORD0014', PRODUCT_ID: 20, PRODUCT_VARIANT_ID: null, PRODUCT_NAME: 'Charger' },
+          // Left out: a repeated row, another order's row, and rows that cannot be identified.
+          { ORDER_ID: 30, ORDER_NUMBER: 'ORD0014', PRODUCT_ID: 16, PRODUCT_VARIANT_ID: 25, PRODUCT_NAME: 'Lenovo IdeaPad Slim 57' },
+          { ORDER_ID: 40, ORDER_NUMBER: 'ORD0099', PRODUCT_ID: 5, PRODUCT_VARIANT_ID: 2, PRODUCT_NAME: 'Other order' },
+          { ORDER_NUMBER: 'ORD0014', PRODUCT_ID: 6, PRODUCT_VARIANT_ID: 2, PRODUCT_NAME: 'No order line' },
+          { ORDER_ID: 41, ORDER_NUMBER: 'ORD0014', PRODUCT_ID: 7, PRODUCT_NAME: 'No variant field' },
+        ],
+      });
+
+      expect(products).toEqual([
+        { orderId: 30, orderNumber: 'ORD0014', productId: 16, variantId: 25, name: 'Lenovo IdeaPad Slim 57' },
+        { orderId: 29, orderNumber: 'ORD0014', productId: 19, variantId: 31, name: 'Ear Buds' },
+        { orderId: 28, orderNumber: 'ORD0014', productId: 20, variantId: null, name: 'Charger' },
+      ]);
+    });
+
+    it('reports a failed products response and needs an order number', () => {
+      let error: unknown;
+      service.getReturnProducts('ORD0014').subscribe({ error: (value: unknown) => (error = value) });
+      http
+        .expectOne((candidate) => candidate.url.endsWith('/return_dropdown'))
+        .flush({ STATUS: 'FAILED', MESSAGE: 'Order not found' });
+      expect(error).toEqual(new Error('Order not found'));
+
+      service.getReturnProducts('  ').subscribe({ error: (value: unknown) => (error = value) });
+      expect(error).toEqual(new RangeError('Order number is required.'));
+      http.expectNone((candidate) => candidate.url.endsWith('/return_dropdown'));
+    });
+
+    // CHANGED (new): the Cancel / Return Item dialog's Refund Method (refund_method).
+    it('loads only the active refund methods, by REFUND_METHOD_ID and REFUND_METHOD_NAME', () => {
+      let methods: unknown;
+      service.getRefundMethods().subscribe((result) => (methods = result));
+
+      http
+        .expectOne(
+          (candidate) =>
+            candidate.url === 'https://api.example.test/api/refund_method' &&
+            candidate.params.get('REFUND_METHOD_ID') === '-1' &&
+            candidate.params.get('LIMIT') === '10' &&
+            candidate.params.get('OFFSET') === '0',
+        )
+        .flush({
+          STATUS: 'SUCCESS',
+          MESSAGE: 'Refund methods fetched successfully',
+          DATA: [
+            { REFUND_METHOD_ID: 3, REFUND_METHOD_NAME: 'Wallet', IS_ACTIVE: 'ACTIVE' },
+            { REFUND_METHOD_ID: 2, REFUND_METHOD_NAME: 'UPI', IS_ACTIVE: 'ACTIVE' },
+            { REFUND_METHOD_ID: 1, REFUND_METHOD_NAME: 'Bank Transfer', IS_ACTIVE: 'INACTIVE' },
+          ],
+        });
+
+      expect(methods).toEqual([{ id: 3, label: 'Wallet' }, { id: 2, label: 'UPI' }]);
+    });
+  });
+
   it('loads order statuses with pagination when requested by the return listing', () => {
     let result: unknown;
     service.getOrderStatuses(10, 0).subscribe((options) => (result = options));
@@ -720,6 +948,8 @@ describe('OrderService', () => {
           variantId: 3,
           status: 'PENDING',
           createdAt: '2026-11-16T02:45:11.000Z',
+          // CHANGED (new): not sent by this response.
+          statusId: null, reasonId: null, returnOptionId: null, returnOptionName: null, sellerName: null,
         },
         {
           returnId: 3,
@@ -740,9 +970,24 @@ describe('OrderService', () => {
           variantId: null,
           status: null,
           createdAt: null,
+          statusId: null, reasonId: null, returnOptionId: null, returnOptionName: null, sellerName: null,
         },
       ],
     });
+  });
+
+  // CHANGED (new): the return_request APIs answer in upper case (STATUS, MESSAGE, …).
+  it('reads an upper-case return requests envelope (STATUS, TOTAL_RECORDS, DATA)', () => {
+    let result: { totalRecords: number; requests: { returnId: number }[] } | undefined;
+    service
+      .getReturnRequests({ DAYS: 7, RETURN_STATUS: -1, RETURN_REASON: -1, LIMIT: 10, OFFSET: 0 })
+      .subscribe((page) => (result = page));
+    http
+      .expectOne((candidate) => candidate.url === 'https://api.example.test/api/return_request/get')
+      .flush({ STATUS: 'SUCCESS', MESSAGE: 'Return requests fetched', TOTAL_RECORDS: '1', DATA: [{ RETURN_ID: 9 }] });
+
+    expect(result?.totalRecords).toBe(1);
+    expect(result?.requests.map((request) => request.returnId)).toEqual([9]);
   });
 
   // CHANGED (new): Seller login sends only SELLER_ID and paging to the same endpoint.
@@ -786,7 +1031,8 @@ describe('OrderService', () => {
 
     expect(result?.totalRecords).toBe(2);
     expect(result?.requests).toHaveLength(1);
-    expect(result?.requests[0]).toMatchObject({ returnId: 2, sellerId: 1, status: '6' });
+    // CHANGED: the status name (RETURN_STATUS_NAME) with its ID (RETURN_STATUS); it was the ID '6' alone.
+    expect(result?.requests[0]).toMatchObject({ returnId: 2, sellerId: 1, status: 'PENDING', statusId: 6 });
   });
 
   it('rejects an invalid SELLER_ID or paging before requesting seller return requests', () => {
@@ -796,44 +1042,102 @@ describe('OrderService', () => {
     http.expectNone((request) => request.url.endsWith('/return_request/get'));
   });
 
-  it('updates return requests with the supplied approval or rejection status', () => {
-    let approvalMessage: string | undefined;
+  // CHANGED: Approve / Reject send { RETURN_ID, RETURN_STATUS, ACTION } with the current status ID and APPROVE /
+  // REJECT (updateReturnRequestStatus, which sent RETURN_STATUS 'APPROVED' / 'REJECTED', is removed).
+  it('reviews a return request with PUT { RETURN_ID, RETURN_STATUS, ACTION }', () => {
+    let message: string | undefined;
     service
-      .updateReturnRequestStatus({ RETURN_ID: 1, RETURN_STATUS: 'APPROVED' })
-      .subscribe((message) => (approvalMessage = message));
+      .reviewReturnRequest({ RETURN_ID: 3, RETURN_STATUS: 6, ACTION: 'APPROVED' })
+      .subscribe((result) => (message = result));
 
     const approval = http.expectOne('https://api.example.test/api/return_request/update');
     expect(approval.request.method).toBe('PUT');
-    expect(approval.request.body).toEqual({ RETURN_ID: 1, RETURN_STATUS: 'APPROVED' });
-    approval.flush({ success: true, message: 'Return request approved.' });
-    expect(approvalMessage).toBe('Return request approved.');
+    expect(approval.request.body).toEqual({ RETURN_ID: 3, RETURN_STATUS: 6, ACTION: 'APPROVED' });
+    approval.flush({ STATUS: 'SUCCESS', MESSAGE: 'Return request approved' });
+    expect(message).toBe('Return request approved');
 
-    let rejectionMessage: string | undefined;
     service
-      .updateReturnRequestStatus({ RETURN_ID: 7, RETURN_STATUS: 'REJECTED' })
-      .subscribe((message) => (rejectionMessage = message));
-
+      .reviewReturnRequest({ RETURN_ID: 3, RETURN_STATUS: 6, ACTION: 'REJECTED' })
+      .subscribe((result) => (message = result));
     const rejection = http.expectOne('https://api.example.test/api/return_request/update');
-    expect(rejection.request.method).toBe('PUT');
-    expect(rejection.request.body).toEqual({ RETURN_ID: 7, RETURN_STATUS: 'REJECTED' });
-    rejection.flush({ success: true, message: 'Return request rejected.' });
-    expect(rejectionMessage).toBe('Return request rejected.');
+    expect(rejection.request.body).toEqual({ RETURN_ID: 3, RETURN_STATUS: 6, ACTION: 'REJECTED' });
+    rejection.flush({ success: true });
+    expect(message).toBe('Return request rejection completed successfully.');
+
+    // CHANGED (new): a status-only update sends ACTION null.
+    service
+      .reviewReturnRequest({ RETURN_ID: 24, RETURN_STATUS: 9, ACTION: null })
+      .subscribe((result) => (message = result));
+    const statusOnly = http.expectOne('https://api.example.test/api/return_request/update');
+    expect(statusOnly.request.body).toEqual({ RETURN_ID: 24, RETURN_STATUS: 9, ACTION: null });
+    statusOnly.flush({ success: true });
+    expect(message).toBe('Return request status update completed successfully.');
   });
 
-  it('surfaces unsuccessful return request update responses and rejects invalid IDs', () => {
+  it('surfaces unsuccessful reviews and refuses an invalid ID or action without a request', () => {
     let error: unknown;
     service
-      .updateReturnRequestStatus({ RETURN_ID: 1, RETURN_STATUS: 'REJECTED' })
+      .reviewReturnRequest({ RETURN_ID: 1, RETURN_STATUS: 6, ACTION: 'REJECTED' })
       .subscribe({ error: (caught: unknown) => (error = caught) });
     http
       .expectOne('https://api.example.test/api/return_request/update')
-      .flush({ success: false, message: 'The return request could not be rejected.' });
+      .flush({ STATUS: 'ERROR', MESSAGE: 'Return request is not pending' });
+    expect(error).toEqual(new Error('Return request is not pending'));
 
-    expect(error).toEqual(new Error('The return request could not be rejected.'));
-    expect(() =>
-      service.updateReturnRequestStatus({ RETURN_ID: 0, RETURN_STATUS: 'APPROVED' }),
-    ).toThrowError(RangeError);
+    service
+      .reviewReturnRequest({ RETURN_ID: 1, RETURN_STATUS: 6, ACTION: 'APPROVED' })
+      .subscribe({ error: (caught: unknown) => (error = caught) });
+    http.expectOne('https://api.example.test/api/return_request/update').flush('', { status: 500, statusText: 'Server Error' });
+    expect(service.returnReviewErrorMessage(error, 'APPROVED')).toBe('Return request approval failed. (HTTP 500)');
+    // CHANGED (new)
+    expect(service.returnReviewErrorMessage(error, null)).toBe('Return request status update failed. (HTTP 500)');
+
+    const errors: unknown[] = [];
+    const collect = { error: (caught: unknown) => errors.push(caught) };
+    service.reviewReturnRequest({ RETURN_ID: 0, RETURN_STATUS: 6, ACTION: 'APPROVED' }).subscribe(collect);
+    service.reviewReturnRequest({ RETURN_ID: 1, RETURN_STATUS: -1, ACTION: 'APPROVED' }).subscribe(collect);
+    service
+      .reviewReturnRequest({ RETURN_ID: 1, RETURN_STATUS: 6, ACTION: 'PENDING' as 'APPROVED' })
+      .subscribe(collect);
+    expect(errors.map((caught) => (caught as Error).message)).toEqual([
+      'Return ID must be a positive safe integer.',
+      'Return status must be a positive status ID.',
+      'Action must be APPROVED, REJECTED or null.',
+    ]);
     http.expectNone((request) => request.url.endsWith('/return_request/update'));
+  });
+
+  // CHANGED (new): the Admin screen's IDs, when the API sends them.
+  it('maps the return status, reason and return option IDs and the seller name of a request', () => {
+    let result: ReturnRequestsPage | undefined;
+    service
+      .getReturnRequests({ DAYS: 30, RETURN_STATUS: -1, RETURN_REASON: -1, LIMIT: 10, OFFSET: 0 })
+      .subscribe((page) => (result = page));
+    http.expectOne((candidate) => candidate.url === 'https://api.example.test/api/return_request/get').flush({
+      STATUS: 'SUCCESS',
+      TOTAL_RECORDS: 3,
+      DATA: [
+        {
+          RETURN_ID: 3, RETURN_STATUS_ID: 6, RETURN_STATUS_NAME: 'PENDING', RETURN_STATUS: 6, RETURN_REASON_ID: 2,
+          RETURN_REASON: 'Poor product quality', RETURN_OPTION: 27, RETURN_OPTION_NAME: 'RETURN/REPLACE', SELLER_ID: 49,
+          SELLER_NAME: 'Lenovo Store',
+        },
+        { RETURN_ID: 4, RETURN_STATUS: '25', REASON_ID: '19', RETURN_OPTION: '28', BUSINESS_NAME: 'Acme Traders' },
+        { RETURN_ID: 5, RETURN_STATUS: 'APPROVED' },
+      ],
+    });
+
+    const ids = result?.requests.map(({ returnId, status, statusId, reasonId, returnOptionId, returnOptionName, sellerName }) => ({
+      returnId, status, statusId, reasonId, returnOptionId, returnOptionName, sellerName,
+    }));
+    expect(ids).toEqual([
+      {
+        returnId: 3, status: 'PENDING', statusId: 6, reasonId: 2, returnOptionId: 27, returnOptionName: 'RETURN/REPLACE',
+        sellerName: 'Lenovo Store',
+      },
+      { returnId: 4, status: '25', statusId: 25, reasonId: 19, returnOptionId: 28, returnOptionName: null, sellerName: 'Acme Traders' },
+      { returnId: 5, status: 'APPROVED', statusId: null, reasonId: null, returnOptionId: null, returnOptionName: null, sellerName: null },
+    ]);
   });
 
     it('resolves return image file names to upload URLs', () => {
@@ -953,6 +1257,46 @@ describe('OrderService', () => {
       { id: 2, label: 'NOT SHIPPED' },
       { id: 1, label: 'SHIPPED' },
     ]);
+  });
+
+  // CHANGED (new): the Return Request Review's Return status options.
+  it('loads the return statuses with RETURN_STATUS_ID=-1 and paging, by RETURN_STATUS_ID and RETURN_STATUS_NAME', () => {
+    let returnStatuses: unknown;
+    service.getReturnStatuses().subscribe((options) => (returnStatuses = options));
+
+    http
+      .expectOne(
+        (request) =>
+          request.url === 'https://api.example.test/api/return_status' &&
+          request.params.get('RETURN_STATUS_ID') === '-1' &&
+          request.params.get('LIMIT') === '10' &&
+          request.params.get('OFFSET') === '0',
+      )
+      .flush({
+        STATUS: 'SUCCESS',
+        MESSAGE: 'Return status retrieved successfully',
+        DATA: [
+          { RETURN_STATUS_ID: 1, RETURN_STATUS_NAME: 'RETURN/REPLACE', CREATED_AT: '2026-11-26T12:03:32.000Z' },
+          { RETURN_STATUS_ID: 2, RETURN_STATUS_NAME: 'RETURN/REFUND', CREATED_AT: '2026-11-26T12:03:32.000Z' },
+        ],
+      });
+
+    expect(returnStatuses).toEqual([
+      { id: 1, label: 'RETURN/REPLACE' },
+      { id: 2, label: 'RETURN/REFUND' },
+    ]);
+  });
+
+  it('reports a failed return status response, and refuses invalid paging without a request', () => {
+    let error: unknown;
+    service.getReturnStatuses().subscribe({ error: (result: unknown) => (error = result) });
+    http
+      .expectOne((request) => request.url.endsWith('/return_status'))
+      .flush({ STATUS: 'FAILED', MESSAGE: 'Return statuses unavailable.' });
+    expect(error).toEqual(new Error('Return statuses unavailable.'));
+
+    expect(() => service.getReturnStatuses(0, 0)).toThrow('Return status page size must be a positive safe integer.');
+    http.expectNone((request) => request.url.endsWith('/return_status'));
   });
 
   it('reports a failed status lookup response without affecting other lookups', () => {

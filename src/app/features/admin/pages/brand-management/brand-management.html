@@ -1,0 +1,369 @@
+<!-- CHANGED (new): Admin Brand Management. -->
+<main class="admin-content admin-list-page">
+  <app-page-heading heading="Brand Management" subtitle="Manage product brands and the categories they are sold in.">
+    <app-button class="brand-add" variant="accent" size="small" (clicked)="openAdd($event.currentTarget)">
+      <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
+      Add Brand
+    </app-button>
+  </app-page-heading>
+
+  <section appCard class="admin-list-panel" aria-label="Brands">
+    <div class="d-flex flex-column flex-lg-row align-items-lg-start justify-content-between gap-2 gap-lg-3 py-2">
+      <label class="admin-list-search">
+        <img src="/images/search-icon.svg" alt="" aria-hidden="true" />
+        <app-input class="admin-list-search-control" inputId="brand-search" name="brandSearch"
+          placeholder="Search this page by name, ID, category or description…" size="compact" [value]="query()"
+          (valueInput)="setQuery($event)" />
+        <span class="visually-hidden">Search brands on this page</span>
+      </label>
+      <div class="admin-list-filters brand-filters">
+        <div class="admin-list-filter-group admin-list-filter-group--wide">
+          <label class="visually-hidden" for="brand-category-filter">Filter by category</label>
+          <app-select inputId="brand-category-filter" name="brandCategoryFilter" size="compact" [value]="categoryFilter()"
+            [disabled]="categoryLookup().status !== 'success'" (valueChange)="setCategoryFilter($event)">
+            <option value="" [selected]="!categoryFilter()">
+              {{ categoryLookup().status === 'loading' ? 'Loading categories…' : 'All categories' }}
+            </option>
+            @for (option of categoryLookup().options; track option.id) {
+              <option [value]="option.id" [selected]="option.id === categoryFilter()">{{ option.label }}</option>
+            }
+          </app-select>
+          @if (categoryLookup().status === 'error') {
+            <div class="admin-list-filter-error" role="alert">
+              <span>Categories could not be loaded.</span>
+              <button type="button" class="btn btn-link btn-sm" (click)="retryCategories()">Retry</button>
+            </div>
+          }
+        </div>
+        <div class="admin-list-filter-group admin-list-filter-group--wide">
+          <label class="visually-hidden" for="brand-subcategory-filter">Filter by subcategory</label>
+          <app-select inputId="brand-subcategory-filter" name="brandSubcategoryFilter" size="compact"
+            [value]="subCategoryFilter()" [disabled]="!categoryFilter() || filterSubcategories().status !== 'success'"
+            (valueChange)="setSubCategoryFilter($event)">
+            <option value="" [selected]="!subCategoryFilter()">
+              {{ categoryFilter() && filterSubcategories().status === 'loading' ? 'Loading subcategories…' : 'All subcategories' }}
+            </option>
+            @for (option of filterSubcategories().options; track option.id) {
+              <option [value]="option.id" [selected]="option.id === subCategoryFilter()">{{ option.label }}</option>
+            }
+          </app-select>
+          @if (categoryFilter() && filterSubcategories().status === 'error') {
+            <div class="admin-list-filter-error" role="alert">
+              <span>Subcategories could not be loaded.</span>
+              <button type="button" class="btn btn-link btn-sm" (click)="retrySubcategories(categoryFilter())">Retry</button>
+            </div>
+          }
+        </div>
+        <div class="admin-list-filter-group">
+          <label class="visually-hidden" for="brand-status-filter">Filter by status</label>
+          <app-select inputId="brand-status-filter" name="brandStatusFilter" size="compact" [value]="statusFilter()"
+            (valueChange)="setStatusFilter($event)">
+            <option value="all">All statuses</option>
+            <option value="ACTIVE">Active</option>
+            <option value="INACTIVE">Inactive</option>
+          </app-select>
+        </div>
+        @if (hasActiveFilters()) {
+          <button type="button" class="brand-clear-filters" (click)="clearFilters()">Clear filters</button>
+        }
+      </div>
+    </div>
+    <p class="brand-filter-note">
+      Category and subcategory filters apply to all brands; search and status refine the brands on this page.
+    </p>
+
+    <ng-template #logoCell let-row>
+      @if (productImages.src(row.brand); as src) {
+        <img class="brand-logo" [src]="src" alt="" (error)="productImages.failed(row.brand, src)" />
+      } @else {
+        <span class="brand-logo brand-logo--empty" [class.is-loading]="productImages.loading(row.brand)" role="img"
+          [attr.aria-label]="(productImages.loading(row.brand) ? 'Loading logo of ' : 'No logo for ') + row.name">
+          {{ row.name.charAt(0).toUpperCase() }}
+        </span>
+      }
+    </ng-template>
+    <ng-template #nameCell let-row>
+      <div class="brand-name">
+        <span class="brand-name__text">{{ row.name }}</span>
+        <small class="brand-name__id">ID {{ row.id }}</small>
+      </div>
+    </ng-template>
+    <ng-template #descriptionCell let-row>
+      <span class="brand-description" [attr.title]="row.brand.description || null">{{ row.description }}</span>
+    </ng-template>
+    <ng-template #statusCell let-row>
+      <app-badge [tone]="row.status === 'ACTIVE' ? 'success' : 'neutral'" size="compact">{{ row.statusLabel }}</app-badge>
+    </ng-template>
+    <ng-template #actionsCell let-row>
+      <div class="brand-actions">
+        <button type="button" class="brand-icon-button" [attr.aria-label]="'View ' + row.name" title="View"
+          (click)="openView(row, $event.currentTarget)">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z" /><circle cx="8" cy="8" r="2" /></svg>
+        </button>
+        <button type="button" class="brand-icon-button" [attr.aria-label]="'Edit ' + row.name" title="Edit"
+          (click)="openEdit(row, $event.currentTarget)">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10.8 2.7a1.6 1.6 0 0 1 2.3 2.3L5.6 12.5l-3 .8.8-3z" /><path d="m9.7 3.8 2.3 2.3" /></svg>
+        </button>
+        <button type="button" class="brand-icon-button brand-icon-button--danger" [attr.aria-label]="'Delete ' + row.name"
+          title="Delete" (click)="openDelete(row, $event.currentTarget)">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8h5.8l.6-8M6.8 7v3.5M9.2 7v3.5" /></svg>
+        </button>
+      </div>
+    </ng-template>
+
+    @if (loadStatus() === 'loading') {
+      <div class="d-flex justify-content-center align-items-center gap-2 py-4" role="status">
+        <app-loading-spinner /> Loading brands…
+      </div>
+    } @else if (loadStatus() === 'error') {
+      <div class="alert alert-danger d-flex justify-content-between align-items-center gap-3" role="alert">
+        <span>{{ loadError() }}</span>
+        <button type="button" class="btn btn-outline-danger btn-sm" (click)="retryLoad()">Try again</button>
+      </div>
+    } @else if (!brands().length && !hasServerFilters() && page() === 1) {
+      <div class="brand-empty">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.5 12.6V4.9a1.4 1.4 0 0 1 1.4-1.4h7.7l8 8a1.4 1.4 0 0 1 0 2l-5.7 5.7a1.4 1.4 0 0 1-2 0z" /><circle cx="8.2" cy="8.2" r="1.6" /></svg>
+        <h2>No brands yet</h2>
+        <p>Add a brand so sellers can list products under it.</p>
+        <app-button variant="accent" size="small" (clicked)="openAdd($event.currentTarget)">Add Brand</app-button>
+      </div>
+    } @else {
+      <app-table class="admin-list-table brand-table" ariaLabel="Brands" [columns]="tableColumns()" [rows]="visibleRows()"
+        [emptyMessage]="brands().length ? 'No brands on this page match the search or status.' : 'No brands match these filters.'" />
+      <app-pagination ariaLabel="Brand pages" itemLabel="brands" [page]="page()" [pageSize]="pageSize" [total]="pageTotal()"
+        [hasNext]="hasNextPage()" (pageChange)="setPage($event)" />
+    }
+  </section>
+</main>
+
+<!-- View (read only). -->
+@if (viewTarget(); as row) {
+  <app-dialog (closed)="closeView()">
+    <section #viewDialog class="brand-dialog brand-dialog--view" role="dialog" aria-modal="true"
+      aria-labelledby="brand-view-title" tabindex="-1" (click)="$event.stopPropagation()" (keydown.escape)="closeView()">
+      <header class="brand-dialog__heading">
+        <div>
+          <h2 id="brand-view-title">Brand Details</h2>
+          <p>{{ row.categoryLabel }} › {{ row.subCategoryLabel }}</p>
+        </div>
+        <button type="button" class="brand-dialog__close" aria-label="Close" (click)="closeView()">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m3.5 3.5 9 9M12.5 3.5l-9 9" /></svg>
+        </button>
+      </header>
+
+      <div class="brand-view">
+        <div class="brand-view__logo">
+          @if (productImages.src(row.brand); as src) {
+            <img [src]="src" [alt]="'Logo of ' + row.name" (error)="productImages.failed(row.brand, src)" />
+          } @else {
+            <span class="brand-upload__placeholder" [class.is-loading]="productImages.loading(row.brand)">
+              {{ productImages.loading(row.brand) ? 'Loading logo…' : row.brand.logo ? 'Logo unavailable' : 'No logo' }}
+            </span>
+          }
+        </div>
+        <div class="brand-view__summary">
+          <h3>{{ row.name }}</h3>
+          <app-badge [tone]="row.status === 'ACTIVE' ? 'success' : 'neutral'" size="compact">{{ row.statusLabel }}</app-badge>
+        </div>
+      </div>
+
+      <dl class="brand-view__details">
+        <div><dt>Brand ID</dt><dd>{{ row.id }}</dd></div>
+        <div><dt>Status</dt><dd>{{ row.statusLabel }}</dd></div>
+        <div><dt>Category</dt><dd>{{ row.categoryLabel }}</dd></div>
+        <div><dt>Subcategory</dt><dd>{{ row.subCategoryLabel }}</dd></div>
+        <div><dt>Created</dt><dd>{{ displayDate(row.brand.createdAt) }}</dd></div>
+        <div><dt>Last updated</dt><dd>{{ displayDate(row.brand.updatedAt) }}</dd></div>
+        <div class="brand-view__wide"><dt>Description</dt><dd>{{ row.brand.description || 'No description.' }}</dd></div>
+      </dl>
+
+      <footer class="brand-dialog__actions">
+        <app-button variant="outline" size="small" (clicked)="closeView()">Close</app-button>
+        <app-button variant="accent" size="small" (clicked)="editFromView(row)">Edit Brand</app-button>
+      </footer>
+    </section>
+  </app-dialog>
+}
+
+<!-- Add / Edit (one form). -->
+@if (dialogMode(); as mode) {
+  <app-dialog (closed)="closeForm()">
+    <section #formDialog class="brand-dialog" role="dialog" aria-modal="true" aria-labelledby="brand-form-title"
+      (click)="$event.stopPropagation()" (keydown.escape)="closeForm()">
+      <header class="brand-dialog__heading">
+        <div>
+          <h2 id="brand-form-title">{{ mode === 'add' ? 'Add Brand' : 'Edit Brand' }}</h2>
+          <p>{{ mode === 'add' ? 'Create a brand under a category and subcategory.' : 'Update the details of “' + (editing()?.name ?? '') + '”.' }}</p>
+        </div>
+        <button type="button" class="brand-dialog__close" aria-label="Close" [disabled]="saving()" (click)="closeForm()">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m3.5 3.5 9 9M12.5 3.5l-9 9" /></svg>
+        </button>
+      </header>
+
+      <form novalidate (submit)="$event.preventDefault(); save()">
+        <div class="brand-form">
+          <div class="brand-form__fields">
+            <div class="brand-field">
+              <label class="brand-field__label" for="brand-name">Brand name <b aria-hidden="true">*</b></label>
+              <app-input inputId="brand-name" name="brandName" size="compact" placeholder="e.g. Samsung"
+                [value]="form().name" [required]="true" [disabled]="saving()"
+                [ariaInvalid]="submitted() && nameError() ? true : null" ariaDescribedBy="brand-name-error"
+                (valueInput)="setField('name', $event)" />
+              @if (submitted() && nameError()) {
+                <p id="brand-name-error" class="brand-field__error" role="alert">{{ nameError() }}</p>
+              }
+            </div>
+
+            <div class="brand-form__row">
+              <div class="brand-field">
+                <label class="brand-field__label" for="brand-category">Category <b aria-hidden="true">*</b></label>
+                <app-select inputId="brand-category" name="brandCategory" size="compact" [value]="form().categoryId"
+                  [required]="true" [disabled]="saving() || categoryLookup().status === 'loading'"
+                  [ariaInvalid]="submitted() && categoryError() ? true : null" ariaDescribedBy="brand-category-error"
+                  (valueChange)="setField('categoryId', $event)">
+                  <option value="" disabled [selected]="!form().categoryId">
+                    {{ categoryLookup().status === 'loading' ? 'Loading categories…' : 'Select category' }}
+                  </option>
+                  @for (option of formCategoryOptions(); track option.id) {
+                    <option [value]="option.id" [selected]="option.id === form().categoryId">{{ option.label }}</option>
+                  }
+                </app-select>
+                @if (categoryLookup().status === 'error') {
+                  <p class="brand-field__error" role="alert">
+                    Categories could not be loaded.
+                    <button type="button" class="brand-field__retry" (click)="retryCategories()">Retry</button>
+                  </p>
+                } @else if (submitted() && categoryError()) {
+                  <p id="brand-category-error" class="brand-field__error" role="alert">{{ categoryError() }}</p>
+                }
+              </div>
+
+              <div class="brand-field">
+                <label class="brand-field__label" for="brand-subcategory">Subcategory <b aria-hidden="true">*</b></label>
+                <app-select inputId="brand-subcategory" name="brandSubcategory" size="compact" [value]="form().subCategoryId"
+                  [required]="true" [disabled]="saving() || !form().categoryId || formSubcategories().status === 'loading'"
+                  [ariaInvalid]="submitted() && subCategoryError() ? true : null" ariaDescribedBy="brand-subcategory-error"
+                  (valueChange)="setField('subCategoryId', $event)">
+                  <option value="" disabled [selected]="!form().subCategoryId">
+                    {{ !form().categoryId ? 'Select a category first' : formSubcategories().status === 'loading' ? 'Loading subcategories…' : 'Select subcategory' }}
+                  </option>
+                  @for (option of formSubcategoryOptions(); track option.id) {
+                    <option [value]="option.id" [selected]="option.id === form().subCategoryId">{{ option.label }}</option>
+                  }
+                </app-select>
+                @if (form().categoryId && formSubcategories().status === 'error') {
+                  <p class="brand-field__error" role="alert">
+                    Subcategories could not be loaded.
+                    <button type="button" class="brand-field__retry" (click)="retrySubcategories(form().categoryId)">Retry</button>
+                  </p>
+                } @else if (submitted() && subCategoryError()) {
+                  <p id="brand-subcategory-error" class="brand-field__error" role="alert">{{ subCategoryError() }}</p>
+                }
+              </div>
+            </div>
+
+            <div class="brand-field">
+              <label class="brand-field__label" for="brand-status">Status</label>
+              <app-select inputId="brand-status" name="brandStatus" size="compact" [value]="form().status"
+                [disabled]="saving()" (valueChange)="setField('status', $event)">
+                <option value="ACTIVE">Active</option>
+                <option value="INACTIVE">Inactive</option>
+              </app-select>
+            </div>
+
+            <div class="brand-field">
+              <label class="brand-field__label" for="brand-description">Description</label>
+              <app-textarea inputId="brand-description" name="brandDescription" size="compact" [rows]="3"
+                placeholder="A short description of the brand" [value]="form().description" [disabled]="saving()"
+                [ariaInvalid]="submitted() && descriptionError() ? true : null" ariaDescribedBy="brand-description-count"
+                (valueInput)="setField('description', $event)" />
+              <p id="brand-description-count" class="brand-field__hint brand-field__hint--end"
+                [class.is-over]="form().description.trim().length > descriptionMaxLength">
+                {{ form().description.trim().length }}/{{ descriptionMaxLength }}
+              </p>
+              @if (submitted() && descriptionError()) {
+                <p class="brand-field__error" role="alert">{{ descriptionError() }}</p>
+              }
+            </div>
+          </div>
+
+          <div class="brand-form__logo">
+            <span class="brand-field__label" id="brand-logo-label">Brand logo</span>
+            <div class="brand-upload" aria-labelledby="brand-logo-label">
+              @if (logoPreview(); as preview) {
+                <img [src]="preview" alt="Preview of the new logo" (error)="previewFailed()" />
+              } @else if (currentLogoSource(); as current) {
+                @if (productImages.src(current); as src) {
+                  <img [src]="src" [alt]="'Current logo of ' + current.name" (error)="productImages.failed(current, src)" />
+                } @else {
+                  <span class="brand-upload__placeholder" [class.is-loading]="productImages.loading(current)">
+                    {{ productImages.loading(current) ? 'Loading logo…' : 'Logo unavailable' }}
+                  </span>
+                }
+              } @else {
+                <span class="brand-upload__placeholder">
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="3" /><circle cx="9" cy="9" r="1.5" /><path d="m4.5 18 5-5 3 3 2-2 5 5" /></svg>
+                  No logo
+                </span>
+              }
+            </div>
+            <div class="brand-upload__actions">
+              <label class="brand-upload__choose" [class.is-disabled]="saving()">
+                {{ logoPreview() || currentLogoSource() ? 'Change logo' : 'Upload logo' }}
+                <input class="visually-hidden" type="file" accept="image/png,image/jpeg,image/webp" [disabled]="saving()"
+                  (change)="onLogoChange($event)" />
+              </label>
+              @if (logoPreview() || currentLogoSource()) {
+                <button type="button" class="brand-upload__remove" [disabled]="saving()" (click)="removeLogo()">Remove</button>
+              }
+            </div>
+            <p class="brand-field__hint">Optional. PNG, JPG or WEBP, up to 5 MB. A square logo looks best.</p>
+            @if (logoError()) {
+              <p class="brand-field__error" role="alert">{{ logoError() }}</p>
+            }
+          </div>
+        </div>
+
+        @if (saveError()) {
+          <p class="brand-dialog__error" role="alert">{{ saveError() }}</p>
+        }
+
+        <footer class="brand-dialog__actions">
+          <app-button variant="outline" size="small" [disabled]="saving()" (clicked)="closeForm()">Cancel</app-button>
+          <app-button variant="accent" size="small" type="submit" [loading]="saving()">
+            {{ saving() ? (uploadingLogo() ? 'Uploading logo…' : 'Saving…') : mode === 'add' ? 'Add Brand' : 'Update Brand' }}
+          </app-button>
+        </footer>
+      </form>
+    </section>
+  </app-dialog>
+}
+
+<!-- Delete confirmation. -->
+@if (deleteTarget(); as row) {
+  <app-dialog (closed)="closeDelete()">
+    <section #deleteDialog class="brand-dialog brand-dialog--delete" role="alertdialog" aria-modal="true"
+      aria-labelledby="brand-delete-title" aria-describedby="brand-delete-text" tabindex="-1"
+      (click)="$event.stopPropagation()" (keydown.escape)="closeDelete()">
+      <header class="brand-dialog__heading">
+        <h2 id="brand-delete-title">Delete Brand</h2>
+        <button type="button" class="brand-dialog__close" aria-label="Close" [disabled]="deleting()" (click)="closeDelete()">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m3.5 3.5 9 9M12.5 3.5l-9 9" /></svg>
+        </button>
+      </header>
+      <p id="brand-delete-text" class="brand-dialog__text">
+        Delete “{{ row.name }}” from {{ row.categoryLabel }} › {{ row.subCategoryLabel }}? This cannot be undone.
+      </p>
+      <p class="brand-dialog__note">A brand that products still use cannot be deleted.</p>
+      @if (deleteError()) {
+        <p class="brand-dialog__error" role="alert">{{ deleteError() }}</p>
+      }
+      <footer class="brand-dialog__actions">
+        <app-button variant="outline" size="small" [disabled]="deleting()" (clicked)="closeDelete()">Cancel</app-button>
+        <app-button variant="danger" size="small" [loading]="deleting()" (clicked)="confirmDelete()">
+          {{ deleting() ? 'Deleting…' : 'Delete' }}
+        </app-button>
+      </footer>
+    </section>
+  </app-dialog>
+}

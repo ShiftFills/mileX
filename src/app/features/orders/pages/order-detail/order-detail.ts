@@ -1,8 +1,19 @@
-import { CurrencyPipe, DatePipe, formatDate } from '@angular/common';
-import { ChangeDetectionStrategy, Component, LOCALE_ID, computed, inject, input, signal } from '@angular/core';
+import { CurrencyPipe, DatePipe, NgTemplateOutlet, formatDate } from '@angular/common';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  LOCALE_ID,
+  TemplateRef,
+  computed,
+  inject,
+  input,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
-import { EMPTY, Observable, catchError, defer, forkJoin, map, of, switchMap, tap } from 'rxjs';
+import { EMPTY, Observable, Subscription, catchError, defer, forkJoin, map, of, switchMap, tap } from 'rxjs';
 import { APP_ROUTES } from '@core/constants/app-routes';
 import { AuthService } from '@core/services/auth.service';
 import { PaymentMethodService } from '@core/services/payment-method.service';
@@ -22,7 +33,7 @@ import { Card } from '@shared/components/card/card';
 import { LoadingSpinner } from '@shared/components/loading-spinner/loading-spinner';
 import { orderStatusKey, orderStatusTone } from '@shared/components/order-card/order-card';
 import { PageHeading } from '@shared/components/page-heading/page-heading';
-import { Stepper, StepperStep } from '@shared/components/stepper/stepper';
+import { Table, TableCellContext, TableColumn } from '@shared/components/table/table';
 import { CustomerOrderDetail, CustomerOrderLine } from '@shared/models';
 import { productImageUrl } from '@shared/utils/product-image-url';
 import { OrderService } from '../../services/order.service';
@@ -40,6 +51,8 @@ interface OrderDetailItem {
   /** Variant options ("Black / M"), or '' when the line has no variant or it could not be loaded. */
   variant: string;
   quantity: number;
+  /** CHANGED (new): SUBTOTAL ÷ QUANTITY, or null when the API sent no SUBTOTAL. */
+  unitPrice: number | null;
   /** The line's SUBTOTAL, or null when the API sent none. */
   amount: number | null;
   statusLabel: string;
@@ -51,31 +64,17 @@ interface LoadedOrder {
   items: OrderDetailItem[];
 }
 
+/** CHANGED (new): the order's delivery address (DELIVERY_ADDRESS of its GET tracking rows), read after the order. */
+interface DeliveryState {
+  status: 'idle' | 'loading' | 'success' | 'error';
+  /** Null when the API has no address for the order. */
+  address: { name: string; phone: string; lines: string[] } | null;
+}
+
 const SIGN_IN_MESSAGE = 'Sign in with a customer account to view this order.';
 const PRODUCTS_INCOMPLETE = 'Some product details could not be loaded. Order totals are still available.';
 
-/** Delivery stages in the progress tracker. */
-const PROGRESS_STEPS: readonly StepperStep[] = [
-  { label: 'Ordered' },
-  { label: 'Processing' },
-  { label: 'Shipped' },
-  { label: 'Delivered' },
-];
-
-/**
- * Stage reached for each open STATUS (see orderStatusKey); DELIVERED marks every stage done.
- * Uses the same status vocabulary as the My Orders card. Other statuses show no tracker.
- */
-const STATUS_STAGE: Readonly<Record<string, number>> = {
-  PENDING: 0,
-  ORDERED: 0,
-  PROCESSING: 1,
-  SHIPPED: 2,
-  IN_TRANSIT: 2,
-  DELIVERED: PROGRESS_STEPS.length,
-};
-
-/** Statuses that end an order before delivery, with the note shown instead of the tracker. */
+/** Statuses that end an order before delivery, with the note shown above the order. */
 const CLOSED_STATUS_NOTES: Readonly<Record<string, string>> = {
   CANCELLED: 'This order was cancelled.',
   FAILED: 'This order could not be completed.',
@@ -121,6 +120,7 @@ function orderItem(
     image: productImageSource(variant, product),
     variant: variant ? variantOptionsLabel(variant) || variantText(variant.name) : '',
     quantity: line.quantity,
+    unitPrice: line.subtotal !== null && line.quantity > 0 ? Math.round((line.subtotal / line.quantity) * 100) / 100 : null,
     amount: line.subtotal,
     statusLabel: statusLabel(line.status),
     statusTone: orderStatusTone(line.status),
@@ -139,14 +139,21 @@ function sumLines(lines: readonly CustomerOrderLine[], pick: (line: CustomerOrde
 }
 
 /**
- * Order Details (`/orders/:id`, where :id is the ORDER_NUMBER). Opened from "View Details" and the
- * arrow on a My Orders card. Shows only what the APIs return: the order rows from customer_orders/get,
+ * Order Details (`/orders/:id`, where :id is the ORDER_NUMBER). Opened from the arrow on a My Orders card. Shows only what the APIs return: the order rows from customer_orders/get,
  * product names/images from products/get, variant options from product_variant/get and the payment
  * method name from payment_method/get.
+ *
+ * CHANGED: an order page, not a tracking page: Order Information, Customer Details and Payment Details cards, the
+ * Ordered Products table, and the Delivery Address beside the Order Summary. The progress tracker and Track Shipment
+ * are removed (each My Orders card keeps Track Order). customer_orders/get has no address, so the delivery address
+ * and the recipient's name and phone are read from the order's GET tracking rows (DELIVERY_ADDRESS), the only API
+ * that has them; when it cannot be read, the address says so and the rest of the page is unchanged.
  */
 @Component({
   selector: 'app-order-detail',
-  imports: [Alert, Badge, Card, CurrencyPipe, DatePipe, LoadingSpinner, PageHeading, RouterLink, Stepper],
+  imports: [
+    Alert, Badge, Card, CurrencyPipe, DatePipe, LoadingSpinner, NgTemplateOutlet, PageHeading, RouterLink, Table,
+  ],
   templateUrl: './order-detail.html',
   styleUrl: './order-detail.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -172,6 +179,7 @@ export class OrderDetail {
   private readonly paymentMethods = inject(PaymentMethodService);
   private readonly toast = inject(ToastService);
   private readonly locale = inject(LOCALE_ID);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly loaded = signal<LoadedOrder | null>(null);
   private readonly retry = signal(0);
 
@@ -186,6 +194,13 @@ export class OrderDetail {
     ),
   );
   protected readonly itemCount = computed(() => this.lines().reduce((count, line) => count + line.quantity, 0));
+  /** CHANGED (new): the order number and date under the page title once the order is loaded. */
+  protected readonly subtitle = computed(() => {
+    const placedOn = this.placedOn();
+    return this.status() === 'success' && placedOn
+      ? `Order #${this.orderNumber()} · Placed on ${formatDate(placedOn, 'd MMM y', this.locale)}`
+      : 'Order information, products, payment and delivery';
+  });
 
   /** The order's STATUS when every row shares it; null when its items have different statuses. */
   private readonly orderStatus = computed(() => {
@@ -201,30 +216,9 @@ export class OrderDetail {
     const status = this.orderStatus();
     return status === null ? 'neutral' : orderStatusTone(status);
   });
-  /** Tracker stage for an open order, or undefined when the status has no stage. */
-  protected readonly stage = computed(() => {
-    const status = this.orderStatus();
-    return status === null ? undefined : STATUS_STAGE[orderStatusKey(status)];
-  });
   protected readonly closedNote = computed(() => {
     const status = this.orderStatus();
     return status === null ? undefined : CLOSED_STATUS_NOTES[orderStatusKey(status)];
-  });
-  /**
-   * "Track Shipment" (/orders/<order number>/tracking): for every open order, i.e. any order with an item that is not
-   * cancelled or failed. The STATUS of customer_orders/get does not follow the shipment yet (it stays "ORDERED" while
-   * the tracking API reports "IN TRANSIT"), so it cannot tell whether the order has shipped; the tracking page itself
-   * says when it has not. Delivered orders keep it: their tracking page shows the delivery and Cancel / Return.
-   */
-  // CHANGED: every open order (it was SHIPPED / IN_TRANSIT / OUT_FOR_DELIVERY only, so it never showed).
-  protected readonly canTrack = computed(() =>
-    this.lines().some((line) => !CLOSED_STATUS_NOTES[orderStatusKey(line.status)]),
-  );
-  protected readonly progressSteps = computed<StepperStep[]>(() => {
-    const placedOn = this.placedOn();
-    return PROGRESS_STEPS.map((step, index) =>
-      index === 0 && placedOn ? { ...step, caption: formatDate(placedOn, 'd MMM y', this.locale) } : step,
-    );
   });
 
   protected readonly pricing = computed(() => {
@@ -251,6 +245,37 @@ export class OrderDetail {
     () => this.paymentMethodId() !== null && this.paymentMethods.status() === 'loading',
   );
 
+  // ---- CHANGED (new): delivery address and customer details ----
+
+  protected readonly delivery = signal<DeliveryState>({ status: 'idle', address: null });
+  private deliveryRequest?: Subscription;
+  /**
+   * The customer: the recipient's name and phone from the delivery address, else the signed-in account's name; the
+   * account's email when it has one (the login API sends none today).
+   */
+  protected readonly customer = computed(() => {
+    const user = this.auth.user();
+    const address = this.delivery().address;
+    const accountName = [user?.firstName, user?.lastName].map((part) => part?.trim()).filter(Boolean).join(' ');
+    return {
+      name: address?.name || accountName || user?.userName?.trim() || null,
+      phone: address?.phone || null,
+      email: user?.email?.trim() || null,
+    };
+  });
+
+  // ---- CHANGED (new): the Ordered Products table (a list on phones, as on Checkout) ----
+
+  private readonly productCell = viewChild<TemplateRef<TableCellContext<OrderDetailItem>>>('productCell');
+  private readonly unitPriceCell = viewChild<TemplateRef<TableCellContext<OrderDetailItem>>>('unitPriceCell');
+  private readonly amountCell = viewChild<TemplateRef<TableCellContext<OrderDetailItem>>>('amountCell');
+  protected readonly productColumns = computed<readonly TableColumn<OrderDetailItem>[]>(() => [
+    { key: 'product', label: 'Product', width: '52%', cellTemplate: this.productCell() },
+    { key: 'unitPrice', label: 'Unit Price', width: '16%', align: 'right', cellTemplate: this.unitPriceCell() },
+    { key: 'quantity', label: 'Quantity', width: '12%', align: 'center' },
+    { key: 'amount', label: 'Amount', width: '20%', align: 'right', bold: true, cellTemplate: this.amountCell() },
+  ]);
+
   constructor() {
     // Loads again for another order number (same component instance) and on "Try again".
     toObservable(computed(() => ({ orderNumber: this.id(), retry: this.retry() })))
@@ -259,15 +284,23 @@ export class OrderDetail {
         takeUntilDestroyed(),
       )
       .subscribe();
+    this.destroyRef.onDestroy(() => this.deliveryRequest?.unsubscribe());
   }
 
   protected retryLoad(): void {
     if (this.status() !== 'loading') this.retry.update((count) => count + 1);
   }
 
+  // CHANGED (new)
+  protected retryDelivery(): void {
+    if (this.delivery().status !== 'loading') this.loadDelivery(this.orderNumber());
+  }
+
   private load(orderNumber: string): Observable<unknown> {
     this.loaded.set(null);
     this.error.set('');
+    this.deliveryRequest?.unsubscribe();
+    this.delivery.set({ status: 'idle', address: null });
 
     const customerId = this.auth.customerId();
     if (customerId === undefined) {
@@ -286,6 +319,8 @@ export class OrderDetail {
         this.loaded.set(order);
         // CHANGED (new): loads the signed URLs of the items' S3 images (cached URLs make no request).
         if (order) this.productImages.show(order.items.map((item) => item.image));
+        // CHANGED (new): the delivery address, which customer_orders/get does not have.
+        if (order) this.loadDelivery(order.detail.orderNumber);
         this.status.set(order ? 'success' : 'not-found');
         if (order && this.paymentMethodId() !== null && this.paymentMethods.status() !== 'success') {
           this.paymentMethods.load();
@@ -344,6 +379,27 @@ export class OrderDetail {
         };
       }),
     );
+  }
+
+  /**
+   * CHANGED (new): the order's delivery address from its GET tracking rows (DELIVERY_ADDRESS). Only the address is
+   * used. A failure only leaves the address out (with Try again); it never fails the page.
+   */
+  private loadDelivery(orderNumber: string): void {
+    this.deliveryRequest?.unsubscribe();
+    this.delivery.set({ status: 'loading', address: null });
+    this.deliveryRequest = defer(() => this.orders.getShipmentTracking(orderNumber))
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (shipment) => {
+          const address = shipment?.address;
+          this.delivery.set({
+            status: 'success',
+            address: address && (address.lines.length || address.name) ? address : null,
+          });
+        },
+        error: () => this.delivery.set({ status: 'error', address: null }),
+      });
   }
 
   private fail(message: string, canRetry: boolean): void {

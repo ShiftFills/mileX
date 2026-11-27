@@ -749,7 +749,8 @@ button {
       }
     }
 
-    app-select ::ng-deep select,
+    // CHANGED: the dropdowns are SearchableSelect triggers (they were native selects); same look.
+    app-searchable-select ::ng-deep .searchable-select__trigger,
     app-textarea ::ng-deep textarea {
       border-color: #cbd8e8;
       border-radius: 0.5rem;
@@ -758,9 +759,103 @@ button {
       font-size: 0.68rem;
       box-shadow: 0 1px 2px rgb(15 23 42 / 4%);
     }
+  }
 
-    app-select ::ng-deep select {
+  // CHANGED (new): the dialog's dropdowns. The list opens below the field, inside the dialog, and scrolls after
+  // about six options, so it never covers the dialog the way the browser's own list did.
+  &__select ::ng-deep {
+    .searchable-select {
+      font-size: 0.68rem;
+    }
+
+    .searchable-select__trigger {
       min-height: 2.4rem;
+      padding: 0.5rem 0.8rem;
+
+      > span {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      svg {
+        width: 0.75rem;
+        height: 0.75rem;
+        color: #94a3b8;
+      }
+
+      &[aria-expanded='true'] {
+        border-color: var(--color-focus-ring);
+        box-shadow: 0 0 0 3px rgb(55 123 181 / 12%);
+
+        svg {
+          transform: rotate(180deg);
+        }
+      }
+
+      &[aria-invalid='true'] {
+        border-color: var(--color-danger);
+      }
+
+      &:disabled {
+        background-color: #f8fafc;
+        color: var(--color-placeholder);
+      }
+    }
+
+    .searchable-select__placeholder {
+      color: var(--color-placeholder);
+    }
+
+    .searchable-select__panel {
+      z-index: 5;
+      border-color: #dbe4f0;
+      border-radius: 0.6rem;
+      box-shadow: 0 12px 28px rgb(15 23 42 / 14%);
+    }
+
+    // CHANGED: a shorter panel (it reached the bottom of the dialog): a compact search box and about five options
+    // before the list scrolls, so the open panel always ends well above the dialog's bottom edge (the details, notice
+    // and buttons below the field are taller than it).
+    .searchable-select__search {
+      width: calc(100% - 0.7rem);
+      min-height: 1.75rem;
+      margin: 0.35rem;
+      padding: 0.3rem 0.55rem;
+      border-color: #dbe4f0;
+      border-radius: 0.4rem;
+    }
+
+    // The list's own rule (`.searchable-select ul`, scoped) is as specific as `.searchable-select ul` here and loads
+    // later, so it won and kept its 13rem height; the listbox role makes this rule the more specific one.
+    .searchable-select__panel [role='listbox'] {
+      max-height: min(8rem, 28vh);
+      padding: 0 0.3rem 0.3rem;
+    }
+
+    .searchable-select__panel--plain [role='listbox'] {
+      padding-top: 0.3rem;
+    }
+
+    .searchable-select__option {
+      padding: 0.4rem 0.6rem;
+      border-radius: 0.4rem;
+      color: #344563;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+
+      &:hover,
+      &:focus-visible {
+        background: #f1f5f9;
+      }
+
+      &.is-selected {
+        background: rgb(55 123 181 / 10%);
+        color: var(--color-primary);
+        font-weight: var(--weight-medium);
+      }
     }
   }
 
@@ -824,6 +919,38 @@ button {
     color: var(--color-text-muted);
     font-size: 0.65rem;
   }
+
+  // CHANGED (new): why the return request failed.
+  &__submit-error {
+    margin: 0;
+    padding: 0.55rem 0.75rem;
+    border-radius: 0.5rem;
+    background: rgb(181 45 70 / 8%);
+    color: var(--color-danger);
+    font-size: 0.65rem;
+    overflow-wrap: anywhere;
+  }
+}
+
+// CHANGED (new): locked while the return request is sent.
+.return-dialog__close:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+// CHANGED (new): the return request made on this page: the message, then type, reason and status.
+.tracking__return-status {
+  strong {
+    display: block;
+  }
+}
+
+.tracking__return-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.9rem;
+  margin-top: 0.2rem;
+  font-size: 0.68rem;
 }
 
 // CHANGED: the standard store-container width on every screen (the page set its own mobile widths).

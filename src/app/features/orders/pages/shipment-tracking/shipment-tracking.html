@@ -24,6 +24,20 @@
     @if (notice()) {
       <app-alert class="tracking__notice" tone="warning" role="alert">{{ notice() }}</app-alert>
     }
+    <!-- CHANGED (new): the return request made from this page, with the status the API gave it. -->
+    @if (currentReturn(); as request) {
+      <app-alert class="tracking__notice tracking__return-status" tone="success" role="status">
+        <strong>{{ request.result.message }}</strong>
+        <span class="tracking__return-meta">
+          @if (request.productName) { <span>{{ request.productName }}</span> }
+          @if (request.typeLabel) { <span>{{ request.typeLabel }}</span> }
+          <!-- CHANGED (new): the refund method of a refund. -->
+          @if (request.refundMethodLabel) { <span>Refund to: {{ request.refundMethodLabel }}</span> }
+          @if (request.result.reason || request.reasonLabel) { <span>Reason: {{ request.result.reason || request.reasonLabel }}</span> }
+          @if (request.result.statusName) { <span>Status: <b>{{ returnTypeLabel(request.result.statusName) }}</b></span> }
+        </span>
+      </app-alert>
+    }
 
     <!-- CHANGED: the design's 20px gaps (tracking-grid) and 40% / 60% first row (it was col-lg-5 / col-lg-7). -->
     <div class="row tracking-grid">
@@ -240,9 +254,10 @@
                 Reschedule
               </a></div>
             }
-            <div class="col-12" [class.col-sm-6]="s.actions?.reschedule"><app-button class="tracking-return-button" variant="outline-danger" size="small" (clicked)="openReturnRequest()">
+            <!-- CHANGED: done once every product of the order was requested on this page. -->
+            <div class="col-12" [class.col-sm-6]="s.actions?.reschedule"><app-button class="tracking-return-button" variant="outline-danger" size="small" [disabled]="allReturnsRequested()" (clicked)="openReturnRequest()">
               <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="8" cy="8" r="6" /><path d="m3.8 3.8 8.4 8.4" /></svg>
-              Cancel / Return
+              {{ allReturnsRequested() ? 'Return Requested' : 'Cancel / Return' }}
             </app-button></div>
           </div>
         </div>
@@ -273,53 +288,170 @@
     <section class="return-dialog" role="dialog" aria-modal="true" aria-labelledby="return-dialog-title" (click)="$event.stopPropagation()">
       <header class="return-dialog__heading">
         <h2 id="return-dialog-title">Cancel / Return Item</h2>
-        <button class="return-dialog__close" type="button" aria-label="Close dialog" (click)="closeReturnRequest()">
+        <button class="return-dialog__close" type="button" aria-label="Close dialog" [disabled]="submittingReturn()" (click)="closeReturnRequest()">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8" /></svg>
         </button>
       </header>
 
-      @if (shipment(); as s) {
-        @if (s.items[0]; as item) {
-          <article class="return-product">
-            @if (item.imageUrl) {
-              <img class="return-product__image" [src]="item.imageUrl" [alt]="item.name" />
-            } @else {
-              <span class="return-product__image return-product__image--icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24"><path [attr.d]="item.icon" /></svg>
-              </span>
+      <!-- CHANGED: the chosen product (its name from return_dropdown; SKU, quantity and price from its tracking row). -->
+      @if (selectedReturn(); as product) {
+        @let item = returnItem();
+        <article class="return-product">
+          @if (item?.imageUrl) {
+            <img class="return-product__image" [src]="item!.imageUrl" [alt]="product.name" />
+          } @else {
+            <span class="return-product__image return-product__image--icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path [attr.d]="item?.icon ?? productIcon" /></svg>
+            </span>
+          }
+          <div class="return-product__details">
+            <h3>{{ product.name }}</h3>
+            @if (item?.sku) {
+              <p class="return-product__variant">{{ item!.sku }}</p>
             }
-            <div class="return-product__details">
-              <h3>{{ item.name }}</h3>
-              <p class="return-product__variant">{{ item.sku }}</p>
-              <!-- CHANGED: quantity and price only when the API sends them. -->
-              @if (item.quantity !== null) {
-                <p class="return-product__quantity">Qty: {{ item.quantity }}</p>
-              }
-            </div>
-            @if (item.price !== null) {
-              <strong class="return-product__price">{{ item.price | currency: 'INR' : 'symbol' : '1.0-0' }}</strong>
+            <!-- CHANGED: quantity and price only when the API sends them. -->
+            @if (item && item.quantity !== null) {
+              <p class="return-product__quantity">Qty: {{ item.quantity }}</p>
             }
-          </article>
-        }
+          </div>
+          @if (item && item.price !== null) {
+            <strong class="return-product__price">{{ item.price | currency: 'INR' : 'symbol' : '1.0-0' }}</strong>
+          }
+        </article>
       }
 
-      <form class="return-form" (submit)="submitReturnRequest($event)" novalidate>
+      <form class="return-form" (submit)="submitReturnRequest($event)" novalidate [attr.aria-busy]="submittingReturn() ? 'true' : null">
+        <!-- CHANGED: the product to return, from return_dropdown (by the order number); only that product is
+             requested, with its ORDER_ID, PRODUCT_ID and PRODUCT_VARIANT_ID. Chosen already when there is only one. -->
+        <div class="return-form__field">
+          <label for="return-product">Select Product</label>
+          <app-searchable-select
+            class="return-form__select"
+            inputId="return-product"
+            name="returnProduct"
+            placeholder="Choose the product to return"
+            searchPlaceholder="Search products…"
+            [options]="returnProductOptions()"
+            [value]="returnProductValue()"
+            [searchable]="returnProductOptions().length > 5"
+            [required]="true"
+            [disabled]="submittingReturn() || returnProductsStatus() !== 'success' || !returnProductOptions().length"
+            [ariaInvalid]="returnProductError()"
+            ariaDescribedBy="return-product-error"
+            (valueChange)="setReturnProduct($event)"
+          />
+          @if (returnProductsStatus() === 'loading') {
+            <div class="return-form__lookup-state" role="status">
+              <app-loading-spinner />
+              <span>Loading the order's products…</span>
+            </div>
+          } @else if (returnProductsStatus() === 'error') {
+            <div class="return-form__lookup-error" role="alert">
+              <span>{{ returnProductsError() }}</span>
+              <app-button variant="outline" size="small" type="button" (clicked)="loadReturnProducts()">Try again</app-button>
+            </div>
+          } @else if (returnProductsStatus() === 'success' && !returnProductOptions().length) {
+            <p class="return-form__lookup-empty" role="status">No products of this order can be returned.</p>
+          }
+          @if (returnProductError()) {
+            <p class="return-form__error" id="return-product-error" role="alert">Select the product you want to return.</p>
+          }
+        </div>
+
+        <!-- CHANGED: Return Type, the "RETURN/…" return statuses (return_status), by RETURN_STATUS_ID: RETURN/REFUND
+             also asks for the Refund Method, RETURN/REPLACE does not. (It was the shipping statuses, by SHIPPING_STATUS_ID.) -->
+        <div class="return-form__field">
+          <label for="return-type">Return Type</label>
+          <!-- CHANGED: the app's own dropdown (it opens below, styled; two options need no search). -->
+          <app-searchable-select
+            class="return-form__select"
+            inputId="return-type"
+            name="returnType"
+            placeholder="Choose refund or replacement"
+            [options]="returnTypeOptions()"
+            [value]="returnTypeValue()"
+            [searchable]="false"
+            [required]="true"
+            [disabled]="submittingReturn() || returnTypesStatus() !== 'success' || !returnTypes().length"
+            [ariaInvalid]="returnTypeError()"
+            ariaDescribedBy="return-type-error"
+            (valueChange)="setReturnType($event)"
+          />
+          @if (returnTypesStatus() === 'loading') {
+            <div class="return-form__lookup-state" role="status">
+              <app-loading-spinner />
+              <span>Loading return types…</span>
+            </div>
+          } @else if (returnTypesStatus() === 'error') {
+            <div class="return-form__lookup-error" role="alert">
+              <span>{{ returnTypesError() }}</span>
+              <app-button variant="outline" size="small" type="button" (clicked)="loadReturnTypes()">Try again</app-button>
+            </div>
+          } @else if (returnTypesStatus() === 'success' && !returnTypes().length) {
+            <p class="return-form__lookup-empty" role="status">No return types are currently available.</p>
+          }
+          @if (returnTypeError()) {
+            <p class="return-form__error" id="return-type-error" role="alert">Select refund or replacement to continue.</p>
+          }
+        </div>
+
+        <!-- CHANGED (new): Refund Method, for a refund only (required then): the active refund methods, by
+             REFUND_METHOD_ID. -->
+        @if (isRefund()) {
+          <div class="return-form__field">
+            <label for="refund-method">Refund Method</label>
+            <app-searchable-select
+              class="return-form__select"
+              inputId="refund-method"
+              name="refundMethod"
+              placeholder="Choose how you want to be refunded"
+              searchPlaceholder="Search refund methods…"
+              [options]="refundMethodOptions()"
+              [value]="refundMethodValue()"
+              [searchable]="refundMethodOptions().length > 5"
+              [required]="true"
+              [disabled]="submittingReturn() || refundMethodsStatus() !== 'success' || !refundMethods().length"
+              [ariaInvalid]="refundMethodError()"
+              ariaDescribedBy="refund-method-error"
+              (valueChange)="setRefundMethod($event)"
+            />
+            @if (refundMethodsStatus() === 'loading') {
+              <div class="return-form__lookup-state" role="status">
+                <app-loading-spinner />
+                <span>Loading refund methods…</span>
+              </div>
+            } @else if (refundMethodsStatus() === 'error') {
+              <div class="return-form__lookup-error" role="alert">
+                <span>{{ refundMethodsError() }}</span>
+                <app-button variant="outline" size="small" type="button" (clicked)="loadRefundMethods()">Try again</app-button>
+              </div>
+            } @else if (refundMethodsStatus() === 'success' && !refundMethods().length) {
+              <p class="return-form__lookup-empty" role="status">No refund methods are currently available.</p>
+            }
+            @if (refundMethodError()) {
+              <p class="return-form__error" id="refund-method-error" role="alert">Select a refund method to continue.</p>
+            }
+          </div>
+        }
+
         <div class="return-form__field">
           <label for="return-reason">Select Reason</label>
-          <app-select
+          <!-- CHANGED: required, and locked while the request is sent. The app's own dropdown, with a search box for
+               the longer reason list (the browser's list could not be styled and opened over the dialog). -->
+          <app-searchable-select
+            class="return-form__select"
             inputId="return-reason"
             name="reason"
+            placeholder="Choose a reason"
+            searchPlaceholder="Search reasons…"
+            [options]="returnReasonOptions()"
             [value]="returnReasonValue()"
-            [disabled]="returnReasonsStatus() !== 'success' || !returnReasons().length"
+            [required]="true"
+            [disabled]="submittingReturn() || returnReasonsStatus() !== 'success' || !returnReasons().length"
             [ariaInvalid]="returnReasonError()"
             ariaDescribedBy="return-reason-error"
             (valueChange)="setReturnReason($event)"
-          >
-            <option value="">Choose a reason</option>
-            @for (reason of returnReasons(); track reason.REASON_ID) {
-              <option [value]="reason.REASON_ID">{{ reason.REASON }}</option>
-            }
-          </app-select>
+          />
           @if (returnReasonsStatus() === 'loading') {
             <div class="return-form__lookup-state" role="status">
               <app-loading-spinner />
@@ -346,10 +478,11 @@
               name="details"
               [rows]="3"
               [value]="returnDetails()"
+              [disabled]="submittingReturn()"
               placeholder="Tell us more about your request..."
               (valueInput)="setReturnDetails($event)"
             />
-            <span>{{ returnDetails().length }}/500</span>
+            <span>{{ returnDetails().length }}/{{ returnDetailsMaxLength }}</span>
           </div>
         </div>
 
@@ -358,9 +491,17 @@
           <span>Your request will be reviewed by our team. You'll be notified once it's confirmed.</span>
         </div>
 
+        <!-- CHANGED (new): why the request failed (the dialog stays open to try again). -->
+        @if (returnSubmitError()) {
+          <p class="return-form__submit-error" role="alert">{{ returnSubmitError() }}</p>
+        }
+
         <footer class="return-dialog__actions">
-          <app-button variant="outline" size="small" (clicked)="closeReturnRequest()">Cancel</app-button>
-          <app-button variant="accent" size="small" type="submit">Submit Request</app-button>
+          <app-button variant="outline" size="small" [disabled]="submittingReturn()" (clicked)="closeReturnRequest()">Cancel</app-button>
+          <!-- CHANGED: one request at a time (spinner and disabled while it is sent). -->
+          <app-button variant="accent" size="small" type="submit" [loading]="submittingReturn()">
+            {{ submittingReturn() ? 'Submitting…' : 'Submit Request' }}
+          </app-button>
         </footer>
       </form>
     </section>

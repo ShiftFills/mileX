@@ -28,6 +28,9 @@ export class SearchableSelect {
   readonly value = input('');
   readonly placeholder = input('Select an option');
   readonly searchPlaceholder = input('Search options...');
+  /** False hides the search box (a short list, e.g. two options, needs none). */
+  // CHANGED (new): default true, so every existing use keeps its search box.
+  readonly searchable = input(true, { transform: booleanAttribute });
   readonly disabled = input(false, { transform: booleanAttribute });
   readonly required = input(false, { transform: booleanAttribute });
   readonly ariaLabel = input<string | null>(null);
