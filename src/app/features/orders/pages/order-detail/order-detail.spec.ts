@@ -238,7 +238,10 @@ describe('OrderDetail', () => {
     expect(text(first.querySelector('.od-product__variant'))).toBe('Black / M');
     expect(first.querySelector('.od-product__name')?.getAttribute('href')).toBe('/products/1');
     expect(first.querySelector('img')?.getAttribute('src')).toBe('/uploads/products/headset.png');
-    expect(cells(second)).toEqual(['Wireless Mouse', '₹500.00', '2', '₹1,000.00']);
+    // CHANGED: the product cell also has the product's "Refund status" link (see the refund link test).
+    expect(cells(second).slice(1)).toEqual(['₹500.00', '2', '₹1,000.00']);
+    expect(text(second.querySelector('.od-product__name'))).toBe('Wireless Mouse');
+    expect(text(second.querySelector('.od-product__refund'))).toBe('Refund status');
     expect(second.querySelector('img')).toBeNull();
     // Every item has the same status, so it is shown once (Order Information), not per item.
     expect(root.querySelector('.od-product__status')).toBeNull();
@@ -271,6 +274,23 @@ describe('OrderDetail', () => {
     expect(
       Array.from(items[1].querySelectorAll('dl > div'), (row) => `${text(row.querySelector('dt'))}: ${text(row.querySelector('dd'))}`),
     ).toEqual(['Unit Price: ₹500.00', 'Quantity: 2', 'Amount: ₹1,000.00']);
+  });
+
+  // CHANGED (new): each product opens its own refunds: the order number and that product's ORDER_ID (order line).
+  it("links each product to its refunds by the order number and the product's own ORDER_ID", async () => {
+    await renderOrder([
+      orderRow(15, 'ORD0005'),
+      orderRow(14, 'ORD0005', { PRODUCT_ID: 2, PRODUCT_VARIANT_ID: null }),
+      orderRow(13, 'ORD0004'),
+    ]);
+
+    const links = (selector: string): (string | null)[] =>
+      Array.from(root.querySelectorAll(`${selector} .od-product__refund`), (link) => link.getAttribute('href'));
+    expect(links('.od-products-table')).toEqual(['/refund/ORD0005/15', '/refund/ORD0005/14']);
+    expect(links('.od-product-list')).toEqual(['/refund/ORD0005/15', '/refund/ORD0005/14']);
+    expect(root.querySelector('.od-products-table .od-product__refund')?.getAttribute('aria-label')).toBe(
+      'Refund status of Head Set',
+    );
   });
 
   // CHANGED: no tracking UI for any status (the progress tracker and Track Shipment are removed).

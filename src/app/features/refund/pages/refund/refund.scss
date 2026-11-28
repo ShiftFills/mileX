@@ -189,7 +189,8 @@
     }
   }
 
-  &__reason {
+  // CHANGED: the return status (it was the return reason, which the refund API does not send).
+  &__return {
     display: grid;
     gap: 0.15rem;
     max-width: 100%;
@@ -205,6 +206,10 @@
       font-weight: var(--weight-regular);
       letter-spacing: 0.04em;
       text-transform: uppercase;
+    }
+
+    b {
+      font-weight: 600;
     }
   }
 }
@@ -238,8 +243,21 @@
     font-weight: 700;
   }
 
+  // CHANGED: coloured by the refund's state (it was always the success colour).
   &__status {
-    color: var(--color-success);
+    color: var(--color-text);
+
+    &[data-tone='success'] {
+      color: var(--color-success);
+    }
+
+    &[data-tone='warning'] {
+      color: var(--color-warning);
+    }
+
+    &[data-tone='danger'] {
+      color: var(--color-danger);
+    }
   }
 }
 
@@ -261,6 +279,31 @@ app-stepper {
   --stepper-current-font-weight: var(--weight-regular);
 }
 
+// CHANGED (new): the lifecycle spans the whole card (the compact stepper's connectors are a fixed 2.5rem, so the five
+// steps sat on the left). Each connector takes an equal share of the free width; the steps keep their inline layout.
+// The extra `.stepper` raises these above the stepper's own scoped `.stepper__step + .stepper__step::before` rule.
+.refund-lifecycle ::ng-deep .stepper {
+  width: 100%;
+
+  .stepper__step + .stepper__step {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .stepper__step + .stepper__step::before {
+    flex: 1 1 var(--space-4);
+    width: auto;
+    min-width: var(--space-3);
+  }
+
+  // Green up to the current step, as the stepper intends (its own colour rule loses to its scoped sibling selector;
+  // Shipment Tracking restates it the same way).
+  .stepper__step + .stepper__step.is-done::before,
+  .stepper__step + .stepper__step.is-current::before {
+    background: var(--color-success);
+  }
+}
+
 @media (max-width: 575.98px) {
   .refund-actions app-button {
     flex: 1 1 100%;
@@ -275,4 +318,41 @@ app-stepper {
   p {
     margin-bottom: var(--space-3);
   }
+}
+
+// ---- CHANGED (new): the refund API's states, and several refunds of one product ----
+
+.refund-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
+// As Order Details' Try again.
+.refund-retry {
+  margin-left: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+
+.refund-muted {
+  color: var(--color-text-muted);
+  font-weight: var(--weight-regular);
+}
+
+.refund-group + .refund-group {
+  margin-top: var(--space-4);
+}
+
+.refund-group__title {
+  margin: 0 0 var(--space-2);
+  font-size: 0.8rem;
+  font-weight: var(--weight-bold);
 }

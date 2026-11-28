@@ -25,8 +25,11 @@ import {
 } from '@shared/models';
 import { ShipmentMap } from '../../components/shipment-map/shipment-map';
 import {
+  DELIVERED_STAGE,
   OrderService,
   RETURN_DESCRIPTION_MAX_LENGTH,
+  ShipmentClosure,
+  shipmentClosure,
   shipmentStage,
   shippingStatusLabel,
 } from '../../services/order.service';
@@ -35,18 +38,19 @@ import {
 const TRUCK_ICON = 'M2 6h11v10H2zM13 9.5h4.5l3 3.5V16H13M6.5 19a1.5 1.5 0 1 0 0-.01M17 19a1.5 1.5 0 1 0 0-.01';
 const HOME_ICON = 'M4 11l8-7 8 7M6 10v9h12v-9M10 19v-5h4v5';
 const COPIED_RESET_MS = 2000;
-/** Order (or shipping) statuses that end an order before delivery, with the note shown instead of the steps. */
-// CHANGED (new)
-const CLOSED_STATUS_NOTES: Readonly<Record<string, string>> = {
-  CANCELLED: 'This order was cancelled, so it will not be delivered.',
-  FAILED: 'This order could not be completed, so it will not be delivered.',
-  RETURNED: 'This shipment was returned.',
+/** The note shown instead of the steps, by how the delivery ended (shipmentClosure). */
+// CHANGED: by kind of status (it was a list of exact names, so RETURN/REFUND, RTO, … showed "Order Placed" instead).
+const CLOSED_STATUS_NOTES: Readonly<Record<ShipmentClosure, string>> = {
+  cancelled: 'This order was cancelled, so it will not be delivered.',
+  failed: 'This order could not be completed, so it will not be delivered.',
+  returned: 'This shipment was returned.',
 };
-
-/** "In Transit" / "in-transit" -> "IN_TRANSIT". */
-function statusKey(status: string | undefined): string {
-  return (status ?? '').trim().toUpperCase().replace(/[\s-]+/g, '_');
-}
+/** The plain status of each kind, which the note already says (any other status name is added to it). */
+const PLAIN_CLOSED_STATUSES: Readonly<Record<ShipmentClosure, string>> = {
+  cancelled: 'Cancelled',
+  failed: 'Failed',
+  returned: 'Returned',
+};
 
 /** A dropdown value as a positive ID, or null for '' (nothing chosen). */
 // CHANGED (new): shared by the return type and reason dropdowns.
@@ -188,11 +192,29 @@ export class ShipmentTrackingPage {
     const stage = status ? shipmentStage(status) : null;
     return stage !== null && stage >= 1;
   });
-  /** The note shown instead of the progress steps for a cancelled, failed or returned order. */
-  // CHANGED (new)
+  /**
+   * The note shown instead of the progress steps, when the shipment left the delivery path. The shipment's own status
+   * (ORDER_SHIPPING_STATUS_NAME) decides: cancelled, failed or returned (RETURNED, RETURN/REFUND, RTO, …), with that
+   * status's name when the note does not already say it. The order status adds a note only for an order cancelled or
+   * failed before delivery (it will not be delivered, whatever the shipping status still says). A returned order is
+   * not closed here: its shipment was delivered first, so the timeline shows that.
+   */
+  // CHANGED: from ORDER_SHIPPING_STATUS_NAME (the order status RETURNED hid the timeline of a delivered shipment).
   protected readonly closedNote = computed(() => {
     const shipment = this.shipment();
-    return CLOSED_STATUS_NOTES[statusKey(shipment?.orderStatus)] ?? CLOSED_STATUS_NOTES[statusKey(shipment?.shippingStatus)];
+    if (!shipment) return undefined;
+    const shippingStatus = shipment.shippingStatus?.trim() ?? '';
+    const closure = shippingStatus ? shipmentClosure(shippingStatus) : null;
+    if (closure) {
+      const label = shippingStatusLabel(shippingStatus);
+      const note = CLOSED_STATUS_NOTES[closure];
+      return label === PLAIN_CLOSED_STATUSES[closure] ? note : `${note} Shipping status: ${label}.`;
+    }
+    const orderClosure = shipment.orderStatus ? shipmentClosure(shipment.orderStatus) : null;
+    const delivered = !!shippingStatus && shipmentStage(shippingStatus) === DELIVERED_STAGE;
+    return (orderClosure === 'cancelled' || orderClosure === 'failed') && !delivered
+      ? CLOSED_STATUS_NOTES[orderClosure]
+      : undefined;
   });
 
   protected readonly copied = signal(false);

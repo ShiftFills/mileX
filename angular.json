@@ -38,7 +38,13 @@
               "includePaths": [
                 "src/styles"
               ]
-            }
+            },
+            "allowedCommonJsDependencies": [
+              "core-js",
+              "html2canvas",
+              "raf",
+              "rgbcolor"
+            ]
           },
           "configurations": {
             "production": {

@@ -34,6 +34,21 @@ const CATEGORY_PREFIX = 'category-';
 // CHANGED (new): state of the product_variant/get call (moved here from the info tabs, which no longer show variants).
 type VariantLoadStatus = 'idle' | 'loading' | 'success' | 'error';
 
+/**
+ * What a customer reads when the product or its options cannot be loaded. The backend's own text (e.g. "Access token
+ * is required") is never shown on this storefront page.
+ */
+// CHANGED (new)
+const PRODUCT_LOAD_ERROR = 'This product could not be loaded. Please try again.';
+const VARIANTS_LOAD_ERROR = 'Product options could not be loaded. Please try again.';
+const CART_ERROR = 'The item could not be added to the cart. Please try again.';
+
+/** A 401 / 403: the request needs a signed-in user (a guest, or a session that has just ended). */
+// CHANGED (new)
+function isAuthError(error: unknown): boolean {
+  return error instanceof HttpErrorResponse && (error.status === 401 || error.status === 403);
+}
+
 /** DISCOUNT, TAX and TOTAL_AMOUNT sent to shopping_cart/insert. */
 interface CartAmounts {
   discount: number;
@@ -240,8 +255,9 @@ export class ProductDetail {
               if (item) this.productImages.show([item]);
               this.productStatus.set('success');
             }),
-            catchError((error: unknown) => {
-              this.productError.set(this.productService.getErrorMessage(error));
+            // CHANGED: a fixed message (it showed the backend's text).
+            catchError(() => {
+              this.productError.set(PRODUCT_LOAD_ERROR);
               this.productStatus.set('error');
               return EMPTY;
             }),
@@ -270,7 +286,15 @@ export class ProductDetail {
               this.variantStatus.set('success');
             }),
             catchError((error: unknown) => {
-              this.variantError.set(this.variantService.getErrorMessage(error));
+              // CHANGED: product_variant/get still asks for an access token (a backend change is pending), so a guest
+              // gets a 401. The options are public product data, not the visitor's own, so that is no error here:
+              // the page shows the product's own price and stock, with no message. Signed in, the options load.
+              if (isAuthError(error)) {
+                this.variantStatus.set('success');
+                return EMPTY;
+              }
+              // CHANGED: a fixed message (it showed the backend's text).
+              this.variantError.set(VARIANTS_LOAD_ERROR);
               this.variantStatus.set('error');
               return EMPTY;
             }),
@@ -438,7 +462,7 @@ export class ProductDetail {
     if (this.adding()) return;
 
     if (!this.auth.isAuthenticated()) {
-      void this.router.navigate([this.routes.login], { queryParams: { returnUrl: this.router.url } });
+      this.signInAndReturn();
       return;
     }
     if (this.auth.customerId() === undefined) {
@@ -482,8 +506,23 @@ export class ProductDetail {
           this.refreshCart();
           onAdded?.();
         },
-        error: (error: unknown) => this.toast.showError(this.errorMessage(error)),
+        error: (error: unknown) => {
+          // CHANGED: the session ended meanwhile (the interceptor could not renew it): Login, then back here. Still
+          // signed in (the renewal could not reach the server): a plain message, never the backend's auth text.
+          if (isAuthError(error)) {
+            if (this.auth.isAuthenticated()) this.toast.showError(CART_ERROR);
+            else this.signInAndReturn();
+            return;
+          }
+          this.toast.showError(this.errorMessage(error));
+        },
       });
+  }
+
+  /** Login, then back to this product page (Login reads returnUrl). */
+  // CHANGED (new): shared by the guest check and an ended session.
+  private signInAndReturn(): void {
+    void this.router.navigate([this.routes.login], { queryParams: { returnUrl: this.router.url } });
   }
 
   /**
@@ -512,7 +551,7 @@ export class ProductDetail {
   }
 
   private errorMessage(error: unknown): string {
-    const fallback = 'The item could not be added to the cart. Please try again.';
+    const fallback = CART_ERROR;
     if (error instanceof HttpErrorResponse) {
       const body: unknown = error.error;
       if (typeof body === 'string' && body.trim()) {

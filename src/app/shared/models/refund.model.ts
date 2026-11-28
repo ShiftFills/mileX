@@ -1,29 +1,35 @@
-export type RefundStatus = 'Completed' | 'Processing';
-
-export interface RefundItem {
-  name: string;
-  variant: string;
-  quantity: number;
-  price: number;
-  returnReason: string;
-}
-
-export interface Refund {
-  /** Return number; also the route id (`/refund/:id`). */
-  id: string;
-  orderNo: string;
-  amount: number;
-  status: RefundStatus;
-  /** Shown as "Credited via ...". */
-  creditedVia: string;
-  /** Payment instrument, e.g. "Visa ending in 4242". */
-  method: string;
-  reference: string;
-  /** ISO date the refund was processed. */
-  processedOn: string;
-  /** Zero-based index of the current lifecycle step (see REFUND_STEPS on the refund page). */
-  stage: number;
-  items: RefundItem[];
+/**
+ * One refund of the customer Refund screen: a row of GET refund (`?ORDER_NUMBER=…&ORDER_ID=…`). Each refund belongs
+ * to one return request (RETURN_ID / RETURN_NUMBER) of one product of the order (the ORDER_ID order line, with its
+ * PRODUCT_ID and VARIANT_ID). A field the API leaves out (or sends in a form that cannot be read) is null; a missing
+ * amount is null, never 0, so it is not shown as a real refund.
+ */
+// CHANGED: mapped from the refund API (it was the demo refund: return number as id, items, return reason, stage).
+export interface RefundDetail {
+  /** REFUND_ID; null when the API sends none (the refund is then identified by its RETURN_ID). */
+  refundId: number | null;
+  orderNumber: string;
+  /** ORDER_ID: the order line (one product of the order) the refund is for. */
+  orderId: number;
+  returnId: number | null;
+  returnNumber: string | null;
+  productId: number | null;
+  productName: string | null;
+  /** VARIANT_ID; null for a product ordered without a variant (or when the API sends none). */
+  variantId: number | null;
+  variantName: string | null;
+  amount: number | null;
+  /** REFUND_METHOD (a REFUND_METHOD_ID of refund_method) and its REFUND_METHOD_NAME, e.g. "UPI". */
+  methodId: number | null;
+  methodName: string | null;
+  reference: string | null;
+  /** REFUND_DATE as the API sent it (ISO); null when it is not a valid date. */
+  date: string | null;
+  /** REFUND_STATUS, e.g. "REFUNDED". */
+  status: string | null;
+  /** RETURN_STATUS (a RETURN_STATUS_ID of return_status) and its RETURN_STATUS_NAME. */
+  returnStatusId: number | null;
+  returnStatusName: string | null;
 }
 
 export interface ReturnRequestsQuery {

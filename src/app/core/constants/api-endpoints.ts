@@ -133,6 +133,13 @@ export const API_ENDPOINTS = {
   refundMethods: {
     get: 'refund_method',
   },
+  // CHANGED (new): the customer Refund screen. GET `?ORDER_NUMBER=…&ORDER_ID=…` (ORDER_ID: one order line, i.e. one
+  // product of the order): DATA `[{ REFUND_ID, ORDER_NUMBER, ORDER_ID, RETURN_ID, RETURN_NUMBER, PRODUCT_ID,
+  // PRODUCT_NAME, VARIANT_ID, VARIANT_NAME, REFUND_AMOUNT, REFUND_METHOD, REFUND_METHOD_NAME, REFUND_REFERENCE,
+  // REFUND_DATE, REFUND_STATUS, RETURN_STATUS, RETURN_STATUS_NAME, CUSTOMER_ID, SELLER_ID }]`.
+  refunds: {
+    get: 'refund',
+  },
   returnRequests: {
     get: 'return_request/get',
     update: 'return_request/update',

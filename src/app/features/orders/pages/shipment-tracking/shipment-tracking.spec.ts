@@ -339,6 +339,68 @@ describe('ShipmentTrackingPage', () => {
     expect(root().querySelector('.tracking-stack--wide')).not.toBeNull();
   });
 
+  // CHANGED (new): the timeline follows ORDER_SHIPPING_STATUS_NAME.
+  describe('timeline from ORDER_SHIPPING_STATUS_NAME', () => {
+    const stepStates = (): string[] =>
+      Array.from(root().querySelectorAll<HTMLElement>('.stepper__step'), (step) =>
+        step.classList.contains('is-done') ? 'done' : step.classList.contains('is-current') ? 'current' : 'upcoming',
+      );
+
+    for (const [status, states] of [
+      ['NOT SHIPPED', ['current', 'upcoming', 'upcoming', 'upcoming', 'upcoming']],
+      ['SHIPPED', ['done', 'done', 'current', 'upcoming', 'upcoming']],
+      ['IN TRANSIT', ['done', 'done', 'done', 'current', 'upcoming']],
+      ['OUT FOR DELIVERY', ['done', 'done', 'done', 'current', 'upcoming']],
+    ] as const) {
+      it(`marks the completed, current and pending steps for ${status}`, async () => {
+        await open([trackingRow({ ORDER_SHIPPING_STATUS_NAME: status })]);
+        expect(stepStates()).toEqual(states);
+      });
+    }
+
+    it('completes every step once delivered, with nothing pending', async () => {
+      await open([trackingRow({ ORDER_SHIPPING_STATUS_ID: 4, ORDER_SHIPPING_STATUS_NAME: 'DELIVERED' })]);
+
+      expect(stepStates()).toEqual(['done', 'done', 'done', 'done', 'done']);
+      expect(Array.from(root().querySelectorAll('.stepper__step .visually-hidden'), (state) => text(state))).toEqual(
+        Array(5).fill(', completed'),
+      );
+      expect(root().querySelector('[aria-current="step"]')).toBeNull();
+      expect(text(root().querySelector('.tracking-timeline'))).not.toContain('Pending Arrival');
+    });
+
+    it('follows the status name the API sends, not the list name of its ID', async () => {
+      // ID 4 is DELIVERED in shipping_status/get, but ORDER_SHIPPING_STATUS_NAME says SHIPPED.
+      await open([trackingRow({ ORDER_SHIPPING_STATUS_ID: 4, ORDER_SHIPPING_STATUS_NAME: 'SHIPPED' })]);
+      expect(stepStates()).toEqual(['done', 'done', 'current', 'upcoming', 'upcoming']);
+    });
+
+    it('shows the timeline of a delivered shipment whose order was returned', async () => {
+      await open([trackingRow({ ORDER_STATUS_NAME: 'RETURNED', ORDER_SHIPPING_STATUS_ID: 4, ORDER_SHIPPING_STATUS_NAME: 'DELIVERED' })]);
+
+      expect(root().querySelector('.tracking-timeline app-alert')).toBeNull();
+      expect(text()).not.toContain('This shipment was returned');
+      expect(stepStates()).toEqual(['done', 'done', 'done', 'done', 'done']);
+    });
+
+    it('shows a note, with the status name, instead of the steps for a shipment being returned', async () => {
+      await open([trackingRow({ ORDER_SHIPPING_STATUS_ID: 28, ORDER_SHIPPING_STATUS_NAME: 'RETURN/REFUND' })]);
+
+      expect(root().querySelector('app-stepper')).toBeNull();
+      expect(text(root().querySelector('.tracking-timeline app-alert'))).toBe(
+        'This shipment was returned. Shipping status: Return/Refund.',
+      );
+      expect(root().querySelector('app-shipment-map')).toBeNull();
+    });
+
+    it('shows the plain note, without repeating the status name, for a CANCELLED shipping status', async () => {
+      await open([trackingRow({ ORDER_SHIPPING_STATUS_NAME: 'CANCELLED' })]);
+      expect(text(root().querySelector('.tracking-timeline app-alert'))).toBe(
+        'This order was cancelled, so it will not be delivered.',
+      );
+    });
+  });
+
   // CHANGED: no tracking rows means the order has not shipped yet (not "not found").
   it('explains that the order has not shipped yet when the API has no tracking rows', async () => {
     await open([]);

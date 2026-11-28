@@ -158,6 +158,10 @@
                 @if (mixedStatus()) {
                   <app-badge class="od-product__status" size="compact" [tone]="item.statusTone">{{ item.statusLabel }}</app-badge>
                 }
+                <!-- CHANGED (new): this product's refunds: the Refund screen by the order number and this product's own
+                     ORDER_ID (its order line), the two IDs the refund API is asked by. -->
+                <a class="od-product__refund" [routerLink]="[routes.refund, orderNumber(), item.lineId]"
+                  [attr.aria-label]="'Refund status of ' + (item.name ?? 'product ' + item.productId)">Refund status</a>
               </div>
             </div>
           </ng-template>

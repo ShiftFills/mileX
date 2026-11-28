@@ -109,8 +109,12 @@ export const routes: Routes = [
         path: 'cart',
         loadChildren: () => import('@features/cart/cart.routes').then((m) => m.CART_ROUTES),
       },
+      // CHANGED: the Refund screen reads the signed-in customer's refunds, so it is for customer logins only, as My
+      // Orders is (a visitor is sent to Login and back; an Admin or Seller to their own dashboard).
       {
         path: 'refund',
+        canMatch: [roleMatchGuard],
+        data: { userType: 'CUSTOMER' },
         loadChildren: () => import('@features/refund/refund.routes').then((m) => m.REFUND_ROUTES),
       },
       // Full-width order history (no account sidebar).

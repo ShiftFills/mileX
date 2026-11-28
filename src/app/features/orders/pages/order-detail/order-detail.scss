@@ -250,6 +250,18 @@ dd.od-fields__strong {
   &__status {
     --badge-font-size: 0.62rem;
   }
+
+  // CHANGED (new): the product's link to its refunds.
+  &__refund {
+    color: var(--color-primary);
+    font-size: 0.7rem;
+    text-decoration: none;
+
+    &:hover,
+    &:focus-visible {
+      text-decoration: underline;
+    }
+  }
 }
 
 .od-product-list {

@@ -242,6 +242,32 @@ describe('WishlistService', () => {
     expect(toast.current()).toEqual({ type: 'error', message: 'The wishlist API returned a different product.' });
   });
 
+  // CHANGED (new): the backend's auth text ("Access token is required") is never shown.
+  it('sends a customer whose session ended to Login and back, and otherwise shows a plain message, on a 401', () => {
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    vi.spyOn(TestBed.inject(Router), 'url', 'get').mockReturnValue('/products/18');
+    const unauthorized = { status: 401, statusText: 'Unauthorized' };
+    syncWishlist([]);
+
+    // Still signed in (the token could not be renewed for now): a plain message.
+    tap(TISSUE).flush({ status: 'FAILED', message: 'Access token is required' }, unauthorized);
+    expect(toast.current()).toEqual({
+      type: 'error',
+      message: `${TISSUE.name} could not be saved to your wishlist. Please try again.`,
+    });
+    expect(navigate).not.toHaveBeenCalled();
+
+    // The error interceptor ended the session: Login, then back to the product.
+    toast.dismiss();
+    wishlist.toggleProduct(TISSUE);
+    const request = http.expectOne(MANAGE_URL);
+    TestBed.inject(AuthService).clearSession();
+    request.flush({ status: 'FAILED', message: 'Access token is required' }, unauthorized);
+    expect(navigate).toHaveBeenCalledWith([APP_ROUTES.login], { queryParams: { returnUrl: '/products/18' } });
+    expect(toast.current()).toBeNull();
+    expect(wishlist.has(TISSUE)).toBe(false);
+  });
+
   it('never shows another customer\'s saved items', () => {
     syncWishlist([wishlistRow({ PRODUCT_ID: 18, PRODUCT_VARIANT_ID: 28 })]);
     expect(wishlist.has(TISSUE)).toBe(true);

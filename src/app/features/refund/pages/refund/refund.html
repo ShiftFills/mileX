@@ -1,84 +1,155 @@
 <div class="store-container refund-page">
-  <app-page-heading heading="Refund" subtitle="Payment Processed / Refunded" />
+  <!-- CHANGED: the order (and product) under the title; it was a fixed "Payment Processed / Refunded". -->
+  <app-page-heading heading="Refund" [subtitle]="subtitle()" />
 
-  @if (refund(); as r) {
-    <div class="row g-2">
-      <div class="col-12 col-lg-5 refund-overview-primary">
-        <section appCard class="refund-card h-100" aria-label="Total refund">
-          <p class="refund-label">Total Refund</p>
-          <div class="refund-amount">
-            <strong>{{ r.amount | currency: 'INR' : 'symbol' : '1.2-2' }}</strong>
-            <app-badge tone="success">{{ r.status }}</app-badge>
-          </div>
-          <p class="refund-note">Credited via {{ r.creditedVia }}</p>
-          <div class="refund-reference">
-            <div class="refund-reference__main">
-              <span class="refund-label">Refund Reference</span>
-              <span class="refund-reference__code">
-                {{ r.reference }}
-                <button class="refund-copy" type="button" aria-label="Copy refund reference" (click)="copyReference(r.reference)">
-                  <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path d="M10.5 5.5v-1a1.5 1.5 0 0 0-1.5-1.5H4.5A1.5 1.5 0 0 0 3 4.5V9a1.5 1.5 0 0 0 1.5 1.5h1" /></svg>
-                </button>
-              </span>
-            </div>
-            <time class="refund-reference__date" [attr.datetime]="r.processedOn">{{ r.processedOn | date: 'dd MMM y' }}</time>
-          </div>
-          <span class="visually-hidden" role="status">{{ copied() ? 'Refund reference copied' : '' }}</span>
-        </section>
+  <!-- CHANGED: loading, error (with Try again), missing-order and no-refund states of the refund API. -->
+  @switch (status()) {
+    @case ('loading') {
+      <div class="refund-state" role="status">
+        <app-loading-spinner />
+        <span>Loading refund details…</span>
       </div>
+    }
 
-      <div class="col-12 col-lg-7 refund-overview-details">
-        <section appCard class="refund-card h-100" aria-label="Returned items">
-          <header class="refund-card__header">
-            <h2>Returned Item(s) Details</h2>
-            <span class="refund-label">{{ r.items.length }} {{ r.items.length === 1 ? 'item' : 'items' }} returned</span>
-          </header>
-          @for (item of r.items; track item.name) {
-            <article class="refund-item">
-              <div class="refund-item__details">
-                <h3>{{ item.name }}</h3>
-                <p>{{ item.variant }} &bull; Qty: {{ item.quantity }}</p>
-                <strong>{{ item.price | currency: 'INR' : 'symbol' : '1.2-2' }}</strong>
-              </div>
-              <div class="refund-item__reason">
-                <span>Return reason</span>
-                <q>{{ item.returnReason }}</q>
-              </div>
-            </article>
+    @case ('error') {
+      <app-alert tone="danger" role="alert">
+        {{ error() }}
+        @if (canRetry()) {
+          <button type="button" class="refund-retry" (click)="retryLoad()">Try again</button>
+        }
+      </app-alert>
+    }
+
+    @case ('missing') {
+      <section appCard class="refund-empty" aria-label="Refund not found">
+        <p>We couldn't find that refund. Open it from the product on your order's details.</p>
+        <a class="btn btn-sm" [routerLink]="routes.orders">Back to my orders</a>
+      </section>
+    }
+
+    @case ('success') {
+      <!-- CHANGED: one block per refund of this product (each return request has its own), in API order. -->
+      @for (view of views(); track view.key; let index = $index) {
+        @let r = view.refund;
+        <section class="refund-group" [attr.aria-label]="'Refund ' + (r.returnNumber ?? index + 1)">
+          @if (views().length > 1) {
+            <h2 class="refund-group__title">
+              Refund {{ index + 1 }} of {{ views().length }}
+              @if (r.returnNumber) {
+                <span>· Return {{ r.returnNumber }}</span>
+              }
+            </h2>
           }
-        </section>
-      </div>
+          <div class="row g-2">
+            <div class="col-12 col-lg-5 refund-overview-primary">
+              <section appCard class="refund-card h-100" aria-label="Total refund">
+                <p class="refund-label">Total Refund</p>
+                <div class="refund-amount">
+                  <strong>{{ r.amount !== null ? (r.amount | currency: 'INR' : 'symbol' : '1.2-2') : '—' }}</strong>
+                  @if (view.statusLabel) {
+                    <app-badge [tone]="view.tone">{{ view.statusLabel }}</app-badge>
+                  }
+                </div>
+                <!-- CHANGED: REFUND_METHOD_NAME; "Credited via" once credited, "Refund to" before. -->
+                @if (r.methodName) {
+                  <p class="refund-note">{{ view.stage === creditedStage ? 'Credited via' : 'Refund to' }} {{ r.methodName }}</p>
+                }
+                <div class="refund-reference">
+                  <div class="refund-reference__main">
+                    <span class="refund-label">Refund Reference</span>
+                    @if (r.reference; as reference) {
+                      <span class="refund-reference__code">
+                        {{ reference }}
+                        <button class="refund-copy" type="button" aria-label="Copy refund reference" (click)="copyReference(reference)">
+                          <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path d="M10.5 5.5v-1a1.5 1.5 0 0 0-1.5-1.5H4.5A1.5 1.5 0 0 0 3 4.5V9a1.5 1.5 0 0 0 1.5 1.5h1" /></svg>
+                        </button>
+                      </span>
+                    } @else {
+                      <span class="refund-reference__code refund-muted">Not available yet</span>
+                    }
+                  </div>
+                  @if (r.date) {
+                    <time class="refund-reference__date" [attr.datetime]="r.date">{{ r.date | date: 'dd MMM y' }}</time>
+                  }
+                </div>
+                <span class="visually-hidden" role="status">{{ r.reference && copied() === r.reference ? 'Refund reference copied' : '' }}</span>
+              </section>
+            </div>
 
-      <div class="col-12">
-        <section appCard class="refund-card" aria-label="Refund lifecycle">
-          <h2 class="refund-card__title">Refund Lifecycle Progress</h2>
-          <app-stepper ariaLabel="Refund lifecycle progress" [steps]="steps" [current]="r.stage" />
-        </section>
-      </div>
+            <div class="col-12 col-lg-7 refund-overview-details">
+              <section appCard class="refund-card h-100" aria-label="Returned items">
+                <header class="refund-card__header">
+                  <h2>Returned Item(s) Details</h2>
+                  <!-- CHANGED: the return number (each refund is for one returned product). -->
+                  @if (r.returnNumber) {
+                    <span class="refund-label">Return No. {{ r.returnNumber }}</span>
+                  }
+                </header>
+                <!-- CHANGED: PRODUCT_NAME, VARIANT_NAME and the refund amount; the return status where the return reason
+                     was (the refund API sends no reason, quantity or item price). -->
+                <article class="refund-item">
+                  <div class="refund-item__details">
+                    <h3>{{ view.productLabel }}</h3>
+                    @if (r.variantName) {
+                      <p>{{ r.variantName }}</p>
+                    }
+                    @if (r.amount !== null) {
+                      <strong>{{ r.amount | currency: 'INR' : 'symbol' : '1.2-2' }}</strong>
+                    }
+                  </div>
+                  @if (view.returnStatusLabel) {
+                    <div class="refund-item__return">
+                      <span>Return status</span>
+                      <b>{{ view.returnStatusLabel }}</b>
+                    </div>
+                  }
+                </article>
+              </section>
+            </div>
 
-      <div class="col-12 col-lg-5">
-        <section appCard class="refund-card" aria-label="Refund summary">
-          <h2 class="refund-card__title">Quick Tabular Summary</h2>
-          <dl class="refund-summary">
-            <div><dt>Order No.</dt><dd>{{ r.orderNo }}</dd></div>
-            <div><dt>Return No.</dt><dd>{{ r.id }}</dd></div>
-            <div><dt>Amount</dt><dd class="refund-summary__amount">{{ r.amount | currency: 'INR' : 'symbol' : '1.2-2' }}</dd></div>
-            <div><dt>Method</dt><dd>{{ r.method }}</dd></div>
-            <div><dt>Reference</dt><dd>{{ r.reference }}</dd></div>
-            <div><dt>Date</dt><dd>{{ r.processedOn | date: 'dd MMM y' }}</dd></div>
-            <div><dt>Status</dt><dd class="refund-summary__status">Processed / Refunded</dd></div>
-          </dl>
-          <div class="refund-actions">
-            <app-button variant="accent" size="small" (clicked)="downloadStatement()">Download Refund Statement</app-button>
-            <app-button variant="outline" size="small" (clicked)="contactSupport()">Contact MileX Support</app-button>
+            <div class="col-12">
+              <section appCard class="refund-card refund-lifecycle" aria-label="Refund lifecycle">
+                <h2 class="refund-card__title">Refund Lifecycle Progress</h2>
+                <!-- CHANGED: from REFUND_STATUS / RETURN_STATUS_NAME; a note instead of the steps for a refund that ended
+                     without one. -->
+                @if (view.stage !== null) {
+                  <app-stepper ariaLabel="Refund lifecycle progress" [steps]="steps" [current]="view.stage" />
+                } @else {
+                  <app-alert tone="danger">This refund was not completed (status: {{ view.statusLabel || view.returnStatusLabel }}).</app-alert>
+                }
+              </section>
+            </div>
+
+            <div class="col-12 col-lg-5">
+              <section appCard class="refund-card" aria-label="Refund summary">
+                <h2 class="refund-card__title">Quick Tabular Summary</h2>
+                <!-- CHANGED: every field from the refund API; "—" for one it did not send. -->
+                <dl class="refund-summary">
+                  <div><dt>Order No.</dt><dd>{{ r.orderNumber }}</dd></div>
+                  <div><dt>Return No.</dt><dd>{{ r.returnNumber ?? '—' }}</dd></div>
+                  <div><dt>Product</dt><dd>{{ view.productLabel }}</dd></div>
+                  <div><dt>Variant</dt><dd>{{ r.variantName ?? '—' }}</dd></div>
+                  <div><dt>Amount</dt><dd class="refund-summary__amount">{{ r.amount !== null ? (r.amount | currency: 'INR' : 'symbol' : '1.2-2') : '—' }}</dd></div>
+                  <div><dt>Method</dt><dd>{{ r.methodName ?? '—' }}</dd></div>
+                  <div><dt>Reference</dt><dd>{{ r.reference ?? '—' }}</dd></div>
+                  <div><dt>Date</dt><dd>{{ r.date ? (r.date | date: 'dd MMM y') : '—' }}</dd></div>
+                  <div><dt>Status</dt><dd class="refund-summary__status" [attr.data-tone]="view.tone">{{ view.statusLabel || '—' }}</dd></div>
+                </dl>
+                <div class="refund-actions">
+                  <!-- CHANGED: a PDF with every refund shown (it was a .txt file of this refund); a spinner while it is made. -->
+                  <app-button variant="accent" size="small" [loading]="downloading()" (clicked)="downloadStatement()">Download Refund Statement</app-button>
+                  <app-button variant="outline" size="small" (clicked)="contactSupport()">Contact MileX Support</app-button>
+                </div>
+              </section>
+            </div>
           </div>
         </section>
-      </div>
-    </div>
-  } @else {
-    <section appCard class="refund-empty" aria-label="Refund not found">
-      <p>We couldn't find that refund.</p>
-      <a class="btn btn-sm" [routerLink]="routes.orders">Back to my orders</a>
-    </section>
+      } @empty {
+        <section appCard class="refund-empty" aria-label="No refund yet">
+          <p>No refund has been issued for this product yet.</p>
+          <a class="btn btn-sm" [routerLink]="[routes.orders, orderNo()]">Back to order details</a>
+        </section>
+      }
+    }
   }
 </div>

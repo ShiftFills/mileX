@@ -3,6 +3,7 @@ import { provideHttpClientTesting, HttpTestingController } from '@angular/common
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { AuthService } from '@core/services/auth.service';
+import { ToastService } from '@core/services/toast.service';
 import { WishlistService } from '@core/services/wishlist.service';
 import { ProductDetail } from './product-detail';
 
@@ -339,6 +340,98 @@ describe('ProductDetail', () => {
     expect(heart().textContent).toContain('♡');
   });
 
+  // CHANGED (new): a guest sees the whole product page with no error; only Add to Cart, Buy Now and the heart need
+  // Login, which brings them back to this product.
+  describe('guest visitor', () => {
+    const ACCESS_TOKEN_REQUIRED = { status: 'FAILED', message: 'Access token is required' };
+    const heart = (): HTMLButtonElement => fixture.nativeElement.querySelector('app-product-gallery .gallery__wish button');
+    const heartFilled = (): boolean =>
+      fixture.nativeElement.querySelector('app-product-gallery .gallery__wish').classList.contains('is-active');
+
+    /** Opens product 5 as a guest; product_variant/get answers 401, as the backend does today without a token. */
+    function openAsGuest(): ReturnType<typeof vi.spyOn> {
+      vi.spyOn(TestBed.inject(Router), 'url', 'get').mockReturnValue('/products/5');
+      const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+      fixture.componentRef.setInput('id', '5');
+      fixture.detectChanges();
+      flushProduct(5);
+      http.expectOne(variantUrl(5)).flush(ACCESS_TOKEN_REQUIRED, { status: 401, statusText: 'Unauthorized' });
+      fixture.detectChanges();
+      return navigate;
+    }
+
+    it('shows the whole product with no error when product_variant/get needs a token', () => {
+      openAsGuest();
+
+      expect(fixture.nativeElement.querySelector('app-alert')).toBeNull();
+      expect(fixture.nativeElement.textContent).not.toContain('Access token is required');
+      expect(fixture.nativeElement.textContent).not.toContain('Try again');
+      expect(fixture.nativeElement.querySelector('.product-detail__info > p[role="status"]')).toBeNull();
+      expect(text('h1')).toBe('Wireless Mouse');
+      // The product's own price, discount and stock.
+      expect(priceParts()).toEqual(['₹799', '₹999', '20% OFF']);
+      expect(text('.product-detail__quantity app-badge')).toBe('In stock');
+      expect(actionButtons().map((button) => button.disabled)).toEqual([false, false]);
+      // An empty heart, and no wishlist/get (a guest has no wishlist).
+      expect(heart().disabled).toBe(false);
+      expect(heartFilled()).toBe(false);
+      http.expectNone((request) => request.url.includes('/wishlist/'));
+    });
+
+    it('sends a guest to Login, and back to this product, from Add to Cart, Buy Now and the heart', () => {
+      const navigate = openAsGuest();
+      const login = [['/auth/login'], { queryParams: { returnUrl: '/products/5' } }];
+
+      actionButtons()[0].click();
+      expect(navigate).toHaveBeenLastCalledWith(...login);
+      actionButtons()[1].click();
+      expect(navigate).toHaveBeenLastCalledWith(...login);
+      heart().click();
+      expect(navigate).toHaveBeenLastCalledWith(...login);
+
+      expect(navigate).toHaveBeenCalledTimes(3);
+      http.expectNone((request) => request.url.includes('/shopping_cart/') || request.url.includes('/wishlist/'));
+    });
+
+    it('sends a customer whose session ended during Add to Cart to Login and back, without the backend text', () => {
+      const auth = TestBed.inject(AuthService);
+      auth.setSession(
+        { id: '3', email: '', firstName: 'customer', lastName: '', userType: 'CUSTOMER' },
+        tokenWithClaims({ USER_ID: 3, CUSTOMER_ID: 4 }),
+      );
+      vi.spyOn(TestBed.inject(Router), 'url', 'get').mockReturnValue('/products/3');
+      const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+      const toast = TestBed.inject(ToastService);
+
+      component.addToCart();
+      const insert = http.expectOne('/api/shopping_cart/insert');
+      // The error interceptor ends a session it cannot renew before the request fails.
+      auth.clearSession();
+      insert.flush(ACCESS_TOKEN_REQUIRED, { status: 401, statusText: 'Unauthorized' });
+
+      expect(navigate).toHaveBeenCalledWith(['/auth/login'], { queryParams: { returnUrl: '/products/3' } });
+      expect(toast.current()?.message ?? '').not.toContain('Access token');
+      expect(component.addedToCart()).toBe(false);
+    });
+
+    it('shows a plain message when Add to Cart gets a 401 but the session is still there', () => {
+      TestBed.inject(AuthService).setSession(
+        { id: '3', email: '', firstName: 'customer', lastName: '', userType: 'CUSTOMER' },
+        tokenWithClaims({ USER_ID: 3, CUSTOMER_ID: 4 }),
+      );
+      const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+
+      component.addToCart();
+      http.expectOne('/api/shopping_cart/insert').flush(ACCESS_TOKEN_REQUIRED, { status: 401, statusText: 'Unauthorized' });
+
+      expect(TestBed.inject(ToastService).current()).toEqual({
+        type: 'error',
+        message: 'The item could not be added to the cart. Please try again.',
+      });
+      expect(navigate).not.toHaveBeenCalled();
+    });
+  });
+
   it('renders related cards with an add-to-cart button each', () => {
     const cards = fixture.nativeElement.querySelectorAll('app-product-card .product-card--aligned');
     expect(cards.length).toBe(4);
@@ -401,12 +494,14 @@ describe('ProductDetail', () => {
       expect(text('main h1')).toBe('Product not found');
     });
 
-    it('shows the API error with Try again, and loads the product on retry', () => {
+    // CHANGED: a fixed message for customers (it showed the backend's text).
+    it('shows an error with Try again, and loads the product on retry', () => {
       openProduct('17');
       http.expectOne(productUrl(17)).flush({ message: 'Products are unavailable.' }, { status: 500, statusText: 'Server Error' });
       http.expectOne(variantUrl(17)).flush({ status: 'SUCCESS', data: [] });
       fixture.detectChanges();
-      expect(text('main app-alert')).toContain('Products are unavailable.');
+      expect(text('main app-alert')).toBe('This product could not be loaded. Please try again. Try again');
+      expect(text('main app-alert')).not.toContain('Products are unavailable.');
 
       (fixture.nativeElement.querySelector('.product-detail__retry') as HTMLButtonElement).click();
       fixture.detectChanges();
@@ -628,7 +723,8 @@ describe('ProductDetail', () => {
 
       http.expectOne(variantUrl(5)).flush({ status: 'FAILURE', message: 'Variants are unavailable' });
       fixture.detectChanges();
-      expect(text('.product-detail__info app-alert')).toBe('Variants are unavailable Try again');
+      // CHANGED: a fixed message for customers (it showed the backend's text).
+      expect(text('.product-detail__info app-alert')).toBe('Product options could not be loaded. Please try again. Try again');
       expect(cards()).toHaveLength(0);
       expect(priceParts()).toEqual(['₹799', '₹999', '20% OFF']);
       expect(actionButtons().map((button) => button.disabled)).toEqual([false, false]);

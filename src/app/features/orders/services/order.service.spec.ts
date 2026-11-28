@@ -7,8 +7,11 @@ import { ReturnRequestsPage, ShipmentTracking } from '@shared/models';
 import {
   OrderService,
   SHIPMENT_STEPS,
+  ShipmentClosure,
   mapShipmentTracking,
   parseDeliveryAddress,
+  shipmentClosure,
+  shipmentStage,
   shipmentSteps,
   validIsoDate,
 } from './order.service';
@@ -231,14 +234,23 @@ describe('shipment tracking mapping', () => {
       expect(shipmentSteps({ ...source, shippedOn: '2026-09-23T00:00:00' }, null).steps[2].caption).toBe('23 Sep');
     });
 
-    it('finds the current status by ID in the shipping-status list, else by name', () => {
-      // ID 4 is DELIVERED in the list, whatever the name says.
-      const delivered = shipmentSteps({ ...source, shippingStatusId: 4, shippingStatus: 'IN TRANSIT' }, SHIPPING_STATUSES);
-      expect(delivered.currentStep).toBe(4);
-      // Delivered: no "Pending Arrival" any more.
+    // CHANGED: ORDER_SHIPPING_STATUS_NAME first (the list's name for the ID used to win).
+    it('reads the current status from ORDER_SHIPPING_STATUS_NAME, and from the list by ID only without a name', () => {
+      // ID 4 is DELIVERED in the list, but the API's name says IN TRANSIT: the name decides.
+      expect(shipmentSteps({ ...source, shippingStatusId: 4, shippingStatus: 'IN TRANSIT' }, SHIPPING_STATUSES).currentStep).toBe(3);
+      expect(shipmentSteps({ ...source, shippingStatusId: 3, shippingStatus: 'SHIPPED' }, SHIPPING_STATUSES).currentStep).toBe(2);
+      // No name sent: the list's name for the ID.
+      expect(shipmentSteps({ ...source, shippingStatusId: 1, shippingStatus: '' }, SHIPPING_STATUSES).currentStep).toBe(2);
+      expect(shipmentSteps({ ...source, shippingStatusId: 2, shippingStatus: undefined }, SHIPPING_STATUSES).currentStep).toBe(0);
+      expect(shipmentSteps({ ...source, shippingStatusId: 99, shippingStatus: 'NOT SHIPPED' }, SHIPPING_STATUSES).currentStep).toBe(0);
+    });
+
+    // CHANGED (new): Delivered is a completed step (it was shown as the current one).
+    it('completes every step once delivered', () => {
+      const delivered = shipmentSteps({ ...source, shippingStatusId: 4, shippingStatus: 'DELIVERED' }, SHIPPING_STATUSES);
+      expect(delivered.currentStep).toBe(SHIPMENT_STEPS.length);
+      // No "Pending Arrival" any more.
       expect(delivered.steps.at(-1)).toEqual({ label: 'Delivered', caption: '' });
-      expect(shipmentSteps({ ...source, shippingStatusId: 99, shippingStatus: 'Delivered' }, SHIPPING_STATUSES).currentStep).toBe(4);
-      expect(shipmentSteps({ ...source, shippingStatusId: 2, shippingStatus: 'NOT SHIPPED' }, SHIPPING_STATUSES).currentStep).toBe(0);
     });
 
     it('puts each status on the last step at or before its stage', () => {
@@ -248,8 +260,25 @@ describe('shipment tracking mapping', () => {
       expect(current('SHIPPED')).toBe(2);
       // Out for delivery has no step of its own: it is shown on In Transit.
       expect(current('Out for delivery')).toBe(3);
-      expect(current('Delivered')).toBe(4);
+      // CHANGED: every step completed (it was 4, the Delivered step as the current one).
+      expect(current('Delivered')).toBe(5);
       expect(current('Something new')).toBe(0);
+    });
+
+    // CHANGED (new): one rule for the statuses that take a shipment off the delivery path.
+    it('tells how a shipping status ended the delivery, and nothing for one on the delivery path', () => {
+      const cases: [string, ShipmentClosure | null][] = [
+        ['CANCELLED', 'cancelled'], ['Cancelled by customer', 'cancelled'],
+        ['RETURNED', 'returned'], ['RETURN/REFUND', 'returned'], ['RETURN/REPLACE', 'returned'], ['RTO', 'returned'],
+        ['FAILED', 'failed'], ['Delivery failed', 'failed'], ['LOST', 'failed'], ['UNDELIVERED', 'failed'],
+        ['NOT SHIPPED', null], ['SHIPPED', null], ['IN TRANSIT', null], ['Out for delivery', null], ['DELIVERED', null],
+        ['ON SCHEDULE', null],
+      ];
+      for (const [status, closure] of cases) {
+        expect(shipmentClosure(status), status).toBe(closure);
+        // Off the path, there is no step to show.
+        if (closure) expect(shipmentStage(status), status).toBeNull();
+      }
     });
 
     it('adds no caption the API has no date for', () => {
@@ -364,10 +393,13 @@ describe('OrderService', () => {
       statusesRequest().flush({ status: 'SUCCESS', data: statusRows });
 
       service.getShipmentTracking('ORD0016').subscribe((shipment) => results.push(shipment));
-      trackingRequest(0).flush({ success: true, count: 1, data: [trackingRow({ ORDER_SHIPPING_STATUS_ID: 4 })] });
+      // CHANGED: the status comes from ORDER_SHIPPING_STATUS_NAME; delivered completes all five steps.
+      trackingRequest(0).flush({
+        success: true, count: 1, data: [trackingRow({ ORDER_SHIPPING_STATUS_ID: 4, ORDER_SHIPPING_STATUS_NAME: 'DELIVERED' })],
+      });
       http.expectNone((request) => request.url.endsWith('/shipping_status/get'));
 
-      expect(results.map((shipment) => shipment?.currentStep)).toEqual([3, 3, 4]);
+      expect(results.map((shipment) => shipment?.currentStep)).toEqual([3, 3, 5]);
     });
 
     it('reports a failed response and sends nothing without an order number', () => {

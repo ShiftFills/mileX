@@ -87,7 +87,11 @@ export interface ShipmentTracking {
   // CHANGED: each route detail is optional (the card shows whichever ones are sent).
   currentLocation?: string;
   steps: ShipmentStep[];
-  /** Zero-based index of the step the package is at. */
+  /**
+   * Zero-based index of the step the package is at (from ORDER_SHIPPING_STATUS_NAME); steps.length once delivered,
+   * when every step is completed.
+   */
+  // CHANGED: steps.length when delivered (it was the last step's index, shown as the current step).
   currentStep: number;
   distanceKm?: number;
   route?: { title?: string; driver?: string; vehicle?: string };

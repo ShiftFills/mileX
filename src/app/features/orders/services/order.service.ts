@@ -985,6 +985,9 @@ export const SHIPMENT_STEPS: readonly string[] = ['Order Placed', 'Packed', 'Shi
 const SHIPMENT_STEP_STAGES: readonly number[] = [0, 1, 2, 3, 5];
 /** Stage of the "Shipped" step (see shipmentStage). */
 const SHIPPED_STAGE = 2;
+/** Stage of a delivered shipment (see shipmentStage): every step is completed. */
+// CHANGED (new)
+export const DELIVERED_STAGE = 5;
 
 /**
  * An ISO date or date-time ("2026-11-30", "2026-11-26T18:30:00.000Z") that is a real calendar date, else ''.
@@ -999,16 +1002,39 @@ export function validIsoDate(value: unknown): string {
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? text : '';
 }
 
+/** A status as space-separated words for keyword tests: "Return/Refund" -> " RETURN REFUND ". */
+function statusWords(status: string): string {
+  return ` ${status.toUpperCase().replace(/[^A-Z]+/g, ' ').trim()} `;
+}
+
+/** How a shipping status took a shipment off the delivery path (see shipmentClosure). */
+// CHANGED (new)
+export type ShipmentClosure = 'cancelled' | 'failed' | 'returned';
+
+/**
+ * How a shipping status (ORDER_SHIPPING_STATUS_NAME) ended the delivery: "cancelled"; "returned" (RETURNED,
+ * RETURN/REFUND, RETURN/REPLACE, RTO); "failed" (FAILED, LOST, UNDELIVERED). Null for a status on the delivery path,
+ * or one that is not known.
+ */
+// CHANGED (new): one rule for shipmentStage and the tracking page's note (they used separate lists of names).
+export function shipmentClosure(status: string): ShipmentClosure | null {
+  const key = statusWords(status);
+  if (/ CANCEL\w* /.test(key)) return 'cancelled';
+  if (/ (RETURN\w*|RTO) /.test(key)) return 'returned';
+  if (/ (FAIL\w*|LOST|UNDELIVERED) /.test(key)) return 'failed';
+  return null;
+}
+
 /**
  * Where a shipping status sits in a delivery: 0 ordered (not shipped yet), 1 packed, 2 shipped, 3 in transit,
  * 4 out for delivery, 5 delivered; null for a status outside that path (cancelled, returned, …) or unknown.
  */
 export function shipmentStage(status: string): number | null {
-  const key = ` ${status.toUpperCase().replace(/[^A-Z]+/g, ' ').trim()} `;
-  if (/ (CANCEL\w*|FAIL\w*|RETURN\w*|RTO|LOST|UNDELIVERED) /.test(key)) return null;
+  const key = statusWords(status);
+  if (shipmentClosure(status)) return null;
   if (/ NOT (SHIPPED|DISPATCHED) | PENDING | ORDERED | PLACED | CONFIRMED | NEW /.test(key)) return 0;
   if (/ OUT FOR DELIVERY /.test(key)) return 4;
-  if (/ DELIVERED /.test(key)) return 5;
+  if (/ DELIVERED /.test(key)) return DELIVERED_STAGE;
   if (/ TRANSIT /.test(key)) return 3;
   if (/ (SHIPPED|DISPATCHED|PICKED UP) /.test(key)) return SHIPPED_STAGE;
   if (/ (PACKED|PACKING|PROCESSING|READY) /.test(key)) return 1;
@@ -1082,9 +1108,11 @@ type ShipmentStepSource = Pick<
 
 /**
  * The design's progress steps (SHIPMENT_STEPS) and the current one. The API sends only the current shipping status (no
- * event history). The current status is the order's ORDER_SHIPPING_STATUS_ID in the shipping-status list
- * (shipping_status/get), else its ORDER_SHIPPING_STATUS_NAME; the current step is the last step at or before the stage
- * that status reads as (Order Placed for a status that is not on the delivery path or not known).
+ * event history). The current status is the order's ORDER_SHIPPING_STATUS_NAME, else (no name sent) the name of its
+ * ORDER_SHIPPING_STATUS_ID in the shipping-status list (shipping_status/get). The current step is the last step at or
+ * before the stage that status reads as (Order Placed for a status that is not on the delivery path or not known);
+ * steps before it are completed, steps after it pending. Delivered completes every step: currentStep is then
+ * SHIPMENT_STEPS.length, so no step is "current".
  * Captions, as in the design ("22 Sep, 10:30 AM"), are only the dates the API sends: ORDER_DATE under "Order Placed",
  * SHIPPING_DATE under "Shipped", and "Pending Arrival" under "Delivered" until it is reached. No date or place is
  * made up (the API has no packing date and no current location).
@@ -1096,10 +1124,18 @@ export function shipmentSteps(
   statuses: readonly StatusOption[] | null,
   locale = 'en-US',
 ): { steps: ShipmentStep[]; currentStep: number } {
+  // CHANGED: ORDER_SHIPPING_STATUS_NAME first; the list's name for ORDER_SHIPPING_STATUS_ID only when no name is sent
+  // (the list's name used to win over the API's).
   const listed = statuses?.find((status) => status.id === source.shippingStatusId);
-  const name = listed?.label.trim() || source.shippingStatus?.trim() || '';
+  const name = source.shippingStatus?.trim() || listed?.label.trim() || '';
   const stage = name ? shipmentStage(name) : null;
-  const currentStep = stage === null ? 0 : SHIPMENT_STEP_STAGES.filter((candidate) => candidate <= stage).length - 1;
+  // CHANGED: delivered completes every step (Delivered was shown as the current step, with the truck).
+  const currentStep =
+    stage === null
+      ? 0
+      : stage === DELIVERED_STAGE
+        ? SHIPMENT_STEPS.length
+        : SHIPMENT_STEP_STAGES.filter((candidate) => candidate <= stage).length - 1;
   const last = SHIPMENT_STEPS.length - 1;
   // A date-time shows its time too ("22 Sep, 10:30 AM"). A plain date, or a date sent as local midnight (SHIPPING_DATE
   // "2026-11-26T18:30:00.000Z" is 27 Nov 00:00 in India), shows the day only: it has no time of day to show.

@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { API_ENDPOINTS } from '@core/constants/api-endpoints';
@@ -306,7 +307,7 @@ export class WishlistService {
    */
   toggleProduct(product: Product, variantId?: string | null): void {
     if (!this.auth.isAuthenticated()) {
-      void this.router.navigate([APP_ROUTES.login], { queryParams: { returnUrl: this.router.url } });
+      this.signInAndReturn();
       return;
     }
     if (!this.isCustomer()) {
@@ -335,8 +336,26 @@ export class WishlistService {
               ? `${product.name} was added to your wishlist.`
               : `${product.name} was removed from your wishlist.`,
           ),
-        error: (error: unknown) => this.toast.showError(this.catalog.getErrorMessage(error)),
+        error: (error: unknown) => {
+          // CHANGED: a 401 / 403 never shows the backend's auth text ("Access token is required"). The session ended
+          // meanwhile (the interceptor could not renew it): Login, then back. Still signed in: a plain message.
+          if (error instanceof HttpErrorResponse && (error.status === 401 || error.status === 403)) {
+            if (this.auth.isAuthenticated()) {
+              this.toast.showError(`${product.name} could not be saved to your wishlist. Please try again.`);
+            } else {
+              this.signInAndReturn();
+            }
+            return;
+          }
+          this.toast.showError(this.catalog.getErrorMessage(error));
+        },
       });
+  }
+
+  /** Login, then back to the page the heart was tapped on (Login reads returnUrl). */
+  // CHANGED (new): shared by the signed-out check and an ended session.
+  private signInAndReturn(): void {
+    void this.router.navigate([APP_ROUTES.login], { queryParams: { returnUrl: this.router.url } });
   }
 
   /**
